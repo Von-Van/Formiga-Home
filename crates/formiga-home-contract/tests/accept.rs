@@ -224,3 +224,55 @@ fn homes_kept_for_another_colony_are_never_shown_to_this_one() {
     assert!(settled.households.is_empty());
     assert_eq!(settled.colony_key, visit.snapshot.colony_key);
 }
+
+#[test]
+fn only_those_who_live_here_keep_what_they_have_come_to_like() {
+    let visit = visit();
+    let mut home = arranged(&visit.snapshot);
+    let resident = visit.snapshot.residents[0].id;
+    let visitor = visit.snapshot.visitors[0].id;
+    home.note_use(resident, Liked::Piece { room: 0, uid: 2 });
+    home.note_use(resident, Liked::Piece { room: 0, uid: 2 });
+    home.note_use(
+        resident,
+        Liked::Shown {
+            item: DisplayId::find(3),
+        },
+    );
+    home.note_use(visitor, Liked::Piece { room: 0, uid: 2 });
+    let accepted = accept_result(
+        &visit.seal,
+        &visit.snapshot,
+        &visit.previous,
+        &proposing(&visit, home),
+    );
+    assert_eq!(accepted.set_aside, vec!["liking_not_kept"]);
+    let kept = &accepted
+        .state
+        .household(visit.snapshot.household.keeper)
+        .unwrap()
+        .likings;
+    assert_eq!(kept.len(), 2);
+    assert!(kept.iter().all(|liking| liking.resident == resident));
+    assert_eq!(kept[0].uses, 2);
+}
+
+#[test]
+fn a_liking_for_a_piece_taken_away_is_forgotten_with_it() {
+    let visit = visit();
+    let mut home = arranged(&visit.snapshot);
+    let resident = visit.snapshot.residents[0].id;
+    home.note_use(resident, Liked::Piece { room: 0, uid: 2 });
+    home.rooms[0].pieces.retain(|piece| piece.uid != 2);
+    assert!(
+        HomeState {
+            households: vec![home.clone()],
+            ..visit.previous.clone()
+        }
+        .validate()
+        .is_err(),
+        "a liking for something not there does not add up"
+    );
+    home.forget_what_is_gone();
+    assert!(home.likings.is_empty());
+}

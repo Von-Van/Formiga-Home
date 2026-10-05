@@ -122,6 +122,29 @@ pub struct HouseholdHome {
     pub keeper: TravelerId,
     /// The first room is the one the house opens into.
     pub rooms: Vec<RoomLayout>,
+    /// What the household's residents have come to like in it, since version 2.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub likings: Vec<Liking>,
+}
+
+/// Something in a home a resident can come to like.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Liked {
+    /// A piece of furniture, by its room and its name there: a seat, a bed, a toy.
+    Piece { room: u8, uid: u16 },
+    /// Something the colony has, wherever in the house it is shown.
+    Shown { item: DisplayId },
+}
+
+/// How often a resident has chosen something in its home: the seat it keeps going back to, its
+/// toy, the find it keeps looking at. What a resident likes most of a kind is its favourite.
+/// Flavour only: kept by Home, and read by nothing else.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Liking {
+    pub resident: TravelerId,
+    pub thing: Liked,
+    pub uses: u16,
 }
 
 impl HouseholdHome {
@@ -138,6 +161,44 @@ impl HouseholdHome {
         self.rooms
             .iter()
             .flat_map(|room| room.displays.iter().map(|shown| &shown.item))
+    }
+
+    /// Forget likings for anything no longer in the house: a piece taken away, a room gone.
+    pub fn forget_what_is_gone(&mut self) {
+        let rooms = &self.rooms;
+        self.likings.retain(|liking| match &liking.thing {
+            Liked::Piece { room, uid } => rooms
+                .get(usize::from(*room))
+                .is_some_and(|layout| layout.piece(*uid).is_some()),
+            Liked::Shown { .. } => true,
+        });
+    }
+
+    /// One more use of `thing` by `resident`. Kept within bounds by forgetting the least used.
+    pub fn note_use(&mut self, resident: TravelerId, thing: Liked) {
+        match self
+            .likings
+            .iter_mut()
+            .find(|liking| liking.resident == resident && liking.thing == thing)
+        {
+            Some(liking) => liking.uses = liking.uses.saturating_add(1),
+            None => self.likings.push(Liking {
+                resident,
+                thing,
+                uses: 1,
+            }),
+        }
+        if self.likings.len() > MAX_LIKINGS {
+            let least = self
+                .likings
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, liking)| liking.uses)
+                .map(|(index, _)| index);
+            if let Some(index) = least {
+                self.likings.remove(index);
+            }
+        }
     }
 
     /// Stop showing `item` anywhere in this household. Whether it was shown.
@@ -158,7 +219,24 @@ impl HouseholdHome {
         if self.placed() > MAX_PLACED_PER_HOUSEHOLD {
             return Err(HomeError::invalid("a home with too much in it"));
         }
-        self.rooms.iter().try_for_each(RoomLayout::validate)
+        self.rooms.iter().try_for_each(RoomLayout::validate)?;
+        if self.likings.len() > MAX_LIKINGS {
+            return Err(HomeError::invalid("a home with too many likings"));
+        }
+        let mut seen = BTreeSet::new();
+        for liking in &self.likings {
+            let there = match &liking.thing {
+                Liked::Piece { room, uid } => self
+                    .rooms
+                    .get(usize::from(*room))
+                    .is_some_and(|layout| layout.piece(*uid).is_some()),
+                Liked::Shown { .. } => true,
+            };
+            if !there || liking.uses == 0 || !seen.insert((liking.resident, &liking.thing)) {
+                return Err(HomeError::invalid("a liking that does not add up"));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -291,6 +369,7 @@ mod tests {
         state.households.push(HouseholdHome {
             keeper: TravelerId(7),
             rooms: vec![room()],
+            likings: Vec::new(),
         });
         state
     }
@@ -309,6 +388,7 @@ mod tests {
         twice.households.push(HouseholdHome {
             keeper: TravelerId(8),
             rooms: vec![room()],
+            likings: Vec::new(),
         });
         assert!(twice.validate().is_err());
         twice.households[1].take_down(&DisplayId::find(3));

@@ -16,6 +16,7 @@ formiga-core.workspace = true
 formiga-home-contract.workspace = true
 formiga-travel.workspace = true
 png.workspace = true
+rfd.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 time.workspace = true

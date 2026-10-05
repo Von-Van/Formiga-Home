@@ -35,7 +35,12 @@ fn written_now() -> Vec<(String, Vec<u8>)> {
     let seal = SessionSeal::of(&snapshot, &snapshot_bytes, &state_bytes);
     let ack = HomeAck::accepted(&seal, "0.1.0");
     let mut arranged_state = state.clone();
-    arranged_state.set_household(arranged(&snapshot));
+    let mut home = arranged(&snapshot);
+    // Since version 2: the keeper has taken to the armchair.
+    for _ in 0..3 {
+        home.note_use(snapshot.household.keeper, Liked::Piece { room: 0, uid: 2 });
+    }
+    arranged_state.set_household(home);
     let result = HomeResult::new(&seal, closed_at(), "0.1.0", arranged_state);
     let receipt = HomeReceipt::new(
         &seal,

@@ -24,11 +24,20 @@ fn the_sample_house_is_the_founder_and_its_little_one() {
         snapshot.residents[1].role,
         formiga_travel::TravelRole::Mini { parent_id } if parent_id == keeper.id
     ));
-    assert_eq!(
-        snapshot.relationships.len(),
-        1,
-        "the household's own bond, and nobody else's"
-    );
+    let home = |id| snapshot.resident(id).is_some();
+    let own = snapshot
+        .relationships
+        .iter()
+        .filter(|pair| home(pair.a) && home(pair.b))
+        .count();
+    assert_eq!(own, 1, "the household's own bond");
+    for pair in &snapshot.relationships {
+        let here = |id| snapshot.resident(id).is_some() || snapshot.visitor(id).is_some();
+        assert!(
+            here(pair.a) && here(pair.b),
+            "a bond with someone who is not in the house"
+        );
+    }
     let adults = sample::colony()
         .creatures
         .iter()
@@ -46,6 +55,7 @@ fn every_other_house_opens_to_its_own_keeper_alone() {
         let snapshot = project_household(
             &save,
             *keeper,
+            &[],
             session(),
             sample::MADE + Duration::days(2),
             "test",
@@ -71,7 +81,7 @@ fn a_little_one_is_never_a_house_of_its_own() {
         .find(|creature| matches!(creature.role, CreatureRole::Mini { .. }))
         .unwrap();
     assert!(matches!(
-        project_household(&save, mini.id, session(), sample::MADE, "test"),
+        project_household(&save, mini.id, &[], session(), sample::MADE, "test"),
         Err(ProjectionError::NoSuchHouse)
     ));
 }
@@ -122,7 +132,7 @@ fn a_souvenir_desktop_has_kept_reaches_every_house_without_hill() {
     let mut save = sample::colony();
     save.trips.souvenirs.clear();
     let keeper = sample::keeper(&save);
-    let before = project_household(&save, keeper, session(), sample::MADE, "test").unwrap();
+    let before = project_household(&save, keeper, &[], session(), sample::MADE, "test").unwrap();
     assert!(
         before
             .item(&DisplayId::souvenir("well_penny").unwrap())
@@ -132,7 +142,7 @@ fn a_souvenir_desktop_has_kept_reaches_every_house_without_hill() {
         souvenir: formiga_core::Souvenir::WellPenny,
         brought_home_at_utc: sample::MADE,
     });
-    let after = project_household(&save, keeper, session(), sample::MADE, "test").unwrap();
+    let after = project_household(&save, keeper, &[], session(), sample::MADE, "test").unwrap();
     let penny = after
         .item(&DisplayId::souvenir("well_penny").unwrap())
         .unwrap();
@@ -185,6 +195,57 @@ fn a_snapshot_that_does_not_add_up_is_refused() {
             encode(&snapshot).is_err(),
             "{:?} was accepted",
             snapshot.household
+        );
+    }
+}
+
+#[test]
+fn close_friends_from_other_houses_are_lent_and_nobody_else_is() {
+    let save = sample::colony();
+    let keeper = sample::keeper(&save);
+    let friends = likely_visitors(&save, keeper);
+    assert!(!friends.is_empty() && friends.len() <= 2, "{friends:?}");
+    let snapshot = sample::snapshot();
+    let lent: Vec<_> = snapshot
+        .visitors
+        .iter()
+        .map(|visitor| visitor.id.0)
+        .collect();
+    assert_eq!(lent, friends);
+    for visitor in &snapshot.visitors {
+        assert!(
+            snapshot.resident(visitor.id).is_none(),
+            "a visitor does not live here"
+        );
+        assert!(
+            snapshot.neighbour(visitor.id).is_some(),
+            "a visitor keeps a house of its own"
+        );
+    }
+    // Desktop asking for someone who cannot visit gets nobody in their place.
+    let pip = snapshot.residents[1].id.0;
+    let asked = [pip, keeper, 0xdead, friends[0], friends[0]];
+    let odd = project_household(&save, keeper, &asked, session(), sample::MADE, "test").unwrap();
+    let lent: Vec<_> = odd.visitors.iter().map(|visitor| visitor.id.0).collect();
+    assert_eq!(lent, vec![friends[0]]);
+}
+
+#[test]
+fn a_snapshot_whose_visitors_do_not_add_up_is_refused() {
+    let base = sample::snapshot();
+    assert!(!base.visitors.is_empty());
+    let mut a_resident = base.clone();
+    a_resident.visitors.push(base.residents[1].clone());
+    let mut homeless = base.clone();
+    let stranger = homeless.visitors[0].id;
+    homeless.village.retain(|house| house.keeper != stranger);
+    let mut crowd = base.clone();
+    crowd.visitors = vec![base.visitors[0].clone(); limits::MAX_VISITORS + 1];
+    for snapshot in [a_resident, homeless, crowd] {
+        assert!(
+            encode(&snapshot).is_err(),
+            "{:?} was accepted",
+            snapshot.visitors.len()
         );
     }
 }

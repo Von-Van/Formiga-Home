@@ -49,6 +49,8 @@ pub struct Overlay {
     pub arranging: bool,
     /// Something being carried is lifted out of the room while it is carried.
     pub lifted: Option<Target>,
+    /// Lamps switched off.
+    pub lamps_off: Vec<u16>,
 }
 
 /// One thing to draw, with the floor it stands on.
@@ -248,7 +250,10 @@ impl Scene {
             });
         }
         for (index, actor) in actors.iter_mut().enumerate() {
-            if actor.on_piece.is_some() || lifted == Some(&Target::Resident(actor.id)) {
+            if actor.hidden
+                || actor.on_piece.is_some()
+                || lifted == Some(&Target::Resident(actor.id))
+            {
                 continue;
             }
             let (x, y) = actor.pos;
@@ -276,6 +281,13 @@ impl Scene {
         self.refresh_shell(layout, snapshot);
         let mut canvas = self.shell.clone();
         let view = self.view;
+        let lit = |placed: &formiga_home_contract::PlacedPiece| {
+            placed.piece.as_str() == "lamp" && !overlay.lamps_off.contains(&placed.uid)
+        };
+        for placed in layout.pieces.iter().filter(|placed| lit(placed)) {
+            let (cx, cy) = room::footprint(placed).centre();
+            crate::art::furniture::lamp_pool(&mut canvas, view.pixel(cx, cy));
+        }
         let order = self.order(layout, snapshot, actors, now, overlay.lifted.as_ref());
         let resident_opacity = if overlay.arranging { 170 } else { 255 };
         // Who has been drawn so far, for the tall pieces that would hide them.
@@ -299,6 +311,10 @@ impl Scene {
                         hides,
                         resident_opacity,
                     );
+                    if lit(piece) {
+                        let (cx, cy) = room::footprint(piece).centre();
+                        crate::art::furniture::lamp_bulb(&mut canvas, view.pixel(cx, cy));
+                    }
                 }
                 Drawn::FloorThing(index) => {
                     let shown = &layout.displays[index];
@@ -325,7 +341,7 @@ impl Scene {
             }
         }
         if !overlay.arranging {
-            for actor in actors.iter_mut() {
+            for actor in actors.iter_mut().filter(|actor| !actor.hidden) {
                 actor.draw_cue(&mut canvas, &view, now);
             }
         }
@@ -524,7 +540,7 @@ impl Scene {
     ) -> Option<Target> {
         self.refresh_shell(layout, snapshot);
         let view = self.view;
-        for actor in actors.iter_mut() {
+        for actor in actors.iter_mut().filter(|actor| !actor.hidden) {
             if actor.covers(&view, now, point) {
                 return Some(Target::Resident(actor.id));
             }

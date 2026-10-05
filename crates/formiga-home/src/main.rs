@@ -275,21 +275,26 @@ fn render_to(render: &Render, household: &Household, args: &Args) -> Canvas {
                     let mut now = 0.0;
                     while now < until {
                         now += 1.0 / 30.0;
-                        life.tick(household, layout, &household.snapshot, now, 1.0 / 30.0);
-                    }
-                    for resident in &household.residents {
-                        println!(
-                            "{}",
-                            life.doing(household, layout, &household.snapshot, resident.id)
+                        life.tick(
+                            household,
+                            layout,
+                            &household.snapshot,
+                            &home.likings,
+                            now,
+                            1.0 / 30.0,
                         );
                     }
-                    scene.compose(
-                        layout,
-                        &household.snapshot,
-                        &mut life.actors,
-                        now,
-                        &scene::Overlay::default(),
-                    )
+                    for id in life.present() {
+                        println!("{}", life.doing(household, layout, &household.snapshot, id));
+                    }
+                    let mut seen = layout.clone();
+                    let worn = life.worn();
+                    seen.displays.retain(|shown| !worn.contains(&shown.item));
+                    let overlay = scene::Overlay {
+                        lamps_off: life.lamps_off().to_vec(),
+                        ..scene::Overlay::default()
+                    };
+                    scene.compose(&seen, &household.snapshot, &mut life.actors, now, &overlay)
                 }
                 None => {
                     let mut actors = staging::pose(household, &home, household.reduce_motion());
@@ -315,9 +320,12 @@ fn from_save(path: &Path, house: usize) -> Result<formiga_home_contract::HomeSna
         .as_slice()
         .get(house)
         .with_context(|| format!("the colony has {} houses", owners.as_slice().len()))?;
+    // The closest friends drop by, as Desktop would lend them if they were free.
+    let visitors = formiga_home_contract::likely_visitors(&save, keeper);
     Ok(formiga_home_contract::project_household(
         &save,
         keeper,
+        &visitors,
         formiga_home_contract::SessionId::generate().context("no randomness for a session id")?,
         time::OffsetDateTime::now_utc(),
         "a colony file",
@@ -325,7 +333,7 @@ fn from_save(path: &Path, house: usize) -> Result<formiga_home_contract::HomeSna
 }
 
 /// A canvas as a PNG, each pixel `scale` pixels square.
-fn write_png(path: &Path, canvas: &Canvas, scale: u32) -> Result<()> {
+pub(crate) fn write_png(path: &Path, canvas: &Canvas, scale: u32) -> Result<()> {
     let scale = scale.max(1);
     let (width, height) = (canvas.width() * scale, canvas.height() * scale);
     let mut bytes = Vec::with_capacity((width * height * 4) as usize);

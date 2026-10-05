@@ -27,7 +27,7 @@ was in the middle of, saves the colony, and writes a fresh session directory:
 
 | File | Written by | What it is |
 | --- | --- | --- |
-| `snapshot.json` | Desktop | `HomeSnapshot`: the household, its residents and their bonds, the village's keepers, everything the colony can show, and the owner's shared preferences |
+| `snapshot.json` | Desktop | `HomeSnapshot`: the household, its residents, any visitors lent for the visit, their bonds, the village's keepers, everything the colony can show, and the owner's shared preferences |
 | `state.json` | Desktop | `HomeState`: every household's layout as Desktop last accepted it |
 | `ack.json` | Home | `HomeAck`, once: accepted, or refused as `UnsupportedVersion { reads }`, `Invalid` or `Busy` |
 | `result-state.json` | Home | `HomeResult`: every layout, whole, as Home would have it. Written each time the owner leaves Arrange Mode, after every change, and again on leaving; the last one written is the answer |
@@ -37,8 +37,8 @@ was in the middle of, saves the colony, and writes a fresh session directory:
 Home is started as `formiga-home --formiga-home <absolute session directory>` and with nothing
 else. Every file is written whole to a temporary name and renamed into place.
 
-While the session is open, the household's residents are indoors: Desktop keeps them off the
-desktop, and every other companion lives as usual. When Home exits, however it exits, Desktop
+While the session is open, the household's residents and any visitors Desktop lent are indoors:
+Desktop keeps them off the desktop, and every other companion lives as usual. When Home exits, however it exits, Desktop
 reads the answers, keeps what [`accept_result`] lets it keep, and lets the household out again
 through its ordinary village life. It always fails toward home. If Home is missing, refuses,
 crashes or writes something that does not check out, the household simply comes back out, and the
@@ -75,6 +75,7 @@ Home wrote last.
 - Nothing is kept on show that the colony does not have, or that cannot be shown where it is:
   only a thing that stands on the floor may be on the floor.
 - A household whose keeper no longer keeps a house is let go, and what it showed is free again.
+- A liking is kept only for someone who lives in the house, and only for something still in it.
 - If what comes out does not validate, the homes stay as they were.
 
 `HomeState::settled_for(snapshot)` applies the same tidying to the state Desktop sends, so Home
@@ -87,6 +88,10 @@ never opens on a layout the colony has outgrown.
   `formiga_travel::project_colony` makes, so appearance, temperament, traits, habits, stature,
   pace and what it wears are Desktop's own projection. Bonds are those between residents only, in
   travel's bands.
+- **Visitors**, since version 2. Desktop lends a visit the household's closest friends from other
+  houses who are free. `likely_visitors` names the candidates, closest first and two at most, and
+  `project_household` takes whichever Desktop lends. Each is a full-size companion who keeps a
+  house of its own, projected exactly as a resident is.
 - **The village.** Every house's keeper by name, so Home can say "in Biscuit's house".
 - **The inventory.** Everything the colony has that a house can show:
   - every scrapbook find, as `find.<variant>`, with its colony's inks resolved by Desktop;
@@ -103,7 +108,9 @@ never opens on a layout the colony has outgrown.
 ## The state
 
 `HomeState` holds up to twelve households, each keyed by its keeper. Each has one to three rooms,
-and at most 96 pieces and displays in all. A room has a size in tiles, a floor and a wall finish,
+at most 96 pieces and displays in all, and, since version 2, up to 48 likings: how often each
+resident has chosen a piece (by room and uid) or a find (by display id). What a resident has chosen
+most of a kind is its favourite. Likings are flavour, kept by Home and read by nothing else. A room has a size in tiles, a floor and a wall finish,
 furniture as `{ uid, piece, x, y, turn }`, and displays as `{ item, spot }`. A spot is one of:
 
 - `on { piece, slot }`, a surface of a piece in the same room;
@@ -127,6 +134,7 @@ string is checked as plain text: see `limits` in `lib.rs`.
 | Home version | What it added |
 | --- | --- |
 | 1 | Everything |
+| 2 | `visitors` in the snapshot; `likings` in each home. Both optional, so a version 1 reader still reads either |
 
 ## Finding Home
 

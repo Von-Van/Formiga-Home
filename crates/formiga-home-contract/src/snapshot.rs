@@ -96,6 +96,12 @@ pub struct HomeSnapshot {
     pub household: Household,
     /// The keeper first, then everyone who lives with it, in the order they arrived.
     pub residents: Vec<Traveler>,
+    /// Friends from other houses whom Desktop has lent for the visit, since version 2. Desktop
+    /// keeps them indoors too while the house is open. Each keeps a house of its own in the
+    /// village; none lives here.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub visitors: Vec<Traveler>,
+    /// How everyone in the house gets on, residents and visitors alike.
     #[serde(default)]
     pub relationships: Vec<TravelRelationship>,
     /// Every house in the village, in the order they stand, this one included.
@@ -120,6 +126,10 @@ impl HomeSnapshot {
         self.residents.iter().find(|resident| resident.id == id)
     }
 
+    pub fn visitor(&self, id: TravelerId) -> Option<&Traveler> {
+        self.visitors.iter().find(|visitor| visitor.id == id)
+    }
+
     pub fn item(&self, id: &DisplayId) -> Option<&DisplayItem> {
         self.inventory.iter().find(|item| &item.id == id)
     }
@@ -133,8 +143,9 @@ impl HomeSnapshot {
         self.travel_min_reader_version <= formiga_travel::TRAVEL_FORMAT_VERSION
     }
 
-    /// The residents as a trip would carry them, for anything that reads a trip's snapshot: the
-    /// household with its own bonds and the owner's preferences, and nothing else of a trip.
+    /// Everyone in the house as a trip would carry them, for anything that reads a trip's
+    /// snapshot: the residents and any visitors, with their bonds and the owner's preferences,
+    /// and nothing else of a trip.
     pub fn as_travel(&self) -> TravelSnapshot {
         TravelSnapshot {
             format: formiga_travel::SNAPSHOT_FORMAT.to_owned(),
@@ -148,7 +159,12 @@ impl HomeSnapshot {
             desktop_version: self.desktop_version.clone(),
             capabilities: Vec::new(),
             accepts_souvenirs: Vec::new(),
-            travelers: self.residents.clone(),
+            travelers: self
+                .residents
+                .iter()
+                .chain(&self.visitors)
+                .cloned()
+                .collect(),
             relationships: self.relationships.clone(),
             presentation: self.presentation,
         }
@@ -186,6 +202,11 @@ impl HomeDocument for HomeSnapshot {
         if self.residents.is_empty() || self.residents.len() > MAX_RESIDENTS {
             return Err(invalid("a household is one to twelve companions"));
         }
+        if self.visitors.len() > MAX_VISITORS
+            || self.residents.len() + self.visitors.len() > MAX_RESIDENTS
+        {
+            return Err(invalid("too many visitors"));
+        }
         // Each resident, and the bonds between them, are held to everything a trip's travelers
         // are: names, looks, ranges, little ones with their adults, pairs listed once.
         self.as_travel().validate().map_err(|error| {
@@ -216,6 +237,15 @@ impl HomeDocument for HomeSnapshot {
         let home = self.neighbour(self.household.keeper);
         if home.is_none_or(|house| house.slot != self.household.slot) {
             return Err(invalid("the household's own house is not in the village"));
+        }
+        // A visitor is a full-size companion who keeps a house of its own, and not this one.
+        let lent = self.visitors.iter().all(|visitor| {
+            visitor.role == TravelRole::Adult
+                && visitor.id != self.household.keeper
+                && self.neighbour(visitor.id).is_some()
+        });
+        if !lent {
+            return Err(invalid("a visitor does not keep a house of its own"));
         }
         if self.inventory.len() > MAX_INVENTORY {
             return Err(invalid("too many things to show"));

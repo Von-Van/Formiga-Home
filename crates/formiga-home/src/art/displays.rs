@@ -313,6 +313,7 @@ mod tests {
         let snapshot = formiga_home_contract::project_household(
             &save,
             sample::keeper(&save),
+            &[],
             formiga_home_contract::SessionId::parse(sample::SESSION).unwrap(),
             sample::MADE,
             "test",

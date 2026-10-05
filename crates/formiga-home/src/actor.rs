@@ -90,6 +90,8 @@ pub struct Actor {
     pub lift: f32,
     /// The piece it is sitting or lying on, if any: it is drawn with that piece.
     pub on_piece: Option<u16>,
+    /// Not in the house at all: a visitor yet to come, or gone home.
+    pub hidden: bool,
     pub pose: Pose,
     pub gaze: GazeDirection,
     /// When the current pose began.
@@ -116,6 +118,7 @@ impl Actor {
             facing_right: resident.id.is_multiple_of(2),
             lift: 0.0,
             on_piece: None,
+            hidden: false,
             pose: Pose::idle(resident.character.idle_face()),
             gaze: GazeDirection::default(),
             since: 0.0,
@@ -125,6 +128,14 @@ impl Actor {
             frames: HashMap::new(),
             blink: (3.2 + seed * 2.4, seed * 5.0),
             reduce_motion,
+        }
+    }
+
+    /// Wear something else for a while, or what it came in again: every frame is drawn afresh.
+    pub fn wear(&mut self, dress: Option<AccessoryArt>) {
+        if dress != self.dress {
+            self.dress = dress;
+            self.frames.clear();
         }
     }
 
@@ -162,6 +173,11 @@ impl Actor {
 
     pub fn walking(&self) -> bool {
         !self.path.is_empty()
+    }
+
+    /// Where it is headed, or where it is.
+    pub fn destination(&self) -> (f32, f32) {
+        self.path.back().copied().unwrap_or(self.pos)
     }
 
     /// Sit or lie on a piece: on its seat, lifted to its height, facing the way the piece does.

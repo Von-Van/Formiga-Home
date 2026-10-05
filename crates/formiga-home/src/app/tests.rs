@@ -460,3 +460,64 @@ fn what_is_arranged_is_there_when_the_house_is_opened_again() {
     );
     let _ = std::fs::remove_dir_all(&data);
 }
+
+impl Harness {
+    /// Let time pass in big steps: the household's own clock takes a quarter second at a time.
+    fn pass(&mut self, seconds: f64) {
+        let until = self.time + seconds;
+        while self.time < until {
+            self.step(Vec::new());
+            self.time += 0.25 - 1.0 / 30.0;
+        }
+    }
+}
+
+#[test]
+fn a_visitor_who_comes_in_is_listed_and_can_be_chosen() {
+    let data = scratch("visitor");
+    let mut window = Harness::open(&data);
+    assert!(window.text("Visiting").is_none(), "nobody has come yet");
+    let visitor = window.app.household.visitors[0].id;
+    let name = window.app.household.visitors[0].name.clone();
+    window.pass(60.0);
+    assert!(
+        window.text("Visiting").is_some(),
+        "the visitor never came in"
+    );
+    assert!(
+        window.app.notice.is_some() || window.app.life.present().contains(&visitor),
+        "the window never said who had come"
+    );
+    window.click_text(&name);
+    assert_eq!(window.app.selected, Some(visitor));
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn a_photo_is_the_whole_room_and_nothing_of_the_window() {
+    let data = scratch("photo");
+    let mut window = Harness::open(&data);
+    let photo = window.app.photo();
+    assert_eq!((photo.width(), photo.height()), (SCENE_WIDTH, SCENE_HEIGHT));
+    assert!(photo.pixels().iter().all(|pixel| pixel.a == 255));
+    // The chosen resident's gold ring is the window's, not the room's.
+    let keeper = window.keeper();
+    assert_eq!(window.app.selected, Some(keeper));
+    let (layout, now) = (window.layout(), window.app.now());
+    let overlay = Overlay {
+        selected: Some(keeper),
+        lamps_off: window.app.life.lamps_off().to_vec(),
+        ..Overlay::default()
+    };
+    let mut marked = window.app.scene.compose(
+        &layout,
+        &window.app.household.snapshot,
+        &mut window.app.life.actors,
+        now,
+        &overlay,
+    );
+    assert_ne!(photo, marked, "the photo has no ring");
+    marked = window.app.photo();
+    assert_eq!(photo, marked, "and the same moment photographs the same");
+    let _ = std::fs::remove_dir_all(&data);
+}

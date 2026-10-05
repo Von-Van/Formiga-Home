@@ -48,6 +48,7 @@
 //! | Version | What it added |
 //! |---|---|
 //! | 1 | Everything |
+//! | 2 | `visitors`: friends Desktop lends for the visit; `likings`: what each resident has come to like in its home |
 //!
 //! The golden fixtures under `tests/fixtures` are every version as it was first written, and must
 //! keep reading.
@@ -76,15 +77,17 @@ pub use document::{
 pub use formiga_travel::{SessionId, TravelerId};
 pub use ids::{CatalogId, DisplayId};
 pub use inventory::{DisplayItem, DisplayMode, DisplaySource, Ink, find_modes, souvenir_modes};
-pub use projection::{ProjectionError, colony_key, project_household};
+pub use projection::{ProjectionError, colony_key, likely_visitors, project_household};
 pub use replies::{
     AckRefusal, HomeAck, HomeEffect, HomeRecall, HomeReceipt, HomeResult, RecallReason, SessionSeal,
 };
 pub use snapshot::{HomeCapability, HomeSnapshot, HouseStyle, Household, Neighbour};
-pub use state::{HomeState, HouseholdHome, PlacedDisplay, PlacedPiece, RoomLayout, Spot, WallSide};
+pub use state::{
+    HomeState, HouseholdHome, Liked, Liking, PlacedDisplay, PlacedPiece, RoomLayout, Spot, WallSide,
+};
 
 /// The version of every Home document this build writes, and the newest it reads.
-pub const HOME_FORMAT_VERSION: u32 = 1;
+pub const HOME_FORMAT_VERSION: u32 = 2;
 
 /// The `format` of each document.
 pub const SNAPSHOT_FORMAT: &str = "formiga.home.snapshot";
@@ -139,6 +142,10 @@ pub mod limits {
     pub const MAX_RECALL_BYTES: u64 = 4 * 1024;
     /// Twice Desktop's own colony cap, as for a trip: everyone in a house is in the colony.
     pub const MAX_RESIDENTS: usize = 12;
+    /// Friends lent for a visit. Desktop lends two at most; the room is for that to grow.
+    pub const MAX_VISITORS: usize = 4;
+    /// What a household's residents have come to like, across every room.
+    pub const MAX_LIKINGS: usize = 48;
     pub const MAX_RELATIONSHIPS: usize = MAX_RESIDENTS * (MAX_RESIDENTS - 1) / 2;
     /// Twice the six houses a village has.
     pub const MAX_HOUSEHOLDS: usize = 12;

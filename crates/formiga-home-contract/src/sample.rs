@@ -3,7 +3,7 @@
 //! worn, something pinned, habits, bonds of every strength), given a scrapbook with something of
 //! every way a find can be shown and a few of Formiga Hill's souvenirs. It is the same every time.
 
-use crate::{HomeSnapshot, HomeState, SessionId, project_household};
+use crate::{HomeSnapshot, HomeState, SessionId, likely_visitors, project_household};
 use formiga_core::{SaveFile, Souvenir, SouvenirRecord, house_owners};
 use time::{Duration, OffsetDateTime};
 
@@ -76,12 +76,15 @@ pub fn keeper(save: &SaveFile) -> formiga_core::CreatureId {
     house_owners(&save.creatures, &save.home.cottage_order).as_slice()[0]
 }
 
-/// The sample household's snapshot, as Desktop would write it.
+/// The sample household's snapshot, as Desktop would write it, with its closest friends lent for
+/// the visit.
 pub fn snapshot() -> HomeSnapshot {
     let save = colony();
+    let keeper = keeper(&save);
     project_household(
         &save,
-        keeper(&save),
+        keeper,
+        &likely_visitors(&save, keeper),
         SessionId::parse(SESSION).expect("the sample session is a session id"),
         MADE + Duration::days(DAYS_LIVED),
         "sample colony",

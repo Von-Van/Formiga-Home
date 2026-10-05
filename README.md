@@ -14,6 +14,8 @@ their own lives.
 - **Found things become physical.** Every find in the colony's scrapbook, and every souvenir
   brought home from Formiga Hill, can be set on a shelf, put in a case, stood on a table or the
   floor, or hung on a wall.
+- **Friends drop by.** Desktop lends a household's closest friends from other houses for the
+  visit; they knock, look round at what is on show, and go home again.
 - **Soft play.** No needs to keep up, no money, no decay and nothing lost by staying away.
 
 Desktop stays the home of the colony. Home never reads the colony file and never changes a
@@ -29,9 +31,10 @@ Further reading:
 
 | Part | Status |
 | --- | --- |
-| The room, its four floors and four walls, fifteen pieces of furniture | Preview |
+| The room, its four floors and four walls, sixteen pieces of furniture | Preview |
 | Residents living on their own, and the three-thing queue of what you ask | Preview |
 | Arrange Mode, Found Things and the fallback card for anything without its own art | Preview |
+| Visitors, favourites and photos | Preview |
 | The household contract (`formiga-home-contract`) | Draft, kept here until Desktop adopts it |
 | Opening a house from Desktop's village | Not yet in Desktop |
 | Packaging for macOS and Windows | Not yet verified: the scripts assemble a bundle and an installer under Home's own names, and have not been run end to end |
@@ -49,18 +52,33 @@ The window opens on the house in **Live Mode**.
 - **Ask for something.** With someone chosen, click something in the room to see what they could
   do there:
   - a seat: sit, relax or nap;
-  - a bed or basket: sleep, curl up, or turn in with a little one;
-  - a toy: play, play with someone, show off;
+  - a bed or basket: sleep, curl up, bounce on it, or turn in with a little one;
+  - a table: sit at it;
+  - a rug: stretch out on it;
+  - a toy or the toy box: play, play with someone, show off;
   - the snack bowl: have a snack, or share one;
-  - anything on show: look at it, remember it, show it to someone, play with it if it is a toy;
-  - another resident: say hello, sit together, play, tease, comfort, hug, as their temperament
-    and bond allow.
+  - the lamp: switch it on or off; the fern: tend it;
+  - a shelf or the case: look over everything on it;
+  - anything on show: look at it, remember it, show it to someone, play with it if it is a toy,
+    or try it on for a while if it is small enough to wear;
+  - another resident or a visitor: say hello, sit together, play, tease, comfort, hug, as their
+    temperament and bond allow.
 
   Click the floor to send them there. Each resident takes up to three things at a time. The
   drawer shows the list, and a ✕ takes one back.
 - **Handle them.** Drag a resident to pick it up and put it down somewhere else, or right-click it
   for a pat. Either one lets go of everything they were asked to do.
 - **Leave them be.** Whenever nobody has asked them for anything, residents choose for themselves.
+- **Favourites.** Whatever a resident keeps choosing, a seat, a bed, a toy, a find, becomes its
+  favourite, and it goes back to it more often than to anything else. The drawer lists each
+  resident's favourites, and hovering over a piece or a find says whose favourite it is.
+- **Visitors.** A little while after the house opens, a friend or two from other houses may knock.
+  A sweetheart goes to the door, a wallflower finds the furthest seat, a show-off has something to
+  show them, and a grump may grumble. Visitors look round at whatever is on show, spend time with
+  whoever they are closest to, and after a few minutes go home. They can be asked for things too,
+  though never to sleep in anyone's bed.
+- **Photos.** "Photo…", or P, saves a picture of the room without anything of the window in it,
+  three times the size, wherever you choose.
 
 **Arrange Mode** is chosen from the top bar, so nothing gets moved by accident. Everyone waits off
 the furniture while you arrange.
@@ -68,8 +86,8 @@ the furniture while you arrange.
 - **Found things.** Everything the colony has, with where each is shown now: here, in another
   household's house, or nowhere yet. Moving something from another house moves it here; nothing
   is ever shown in two places.
-- **Furniture.** The starter pieces are always there. A sofa, a long rug and a glass case arrive
-  as the colony lives, and stay.
+- **Furniture.** The starter pieces are always there. A sofa, a long rug, a toy box and a glass
+  case arrive as the colony lives, and stay.
 - **Room.** The floor and the walls.
 
 Drag something, or click it, to pick it up, and click to put it down. A ghost shows where it would
@@ -154,7 +172,8 @@ crates/formiga-home/src/
   store.rs         the data folder: the window, the lock, rehearsals
   household.rs     the residents, ready to draw, and how they get on
   character.rs     who each resident is, turned into what it feels like doing
-  life.rs          the household's life: what each resident does, asked or not
+  life.rs, life/   the household's life: what each resident does, asked or not, favourites, and
+                   visitors coming and going; and its tests
   actor.rs         a resident in the room: walking, poses, cached frames
   path.rs          finding the way across a room
   arrange.rs       picking up, carrying and putting down; undo

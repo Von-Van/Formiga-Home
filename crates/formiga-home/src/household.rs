@@ -4,7 +4,7 @@
 use crate::character::Character;
 use formiga_art::AccessoryArt;
 use formiga_core::{AppearanceGenome, Creature};
-use formiga_home_contract::{DisplayId, HomeSnapshot, HomeState};
+use formiga_home_contract::{DisplayId, HomeSnapshot, HomeState, TravelerId};
 use formiga_travel::{Band, TravelError, TravelRole, Traveler};
 
 /// A resident's id, as the rest of Home passes it about.
@@ -65,38 +65,62 @@ impl Bond {
 pub struct Household {
     pub snapshot: HomeSnapshot,
     pub residents: Vec<Resident>,
+    /// Friends Desktop has lent for the visit, who live in houses of their own.
+    pub visitors: Vec<Resident>,
 }
 
 impl Household {
     /// Everyone in the house, ready for the room. Fails only if Desktop sent a look this build
     /// cannot draw, which is a reason to refuse the household rather than show someone wrong.
     pub fn new(snapshot: HomeSnapshot) -> Result<Self, TravelError> {
-        let residents = snapshot
-            .residents
-            .iter()
-            .map(|traveler| {
-                Ok(Resident {
-                    id: traveler.id.0,
-                    name: traveler.name.clone(),
-                    creature: traveler.to_creature()?,
-                    dress: traveler.accessory.map(|accessory| accessory.to_art()),
-                    character: Character::of(traveler),
-                    traveler: traveler.clone(),
+        let ready = |travelers: &[formiga_travel::Traveler]| {
+            travelers
+                .iter()
+                .map(|traveler| {
+                    Ok(Resident {
+                        id: traveler.id.0,
+                        name: traveler.name.clone(),
+                        creature: traveler.to_creature()?,
+                        dress: traveler.accessory.map(|accessory| accessory.to_art()),
+                        character: Character::of(traveler),
+                        traveler: traveler.clone(),
+                    })
                 })
-            })
-            .collect::<Result<_, TravelError>>()?;
+                .collect::<Result<Vec<_>, TravelError>>()
+        };
+        let residents = ready(&snapshot.residents)?;
+        let visitors = ready(&snapshot.visitors)?;
         Ok(Self {
             snapshot,
             residents,
+            visitors,
         })
+    }
+
+    /// Everyone who lives here, then everyone visiting.
+    pub fn everyone(&self) -> impl Iterator<Item = &Resident> {
+        self.residents.iter().chain(&self.visitors)
+    }
+
+    pub fn is_visitor(&self, id: Id) -> bool {
+        self.visitors.iter().any(|visitor| visitor.id == id)
+    }
+
+    /// Whose house a visitor comes from: "Biscuit's house".
+    pub fn home_of(&self, id: Id) -> String {
+        self.snapshot.neighbour(TravelerId(id)).map_or_else(
+            || "next door".to_owned(),
+            |house| format!("{}'s house", house.name),
+        )
     }
 
     pub fn reduce_motion(&self) -> bool {
         self.snapshot.presentation.reduce_motion
     }
 
+    /// Anyone in the house by id, whether they live here or are visiting.
     pub fn resident(&self, id: Id) -> Option<&Resident> {
-        self.residents.iter().find(|resident| resident.id == id)
+        self.everyone().find(|resident| resident.id == id)
     }
 
     pub fn keeper(&self) -> &Resident {

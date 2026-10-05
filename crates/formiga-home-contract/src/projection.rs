@@ -40,13 +40,61 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// How many friends Desktop lends a visit at most.
+pub const VISITORS_LENT: usize = 2;
+
+/// Who might drop by when `keeper`'s house is opened: full-size companions who keep houses of
+/// their own and are close friends of someone who lives in this one, closest first, and at most
+/// [`VISITORS_LENT`] of them. Desktop lends whichever of them are free.
+pub fn likely_visitors(save: &core::SaveFile, keeper: core::CreatureId) -> Vec<core::CreatureId> {
+    let order = &save.home.cottage_order;
+    let owners = core::house_owners(&save.creatures, order);
+    let Some(slot) = owners.as_slice().iter().position(|id| *id == keeper) else {
+        return Vec::new();
+    };
+    let living: Vec<core::CreatureId> = save
+        .creatures
+        .iter()
+        .filter(|creature| core::house_slot_for(creature, &save.creatures, order) == slot)
+        .map(|creature| creature.id)
+        .collect();
+    let mut friends: Vec<(u8, core::CreatureId)> = owners
+        .as_slice()
+        .iter()
+        .filter(|id| !living.contains(id))
+        .filter_map(|id| {
+            save.relationships
+                .iter()
+                .filter(|bond| {
+                    let (a, b) = (bond.a, bond.b);
+                    (a == *id && living.contains(&b)) || (b == *id && living.contains(&a))
+                })
+                .filter(|bond| {
+                    formiga_travel::Band::of(bond.affinity) == formiga_travel::Band::High
+                        && formiga_travel::Band::of(bond.avoidance) <= formiga_travel::Band::Low
+                })
+                .map(|bond| bond.affinity)
+                .max()
+                .map(|affinity| (affinity, *id))
+        })
+        .collect();
+    friends.sort_by_key(|(affinity, id)| (std::cmp::Reverse(*affinity), *id));
+    friends
+        .into_iter()
+        .map(|(_, id)| id)
+        .take(VISITORS_LENT)
+        .collect()
+}
+
 /// The snapshot of the household that keeps `keeper`'s house: the keeper and every little one who
-/// lives with it, drawn exactly as a trip would carry them; who keeps every other house; and
-/// everything the colony has that a house can show. The same colony, house, session and time
-/// always give the same snapshot, byte for byte.
+/// lives with it, drawn exactly as a trip would carry them; the `visitors` Desktop lends for the
+/// visit, of those who keep houses of their own; who keeps every other house; and everything the
+/// colony has that a house can show. The same colony, house, visitors, session and time always
+/// give the same snapshot, byte for byte.
 pub fn project_household(
     save: &core::SaveFile,
     keeper: core::CreatureId,
+    visitors: &[core::CreatureId],
     session_id: SessionId,
     created_at_utc: OffsetDateTime,
     desktop_version: &str,
@@ -72,7 +120,28 @@ pub fn project_household(
         .filter_map(|creature| travel.traveler(TravelerId(creature.id)).cloned())
         .take(MAX_RESIDENTS)
         .collect();
-    let home = |id: TravelerId| residents.iter().any(|resident| resident.id == id);
+    let mut lent: Vec<_> = Vec::new();
+    for id in visitors {
+        let keeps_another = owners.as_slice().contains(id) && *id != keeper;
+        let living_here = residents.iter().any(|resident| resident.id.0 == *id);
+        if let Some(visitor) = travel.traveler(TravelerId(*id))
+            && keeps_another
+            && !living_here
+            && visitor.role == formiga_travel::TravelRole::Adult
+            && !lent
+                .iter()
+                .any(|known: &formiga_travel::Traveler| known.id == visitor.id)
+            && lent.len() < MAX_VISITORS
+            && residents.len() + lent.len() < MAX_RESIDENTS
+        {
+            lent.push(visitor.clone());
+        }
+    }
+    let visitors = lent;
+    let home = |id: TravelerId| {
+        residents.iter().any(|resident| resident.id == id)
+            || visitors.iter().any(|visitor| visitor.id == id)
+    };
     let relationships = travel
         .relationships
         .iter()
@@ -112,6 +181,7 @@ pub fn project_household(
             style,
         },
         residents,
+        visitors,
         relationships,
         village,
         inventory: inventory(save),

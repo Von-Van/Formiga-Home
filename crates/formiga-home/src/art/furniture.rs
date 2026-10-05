@@ -34,6 +34,7 @@ pub fn draw(piece: &Piece, away: bool) -> Sprite {
         "lamp" => lamp(&mut easel),
         "fern" => fern(&mut easel),
         "ball" => ball(&mut easel),
+        "toy_box" => toy_box(&mut easel, away),
         "snack_bowl" => snack_bowl(&mut easel),
         _ => unknown(&mut easel),
     }
@@ -356,12 +357,9 @@ fn floor_of(anchor: (i32, i32), px: i32, py: i32) -> (f32, f32) {
     ((u + v) / 2.0, (v - u) / 2.0)
 }
 
+/// A floor lamp, unlit: the scene adds its light while it is on.
 fn lamp(easel: &mut Easel) {
-    // A pool of warm light round its foot.
-    let (cx, cy) = easel.pixel(0.5, 0.5, 0.0);
-    for (rx, alpha) in [(22, 28_u8), (15, 34), (9, 40)] {
-        paint::ellipse(&mut easel.canvas, cx, cy, rx, rx / 2, rgba(0xffe2a0, alpha));
-    }
+    let (_, cy) = easel.pixel(0.5, 0.5, 0.0);
     easel.disc((0.5, 0.5), 6.0, 1.0, BRASS.shadow);
     easel.disc((0.48, 0.48), 4.5, 2.0, BRASS.light);
     let (top_x, top_y) = easel.pixel(0.5, 0.5, 34.0);
@@ -375,9 +373,19 @@ fn lamp(easel: &mut Easel) {
     );
     easel.cylinder((0.5, 0.5), (9.5, 6.0), (33.0, 45.0), LINEN);
     easel.disc((0.5, 0.5), 6.0, 45.0, LINEN.shine);
-    // The bulb's glow under the shade.
-    let (gx, gy) = easel.pixel(0.5, 0.5, 33.0);
-    paint::ellipse(&mut easel.canvas, gx, gy, 7, 2, rgba(0xfff1c4, 230));
+}
+
+/// A lamp's light, centred on the foot of the lamp at `foot` on the scene: a warm pool round
+/// its foot, drawn on the floor before anything stands on it.
+pub fn lamp_pool(canvas: &mut Canvas, foot: (i32, i32)) {
+    for (rx, alpha) in [(22, 28_u8), (15, 34), (9, 40)] {
+        paint::ellipse(canvas, foot.0, foot.1, rx, rx / 2, rgba(0xffe2a0, alpha));
+    }
+}
+
+/// The glow of the bulb under a lit lamp's shade.
+pub fn lamp_bulb(canvas: &mut Canvas, foot: (i32, i32)) {
+    paint::ellipse(canvas, foot.0, foot.1 - 33, 7, 2, rgba(0xfff1c4, 230));
 }
 
 fn fern(easel: &mut Easel) {
@@ -445,6 +453,55 @@ fn ball(easel: &mut Easel) {
                 ramp.shadow
             };
             easel.canvas.set(cx + dx, cy + dy, tone);
+        }
+    }
+}
+
+/// A painted chest with its lid propped open at the back and toys peeking over the rim. From
+/// behind, the open lid stands in front of them.
+fn toy_box(easel: &mut Easel, away: bool) {
+    easel.shadow((0.12, 0.88), (0.14, 0.88), 60);
+    let flip = |block: Block| if away { block.facing_away(1.0) } else { block };
+    let body = Block::new((0.14, 0.86), (0.2, 0.86), (0.0, 12.0), BERRY);
+    let lid = Block::new((0.12, 0.88), (0.1, 0.2), (11.0, 22.0), BERRY);
+    if away {
+        easel.block(flip(body));
+    } else {
+        easel.blocks(vec![lid, body]);
+    }
+    // A thin brass band round it.
+    let corner = easel.pixel(0.86, 0.86, 6.0);
+    let (left, right) = (easel.pixel(0.14, 0.86, 6.0), easel.pixel(0.86, 0.2, 6.0));
+    paint::line(&mut easel.canvas, left, corner, BRASS.light);
+    paint::line(&mut easel.canvas, corner, right, BRASS.base);
+    // The dark inside, and the toys in it.
+    let inside = [
+        easel.at(0.2, 0.26, 12.0),
+        easel.at(0.8, 0.26, 12.0),
+        easel.at(0.8, 0.8, 12.0),
+        easel.at(0.2, 0.8, 12.0),
+    ];
+    paint::polygon(&mut easel.canvas, &inside, BERRY.edge);
+    let (bx, by) = easel.pixel(0.4, 0.5, 14.0);
+    paint::ellipse(&mut easel.canvas, bx, by, 3, 3, GLAZE.light);
+    paint::put(&mut easel.canvas, bx - 1, by - 1, GLAZE.shine);
+    let (sx, sy) = easel.pixel(0.64, 0.42, 12.0);
+    paint::vline(&mut easel.canvas, sx, sy - 9, 9, WALNUT.light);
+    for (dx, dy, color) in [
+        (-2, -11, SAGE.light),
+        (2, -11, ROSE.light),
+        (0, -13, BRASS.light),
+    ] {
+        paint::put(&mut easel.canvas, sx + dx, sy + dy, color);
+        paint::put(&mut easel.canvas, sx + dx / 2, sy + dy + 1, color);
+    }
+    if away {
+        easel.block(flip(lid));
+    } else {
+        // A painted star on its front.
+        let (cx, cy) = easel.pixel(0.5, 0.86, 9.0);
+        for (dx, dy) in [(0, -1), (-1, 0), (0, 0), (1, 0), (0, 1)] {
+            paint::put(&mut easel.canvas, cx + dx, cy + dy, BRASS.shine);
         }
     }
 }

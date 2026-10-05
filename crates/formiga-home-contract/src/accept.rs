@@ -7,7 +7,7 @@
 use crate::inventory::DisplayMode;
 use crate::replies::{HomeResult, SessionSeal};
 use crate::snapshot::HomeSnapshot;
-use crate::state::{HomeState, HouseholdHome, Spot};
+use crate::state::{HomeState, HouseholdHome, Liked, Spot};
 use crate::{HomeDocument, TravelerId};
 use std::collections::BTreeSet;
 
@@ -27,6 +27,8 @@ impl HomeState {
             return Self::new(&snapshot.colony_key);
         }
         let mut settled = self.clone();
+        // Written again by this build, it is this build's version.
+        settled.version = settled.version.max(crate::HOME_FORMAT_VERSION);
         settled
             .households
             .retain(|home| snapshot.neighbour(home.keeper).is_some());
@@ -43,6 +45,11 @@ impl HomeState {
                     fits && shown.insert(placed.item.clone())
                 });
             }
+            home.forget_what_is_gone();
+            home.likings.retain(|liking| match &liking.thing {
+                Liked::Shown { item } => snapshot.item(item).is_some(),
+                Liked::Piece { .. } => true,
+            });
         }
         settled
     }
@@ -129,6 +136,14 @@ fn proposed_home(
         if room.displays.len() != before {
             set_aside.push("display_not_kept");
         }
+    }
+    // Only those who live here come to like things here: a visitor's likings are its own house's.
+    let before = home.likings.len();
+    home.likings
+        .retain(|liking| snapshot.resident(liking.resident).is_some());
+    home.forget_what_is_gone();
+    if home.likings.len() != before {
+        set_aside.push("liking_not_kept");
     }
     home
 }
