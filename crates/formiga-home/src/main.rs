@@ -51,6 +51,7 @@ Usage: formiga-home [--sample | --formiga-home <VISIT DIRECTORY> | --from-save <
   --page <PAGE>            With --snap: open arranging, on finds, furniture or rooms
   --theme <THEME>          With --snap: the notebook light or dark, whatever the household's
                            own preference
+  --zoom <STEPS>           With --snap: the house that many whole pixels closer than fits
   --scale <N>              Pixels per scene pixel in a PNG (default 3)
   --home-version           Print the newest Home version this build reads, for packaging
   --icon <FOLDER>          Write Home's icon as .icns, .ico and .png, for packaging
@@ -82,6 +83,7 @@ struct Args {
     snap: Option<PathBuf>,
     page: Option<String>,
     theme: Option<String>,
+    zoom: i32,
 }
 
 fn parse_args(mut args: impl Iterator<Item = std::ffi::OsString>) -> Result<Option<Args>> {
@@ -98,6 +100,7 @@ fn parse_args(mut args: impl Iterator<Item = std::ffi::OsString>) -> Result<Opti
         snap: None,
         page: None,
         theme: None,
+        zoom: 0,
     };
     let value = |args: &mut dyn Iterator<Item = std::ffi::OsString>, flag: &str| {
         args.next()
@@ -143,6 +146,12 @@ fn parse_args(mut args: impl Iterator<Item = std::ffi::OsString>) -> Result<Opti
                 );
             }
             Some("--snap") => parsed.snap = Some(value(&mut args, "--snap")?),
+            Some("--zoom") => {
+                parsed.zoom = value(&mut args, "--zoom")?
+                    .to_string_lossy()
+                    .parse()
+                    .context("--zoom is a number of steps")?;
+            }
             Some("--theme") => {
                 parsed.theme = Some(value(&mut args, "--theme")?.to_string_lossy().into());
             }
@@ -280,7 +289,12 @@ fn main() -> Result<()> {
         Box::new(move |cc| {
             let mut app = app::HomeApp::new(&cc.egui_ctx, household, host, data, open);
             if let Some(path) = args.snap {
-                app.snap(path, args.at.unwrap_or(3.0), args.page.as_deref());
+                app.snap(
+                    path,
+                    args.at.unwrap_or(3.0),
+                    args.page.as_deref(),
+                    args.zoom,
+                );
                 match args.theme.as_deref() {
                     Some("dark") => cc.egui_ctx.set_theme(eframe::egui::ThemePreference::Dark),
                     Some("light") => cc.egui_ctx.set_theme(eframe::egui::ThemePreference::Light),

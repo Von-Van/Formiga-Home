@@ -4,8 +4,12 @@
 //! Things are drawn in an order worked out from where they stand on the floor rather than from a
 //! single depth number, so a long sofa and a resident beside it sort correctly: of two things whose
 //! pictures overlap, the one wholly further back along either floor axis goes first. Whoever sits
-//! on a piece is drawn with it — after its seat, before whatever of it stands in front — and
-//! a tall piece that would hide someone standing behind it is drawn faded, so nobody is lost.
+//! on a piece is drawn with it — after its seat, before whatever of it stands in front.
+//!
+//! In a cutaway, a piece can stand in front of what it should not hide: a tall piece in front of
+//! someone, or a piece by a wall cut down low in front of what is in the room behind. Such a piece
+//! is drawn see-through, but only where it covers them and in their own shape, so nobody and
+//! nothing is lost and the piece is otherwise drawn as it is.
 
 use crate::actor::Actor;
 use crate::art::{PieceCache, Sprite, displays, shell};
@@ -62,6 +66,65 @@ pub struct Overlay {
     pub chosen_room: Option<u8>,
     /// A doorway being carried: the stretch of wall it would go in, and whether it fits there.
     pub door: Option<(Wall, bool)>,
+}
+
+/// What has been drawn so far that a piece standing in front of it could hide, pixel by pixel:
+/// anyone at all, and whatever stands in each room.
+struct Behind {
+    width: i32,
+    height: i32,
+    marks: Vec<u8>,
+}
+
+/// Nothing behind a pixel; someone; or, from `THING` up, something standing in a room.
+const NOBODY: u8 = 0;
+const SOMEONE: u8 = 1;
+const THING: u8 = 2;
+
+impl Behind {
+    fn new(width: u32, height: u32) -> Self {
+        Self {
+            width: width as i32,
+            height: height as i32,
+            marks: vec![NOBODY; width as usize * height as usize],
+        }
+    }
+
+    fn at(&self, x: i32, y: i32) -> u8 {
+        if x < 0 || y < 0 || x >= self.width || y >= self.height {
+            return NOBODY;
+        }
+        self.marks[(y * self.width + x) as usize]
+    }
+
+    fn mark(&mut self, x: i32, y: i32, mark: u8) {
+        if x >= 0 && y >= 0 && x < self.width && y < self.height {
+            self.marks[(y * self.width + x) as usize] = mark;
+        }
+    }
+
+    /// Wherever a picture drawn at `(x, y)` covers the scene.
+    fn mark_picture(&mut self, picture: &Canvas, x: i32, y: i32, mark: u8) {
+        for py in 0..picture.height() as i32 {
+            for px in 0..picture.width() as i32 {
+                if picture.get(px, py).a > 40 {
+                    self.mark(x + px, y + py, mark);
+                }
+            }
+        }
+    }
+
+    /// Wherever someone covers the scene.
+    fn mark_actor(&mut self, actor: &mut Actor, view: &View, now: f32) {
+        let (l, t, r, b) = actor.bounds(view, now);
+        for y in t..=b {
+            for x in l..=r {
+                if actor.covers(view, now, (x, y)) {
+                    self.mark(x, y, SOMEONE);
+                }
+            }
+        }
+    }
 }
 
 /// One thing to draw, with the floor it stands on.
@@ -338,17 +401,12 @@ impl Scene {
         }
         let order = self.order(house, snapshot, actors, now, overlay.lifted.as_ref());
         let resident_opacity = if overlay.arranging { 170 } else { 255 };
-        // Who has been drawn so far, for the tall pieces that would hide them.
-        let mut drawn_residents: Vec<(i32, i32, i32, i32)> = Vec::new();
+        // What has been drawn that a piece in front of it could hide.
+        let mut behind = Behind::new(canvas.width(), canvas.height());
         for entry in &order {
             match entry.what {
                 Drawn::Piece(index) => {
                     let piece = &house.pieces[index];
-                    let hides = !entry.flat
-                        && catalog::piece(&piece.piece).is_some_and(|kind| kind.tall())
-                        && drawn_residents
-                            .iter()
-                            .any(|rect| rects_meet(*rect, entry.rect));
                     self.draw_piece(
                         &mut canvas,
                         house,
@@ -356,7 +414,7 @@ impl Scene {
                         actors,
                         index,
                         now,
-                        hides,
+                        &mut behind,
                         resident_opacity,
                     );
                     if let Some(glow) = lit(piece) {
@@ -375,6 +433,8 @@ impl Scene {
                     let (ox, oy) = sprite.origin(at);
                     let picture = sprite.canvas.clone();
                     paint::blit(&mut canvas, &picture, ox, oy);
+                    let room = house.room_at(i32::from(x), i32::from(y)).unwrap_or(0);
+                    behind.mark_picture(&picture, ox, oy, THING + room);
                 }
                 Drawn::Resident(index) => {
                     let actor = &mut actors[index];
@@ -383,7 +443,7 @@ impl Scene {
                         selection_ring(&mut canvas, &view, actor.pos);
                     }
                     actor.draw(&mut canvas, &view, now, resident_opacity);
-                    drawn_residents.push(entry.rect);
+                    behind.mark_actor(actor, &view, now);
                 }
                 Drawn::Wall(index) => {
                     shell::low_wall(&mut canvas, &view, house, &house.walls[index]);
@@ -452,19 +512,31 @@ impl Scene {
         actors: &mut [Actor],
         index: usize,
         now: f32,
-        faded: bool,
+        behind: &mut Behind,
         resident_opacity: u8,
     ) {
         let view = self.view;
         let placed = &house.pieces[index];
         let at = view.pixel(f32::from(placed.x), f32::from(placed.y));
+        let room = house
+            .room_at(i32::from(placed.x), i32::from(placed.y))
+            .unwrap_or(0);
         let Some(kind) = catalog::piece(&placed.piece) else {
             let sprite = crate::art::furniture::draw(&UNKNOWN, false);
             let (ox, oy) = sprite.origin(at);
             paint::blit(canvas, &sprite.canvas, ox, oy);
+            behind.mark_picture(&sprite.canvas, ox, oy, THING + room);
             return;
         };
-        let opacity = if faded { 120 } else { 255 };
+        // See-through where it would hide someone, if it is tall enough to, or where it stands in
+        // front of what is in another room.
+        let (tall, stands) = (kind.tall(), !kind.flat && kind.height >= 16);
+        let hidden = &*behind;
+        let see_through = |x: i32, y: i32| match hidden.at(x, y) {
+            SOMEONE if tall => 110,
+            mark if mark >= THING && stands && mark - THING != room => 110,
+            _ => 255,
+        };
         let sprite = self.pieces.get(kind, placed.turn).clone();
         let (ox, oy) = sprite.origin(at);
         let mut sitters: Vec<usize> = actors
@@ -477,7 +549,7 @@ impl Scene {
             let depth = |actor: &Actor| actor.pos.0 + actor.pos.1;
             depth(&actors[*a]).total_cmp(&depth(&actors[*b]))
         });
-        paint::blit_faded(canvas, &sprite.canvas, ox, oy, opacity);
+        paint::blit_through(canvas, &sprite.canvas, ox, oy, see_through);
         // What is shown on it, lowest first.
         let mut shown: Vec<_> = house
             .shown
@@ -509,11 +581,25 @@ impl Scene {
             let picture = sprite.canvas.clone();
             paint::blit(canvas, &picture, ix, iy);
         }
-        for &sitter in &sitters {
-            actors[sitter].draw(canvas, &view, now, resident_opacity);
-        }
         if let Some(over) = &sprite.over {
-            paint::blit_faded(canvas, over, ox, oy, opacity);
+            for &sitter in &sitters {
+                actors[sitter].draw(canvas, &view, now, resident_opacity);
+            }
+            paint::blit_through(canvas, over, ox, oy, see_through);
+        } else {
+            for &sitter in &sitters {
+                actors[sitter].draw(canvas, &view, now, resident_opacity);
+            }
+        }
+        // Now it, and whoever is on it, may be hidden by what stands in front.
+        if !kind.flat {
+            behind.mark_picture(&sprite.canvas, ox, oy, THING + room);
+            if let Some(over) = &sprite.over {
+                behind.mark_picture(over, ox, oy, THING + room);
+            }
+        }
+        for &sitter in &sitters {
+            behind.mark_actor(&mut actors[sitter], &view, now);
         }
     }
 
@@ -696,10 +782,6 @@ fn tile_rect(view: &View, footprint: Footprint) -> (i32, i32, i32, i32) {
         xs.fold(f32::MIN, f32::max) as i32,
         ys.fold(f32::MIN, f32::max) as i32,
     )
-}
-
-fn rects_meet(a: (i32, i32, i32, i32), b: (i32, i32, i32, i32)) -> bool {
-    a.0 <= b.2 && b.0 <= a.2 && a.1 <= b.3 && b.1 <= a.3
 }
 
 /// Rugs first; then everything else so that of any two whose pictures overlap, the one wholly

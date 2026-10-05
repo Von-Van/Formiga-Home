@@ -8,3 +8,6 @@
 
 # Worktrees Claude Code makes for parallel work
 .claude/worktrees/
+
+# Design documents are kept locally, never in git.
+/docs/DESIGN.md

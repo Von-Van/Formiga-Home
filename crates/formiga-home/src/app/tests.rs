@@ -594,3 +594,35 @@ fn the_cover_s_close_stud_leaves_the_house() {
     assert!(window.asked_to_close());
     let _ = std::fs::remove_dir_all(&data);
 }
+
+#[test]
+fn the_house_comes_closer_moves_about_under_a_drag_and_fits_again() {
+    let data = scratch("zoom");
+    let mut window = Harness::open(&data);
+    let fitted = window.app.room_rect.unwrap();
+    window.key(Key::Plus);
+    window.wait(0.1);
+    let closer = window.app.room_rect.unwrap();
+    assert!(
+        closer.width() > fitted.width(),
+        "{closer:?} after {fitted:?}"
+    );
+    assert!(window.app.zoom.closer_than_fits());
+    // Dragged across the floor, the house moves, and nothing is asked of anyone.
+    let keeper = window.keeper();
+    let from = window.find(&Target::Floor(6, 3));
+    window.drag(from, from + egui::vec2(-60.0, -40.0));
+    window.wait(0.1);
+    let moved = window.app.room_rect.unwrap();
+    assert_ne!(moved.center(), closer.center());
+    assert!(window.app.life.queue(keeper).is_empty());
+    assert!(window.app.carried.is_none());
+    window.click_id(egui::Id::new(("zoom", "fit")));
+    window.wait(0.1);
+    assert_eq!(window.app.room_rect.unwrap(), fitted);
+    // Never further away than fits.
+    window.click_id(egui::Id::new(("zoom", "out")));
+    window.wait(0.1);
+    assert_eq!(window.app.room_rect.unwrap(), fitted);
+    let _ = std::fs::remove_dir_all(&data);
+}

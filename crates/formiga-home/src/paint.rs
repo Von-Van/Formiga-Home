@@ -210,6 +210,28 @@ pub fn blit_faded(canvas: &mut Canvas, sprite: &Canvas, x: i32, y: i32, opacity:
     }
 }
 
+/// A sprite laid over the canvas at an opacity, out of 255, that can differ pixel by pixel: how a
+/// piece is drawn see-through only where it stands in front of something it would hide.
+pub fn blit_through(
+    canvas: &mut Canvas,
+    sprite: &Canvas,
+    x: i32,
+    y: i32,
+    opacity: impl Fn(i32, i32) -> u8,
+) {
+    for sy in 0..sprite.height() as i32 {
+        for sx in 0..sprite.width() as i32 {
+            let pixel = sprite.get(sx, sy);
+            if pixel.a == 0 {
+                continue;
+            }
+            let (px, py) = (x + sx, y + sy);
+            let alpha = (u32::from(pixel.a) * u32::from(opacity(px, py)) / 255) as u8;
+            put(canvas, px, py, faded(pixel, alpha));
+        }
+    }
+}
+
 /// A sprite laid over the canvas washed towards `tint`, for a piece being carried: green where it
 /// can go, red where it cannot.
 pub fn blit_tinted(canvas: &mut Canvas, sprite: &Canvas, x: i32, y: i32, tint: Rgba, opacity: u8) {

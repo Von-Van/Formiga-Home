@@ -24,10 +24,7 @@ Desktop stays the home of the colony. Home never reads the colony file and never
 creature. It hands Desktop back only the houses' layouts and a note that you visited, and Desktop
 keeps only what checks out.
 
-Further reading:
-
-- [docs/DESIGN.md](docs/DESIGN.md): what Home is for, and how a house lives.
-- [docs/CONTRACT.md](docs/CONTRACT.md): the household contract between Desktop and Home.
+Further reading: [docs/CONTRACT.md](docs/CONTRACT.md), the household contract between Desktop and Home.
 
 ## Status
 
@@ -86,6 +83,8 @@ The notebook opens on the house in **Live Mode**.
   show them, and a grump may grumble. Visitors look round at whatever is on show, spend time with
   whoever they are closest to, and after a few minutes go home. They can be asked for things too,
   though never to sleep in anyone's bed.
+- **Closer.** − / Fit / + at the corner of the house's page, the + and − keys, or a pinch bring a
+  big house closer a whole pixel at a time; scroll, or drag across the floor, to move about it.
 - **Photos.** The camera stud, or P, saves a picture of the house without anything of the window
   in it, three times the size, wherever you choose.
 
@@ -178,7 +177,8 @@ cargo run -p formiga-home -- --render-room life.png --lived-in --at 45
 The window itself can be pictured too, for checking the notebook: `--snap <PNG>` opens it, waits
 `--at` seconds, saves a picture of the window and closes. A window opened for a picture stays
 behind whatever else is open and answers to no mouse or key. `--page finds|furniture|rooms` opens
-it arranging, `--theme light|dark` sets its theme, and `--rooms` grows a rehearsal's house first.
+it arranging, `--theme light|dark` sets its theme, `--zoom <steps>` shows the house that many
+whole pixels closer, and `--rooms` grows a rehearsal's house first.
 Give it a scratch `FORMIGA_HOME_DATA_DIR` so the rehearsal it opens is its own.
 
 ### Layout

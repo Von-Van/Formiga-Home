@@ -1,9 +1,13 @@
 # Formiga Home
 
 A separate desktop app that opens one Formiga Desktop household's house as a small isometric
-dollhouse room, to arrange, show finds in, and spend a little time directing the residents. Read
-[docs/DESIGN.md](docs/DESIGN.md) for the product and [docs/CONTRACT.md](docs/CONTRACT.md) for the
-contract with Desktop before changing either side of it.
+dollhouse, to arrange, show finds in, and spend a little time directing the residents. Read
+`docs/DESIGN.md` for the product, where the checkout has it, and
+[docs/CONTRACT.md](docs/CONTRACT.md) for the contract with Desktop before changing either side of
+it.
+
+- Design documents stay out of git and off GitHub: `docs/DESIGN.md` is kept locally and ignored.
+  Keep it current, but never add it, or any other design or planning document, to a commit.
 
 ## Relationship to Formiga Desktop
 

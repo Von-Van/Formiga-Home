@@ -46,6 +46,63 @@ enum Entry {
     Choose(Id),
 }
 
+/// How the house is shown on its page: as big as fits, or zoomed in by whole pixels and moved
+/// about, for a house that has grown too big to see closely all at once.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Zoom {
+    /// Screen pixels to each of the picture's; none for as many as fit.
+    pixels: Option<f32>,
+    /// As many as fit, on the page as it was last drawn.
+    fit: f32,
+    /// How far the picture is moved from the middle of its page, in points.
+    pan: egui::Vec2,
+    /// Being moved about by a drag across the floor.
+    panning: bool,
+    /// A pinch, or a scroll with Ctrl or ⌘, adding up until it makes a step.
+    pinch: f32,
+}
+
+/// The closest the house can be seen: this many screen pixels to each of its own.
+const CLOSEST: f32 = 12.0;
+
+impl Zoom {
+    /// Where the picture goes on its page, `size` pixels of it: centred where it fits, and moved
+    /// no further than keeps the page covered where it does not.
+    fn place(&mut self, page: egui::Rect, pixels_per_point: f32, size: (u32, u32)) -> egui::Rect {
+        let pixels = self.pixels.unwrap_or(self.fit);
+        let shown = egui::vec2(size.0 as f32, size.1 as f32) * pixels / pixels_per_point;
+        let room = ((shown - page.size()) / 2.0).max(egui::Vec2::ZERO);
+        self.pan = self.pan.clamp(-room, room);
+        egui::Rect::from_center_size(page.center() + self.pan, shown)
+    }
+
+    fn closer_than_fits(&self) -> bool {
+        self.pixels.is_some_and(|pixels| pixels > self.fit)
+    }
+
+    /// A whole pixel closer (`by` 1) or further (-1), keeping what is at `anchor`, a point from
+    /// the page's middle, where it is. Never further than fits.
+    fn step(&mut self, by: i32, anchor: egui::Vec2) {
+        let old = self.pixels.unwrap_or(self.fit).max(0.1);
+        let new = old.floor() + by as f32;
+        self.pixels = if new <= self.fit.floor() {
+            None
+        } else {
+            Some(new.min(CLOSEST))
+        };
+        let new = self.pixels.unwrap_or(self.fit).max(0.1);
+        self.pan = anchor - (anchor - self.pan) * (new / old);
+        if self.pixels.is_none() {
+            self.pan = egui::Vec2::ZERO;
+        }
+    }
+
+    fn fit(&mut self) {
+        self.pixels = None;
+        self.pan = egui::Vec2::ZERO;
+    }
+}
+
 struct Menu {
     at: egui::Pos2,
     title: String,
@@ -83,6 +140,8 @@ pub struct HomeApp {
     help: bool,
     /// Which set the furniture page shows, or every set.
     set_shown: Option<catalog::Set>,
+    /// How close the house is seen.
+    zoom: Zoom,
     /// Seconds since the window opened, as egui's input says: one clock for the whole frame.
     clock: f32,
     /// Where the room was drawn last frame.
@@ -93,8 +152,10 @@ pub struct HomeApp {
     place: Option<WindowPlace>,
     left: bool,
     _open: Option<store::Open>,
-    /// For review: a picture of the window itself to save, and when, after which it closes.
+    /// For review: a picture of the window itself to save, and when, after which it closes; and
+    /// how many steps closer than fits to show the house in it.
     snap: Option<(PathBuf, f32, bool)>,
+    snap_zoom: i32,
 }
 
 /// The visited household's home in `state`.
@@ -149,6 +210,7 @@ impl HomeApp {
             chrome: notebook::Chrome::default(),
             help: false,
             set_shown: None,
+            zoom: Zoom::default(),
             clock: 0.0,
             room_rect: None,
             last: 0.0,
@@ -158,13 +220,15 @@ impl HomeApp {
             left: false,
             _open: open,
             snap: None,
+            snap_zoom: 0,
         }
     }
 
     /// For review only: open on `page` of the arranging notes, or living in the house if none,
     /// and after `at` seconds save a picture of the window to `path` and close.
-    pub fn snap(&mut self, path: PathBuf, at: f32, page: Option<&str>) {
+    pub fn snap(&mut self, path: PathBuf, at: f32, page: Option<&str>, zoom: i32) {
         self.snap = Some((path, at, false));
+        self.snap_zoom = zoom;
         let page = match page {
             Some("finds") => Some(Drawer::Finds),
             Some("furniture") => Some(Drawer::Furniture),
@@ -182,6 +246,13 @@ impl HomeApp {
         let Some((path, at, asked)) = self.snap.clone() else {
             return;
         };
+        // Once the page has been laid out once, so the zoom knows what fits.
+        if self.snap_zoom > 0 && self.zoom.fit > 0.0 {
+            for _ in 0..self.snap_zoom {
+                self.zoom.step(1, egui::Vec2::ZERO);
+            }
+            self.snap_zoom = 0;
+        }
         if !asked && self.now() >= at {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
             self.snap = Some((path.clone(), at, true));
@@ -294,8 +365,27 @@ impl HomeApp {
                 input.key_pressed(egui::Key::P),
             )
         });
+        // Closer and further, without ⌘ or Ctrl, which zoom the whole window instead.
+        let (closer, further, fit) = ctx.input(|input| {
+            let plain = !input.modifiers.command;
+            (
+                plain
+                    && (input.key_pressed(egui::Key::Plus) || input.key_pressed(egui::Key::Equals)),
+                plain && input.key_pressed(egui::Key::Minus),
+                plain && input.key_pressed(egui::Key::Num0),
+            )
+        });
         if ctx.egui_wants_keyboard_input() {
             return;
+        }
+        if closer {
+            self.zoom.step(1, egui::Vec2::ZERO);
+        }
+        if further {
+            self.zoom.step(-1, egui::Vec2::ZERO);
+        }
+        if fit {
+            self.zoom.fit();
         }
         if photo {
             self.save_photo();
@@ -374,11 +464,14 @@ impl HomeApp {
     fn room_view(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let now = self.now();
         let house = self.shown_house();
-        let available = ui.available_rect_before_wrap();
+        let page = ui.available_rect_before_wrap();
         let view = crate::iso::View::of(&house);
-        let rect = scene_rect(available, ctx.pixels_per_point(), view.size);
+        let ppp = ctx.pixels_per_point();
+        self.zoom.fit = fit_pixels(page, ppp, view.size);
+        let rect = self.zoom.place(page, ppp, view.size);
+        let visible = rect.intersect(page);
         self.room_rect = Some(rect);
-        let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
+        let response = ui.allocate_rect(visible, egui::Sense::click_and_drag());
         let scale = rect.width() / view.size.0 as f32;
         // While something is carried the pointer is followed wherever it is pressed from, the
         // drawer included; otherwise only while it is over the room.
@@ -388,7 +481,7 @@ impl HomeApp {
         } else {
             response.hover_pos()
         }
-        .filter(|pos| rect.contains(*pos))
+        .filter(|pos| visible.contains(*pos))
         .map(|pos| ((pos.x - rect.min.x) / scale, (pos.y - rect.min.y) / scale));
         let pixel = pointer.map(|(x, y)| (x as i32, y as i32));
         let released = ctx.input(|input| input.pointer.primary_released());
@@ -466,7 +559,8 @@ impl HomeApp {
                 id
             }
         };
-        let painter = ui.painter_at(rect);
+        self.zoom_input(&response, ctx, page);
+        let painter = ui.painter_at(page);
         painter.image(
             texture,
             rect,
@@ -485,8 +579,9 @@ impl HomeApp {
             let galley = painter.layout_no_wrap(name, font, notebook::ink::page(dark));
             let tag = egui::Rect::from_center_size(at, galley.size() + egui::vec2(12.0, 6.0));
             let tag = tag.translate(egui::vec2(
-                (rect.min.x + 2.0 - tag.min.x).max(0.0) + (rect.max.x - 2.0 - tag.max.x).min(0.0),
-                (rect.min.y + 2.0 - tag.min.y).max(0.0),
+                (visible.min.x + 2.0 - tag.min.x).max(0.0)
+                    + (visible.max.x - 2.0 - tag.max.x).min(0.0),
+                (visible.min.y + 2.0 - tag.min.y).max(0.0),
             ));
             painter.rect_filled(
                 tag.translate(egui::vec2(unit, unit)),
@@ -500,6 +595,103 @@ impl HomeApp {
                 galley,
                 notebook::ink::page(dark),
             );
+        }
+    }
+
+    /// Moving about a house seen close, and coming closer or going further: a scroll moves it,
+    /// a drag across the floor moves it, and a pinch, or a scroll with Ctrl or ⌘, zooms.
+    fn zoom_input(&mut self, response: &egui::Response, ctx: &egui::Context, page: egui::Rect) {
+        let (scroll, pinch, moved, down, at) = ctx.input(|input| {
+            (
+                input.smooth_scroll_delta,
+                input.zoom_delta(),
+                input.pointer.delta(),
+                input.pointer.primary_down(),
+                input.pointer.latest_pos(),
+            )
+        });
+        if self.zoom.panning {
+            if down {
+                self.zoom.pan += moved;
+            } else {
+                self.zoom.panning = false;
+            }
+        }
+        if !response.contains_pointer() {
+            return;
+        }
+        let anchor = at.map_or(egui::Vec2::ZERO, |at| at - page.center());
+        if (pinch - 1.0).abs() > f32::EPSILON {
+            self.zoom.pinch += pinch.ln();
+            if self.zoom.pinch > 0.2 {
+                self.zoom.step(1, anchor);
+                self.zoom.pinch = 0.0;
+            } else if self.zoom.pinch < -0.2 {
+                self.zoom.step(-1, anchor);
+                self.zoom.pinch = 0.0;
+            }
+        } else if scroll != egui::Vec2::ZERO && self.zoom.closer_than_fits() {
+            self.zoom.pan += scroll;
+        }
+    }
+
+    /// Closer, as big as fits, and further: three small buttons on a card at the page's corner.
+    fn zoom_controls(&mut self, ui: &mut egui::Ui, page: egui::Rect, unit: f32) {
+        let dark = ui.visuals().dark_mode;
+        let cell = egui::vec2(15.0 * unit, 12.0 * unit);
+        let card = egui::Rect::from_min_size(
+            page.max - egui::vec2(cell.x * 3.0 + 3.0 * unit, cell.y + 3.0 * unit),
+            egui::vec2(cell.x * 3.0, cell.y),
+        );
+        let painter = ui.painter().clone();
+        painter.rect_filled(card.shrink(unit), 0.0, notebook::ink::card(dark));
+        pages::stepped(
+            &painter,
+            card,
+            unit,
+            notebook::ink::line(dark).gamma_multiply(0.7),
+        );
+        let fitted = self.zoom.pixels.is_none();
+        let cells = [
+            ("out", "\u{2212}", "Further away (\u{2212})"),
+            ("fit", "Fit", "The whole house (0)"),
+            ("in", "+", "Closer (+)"),
+        ];
+        for (index, (name, label, hint)) in cells.into_iter().enumerate() {
+            let rect =
+                egui::Rect::from_min_size(card.min + egui::vec2(cell.x * index as f32, 0.0), cell);
+            let response = ui
+                .interact(rect, egui::Id::new(("zoom", name)), egui::Sense::click())
+                .on_hover_text(hint);
+            let lit = response.hovered() || (name == "fit" && fitted);
+            if lit {
+                painter.rect_filled(
+                    rect.shrink(unit),
+                    0.0,
+                    notebook::ink::mint(dark).gamma_multiply(if response.hovered() {
+                        1.0
+                    } else {
+                        0.6
+                    }),
+                );
+            }
+            let galley = painter.layout_no_wrap(
+                label.to_owned(),
+                egui::FontId::proportional(if name == "fit" { 11.0 } else { 14.0 }),
+                notebook::ink::page(dark),
+            );
+            painter.galley(
+                rect.center() - galley.size() / 2.0,
+                galley,
+                notebook::ink::page(dark),
+            );
+            if response.clicked() {
+                match name {
+                    "in" => self.zoom.step(1, egui::Vec2::ZERO),
+                    "out" => self.zoom.step(-1, egui::Vec2::ZERO),
+                    _ => self.zoom.fit(),
+                }
+            }
         }
     }
 
@@ -667,6 +859,11 @@ impl HomeApp {
             self.selected = Some(id);
             return;
         }
+        // Dragged across anything else, a house seen close moves about under the pointer.
+        if response.drag_started() {
+            self.zoom.panning = self.zoom.closer_than_fits();
+            return;
+        }
         if response.secondary_clicked()
             && let Some(Target::Resident(id)) = self.hovered.clone()
         {
@@ -785,9 +982,15 @@ impl HomeApp {
                 Some(Target::Shown(item)) => Some(Carry::Thing(item)),
                 _ => None,
             });
-            if let Some(carry) = carry {
-                self.arranging.carrying = Some(carry);
-                self.arranging.dragged = response.drag_started();
+            match carry {
+                Some(carry) => {
+                    self.arranging.carrying = Some(carry);
+                    self.arranging.dragged = response.drag_started();
+                }
+                None if response.drag_started() => {
+                    self.zoom.panning = self.zoom.closer_than_fits();
+                }
+                None => {}
             }
             return;
         }
@@ -1057,18 +1260,16 @@ fn where_here(house: &House, item: &DisplayId) -> String {
     }
 }
 
-/// The house's picture scaled up by a whole number of pixels where it fits, so every pixel stays
-/// square.
-fn scene_rect(available: egui::Rect, pixels_per_point: f32, size: (u32, u32)) -> egui::Rect {
-    let fit = (available.width() * pixels_per_point / size.0 as f32)
-        .min(available.height() * pixels_per_point / size.1 as f32);
-    let pixels = if fit >= 1.0 {
+/// How many screen pixels to each of the house's picture fit its page: a whole number where at
+/// least one does, so every pixel stays square.
+fn fit_pixels(page: egui::Rect, pixels_per_point: f32, size: (u32, u32)) -> f32 {
+    let fit = (page.width() * pixels_per_point / size.0 as f32)
+        .min(page.height() * pixels_per_point / size.1 as f32);
+    if fit >= 1.0 {
         fit.floor()
     } else {
         fit.max(0.1)
-    };
-    let size = egui::vec2(size.0 as f32, size.1 as f32) * pixels / pixels_per_point;
-    egui::Rect::from_center_size(available.center(), size)
+    }
 }
 
 impl eframe::App for HomeApp {
@@ -1155,6 +1356,7 @@ impl HomeApp {
                 ui.scope_builder(egui::UiBuilder::new().max_rect(page), |ui| {
                     self.room_view(ui, &ctx);
                 });
+                self.zoom_controls(ui, page, layout.unit);
                 ui.scope_builder(egui::UiBuilder::new().max_rect(layout.notes), |ui| {
                     self.notes(ui, &ctx, layout.unit);
                 });
