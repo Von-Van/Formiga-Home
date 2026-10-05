@@ -1,0 +1,366 @@
+//! The houses as Home has arranged them: kept by Desktop beside the colony and never inside it,
+//! so a colony without Home, or with Home removed, is exactly the colony it was.
+//!
+//! Only what Home owns is here: each household's rooms, what stands in them and what is shown
+//! where. Pieces and surfaces are named by Home's catalogue identifiers and placed on whole floor
+//! tiles; nothing here is a path, a script, a picture, or prose.
+
+use crate::document::{HomeDocument, HomeError, header_ok, is_lower_hex};
+use crate::ids::{CatalogId, DisplayId};
+use crate::limits::*;
+use crate::{HOME_FORMAT_VERSION, STATE_FORMAT};
+use formiga_travel::TravelerId;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
+
+/// One of the two walls a room shows: the far ones, which a cutaway leaves standing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WallSide {
+    /// Along the room's width, at the back on the right.
+    North,
+    /// Along the room's depth, at the back on the left.
+    West,
+}
+
+/// Where something is shown.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Spot {
+    /// On one of a piece's surfaces: a table top, a shelf, a case. `slot` counts that piece's
+    /// places from 0.
+    On { piece: u16, slot: u8 },
+    /// Hung on a wall, `at` tiles along it.
+    Wall { side: WallSide, at: u8 },
+    /// Standing on a floor tile of its own.
+    Floor { x: u8, y: u8 },
+}
+
+/// A piece of furniture where it stands. `uid` names this piece in its room, so what is shown on
+/// it moves with it; `turn` is quarter turns from the piece's own front.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlacedPiece {
+    pub uid: u16,
+    pub piece: CatalogId,
+    pub x: u8,
+    pub y: u8,
+    #[serde(default)]
+    pub turn: u8,
+}
+
+/// Something the colony has, shown somewhere in a room.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlacedDisplay {
+    pub item: DisplayId,
+    pub spot: Spot,
+}
+
+/// One room: its size in floor tiles, what its floor and walls are, and what is in it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoomLayout {
+    pub width: u8,
+    pub depth: u8,
+    pub floor: CatalogId,
+    pub wall: CatalogId,
+    #[serde(default)]
+    pub pieces: Vec<PlacedPiece>,
+    #[serde(default)]
+    pub displays: Vec<PlacedDisplay>,
+}
+
+impl RoomLayout {
+    pub fn piece(&self, uid: u16) -> Option<&PlacedPiece> {
+        self.pieces.iter().find(|piece| piece.uid == uid)
+    }
+
+    fn validate(&self) -> Result<(), HomeError> {
+        let invalid = HomeError::invalid;
+        let sides = MIN_ROOM_TILES..=MAX_ROOM_TILES;
+        if !sides.contains(&self.width) || !sides.contains(&self.depth) {
+            return Err(invalid("a room of a size no room can be"));
+        }
+        let mut uids = BTreeSet::new();
+        for piece in &self.pieces {
+            if piece.x >= self.width || piece.y >= self.depth || piece.turn >= TURNS {
+                return Err(invalid("a piece stands outside its room"));
+            }
+            if !uids.insert(piece.uid) {
+                return Err(invalid("two pieces in a room share a name"));
+            }
+        }
+        let mut spots = BTreeSet::new();
+        for shown in &self.displays {
+            let inside = match shown.spot {
+                Spot::On { piece, .. } => uids.contains(&piece),
+                Spot::Wall {
+                    side: WallSide::North,
+                    at,
+                } => at < self.width,
+                Spot::Wall {
+                    side: WallSide::West,
+                    at,
+                } => at < self.depth,
+                Spot::Floor { x, y } => x < self.width && y < self.depth,
+            };
+            if !inside {
+                return Err(invalid(
+                    "something is shown somewhere its room does not have",
+                ));
+            }
+            if !spots.insert(shown.spot) {
+                return Err(invalid("two things are shown in one place"));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// One household's home.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HouseholdHome {
+    /// The companion who keeps the house, as Desktop names it.
+    pub keeper: TravelerId,
+    /// The first room is the one the house opens into.
+    pub rooms: Vec<RoomLayout>,
+}
+
+impl HouseholdHome {
+    /// Furniture and displays together, across every room.
+    pub fn placed(&self) -> usize {
+        self.rooms
+            .iter()
+            .map(|room| room.pieces.len() + room.displays.len())
+            .sum()
+    }
+
+    /// Every thing this household shows, in every room.
+    pub fn shown(&self) -> impl Iterator<Item = &DisplayId> {
+        self.rooms
+            .iter()
+            .flat_map(|room| room.displays.iter().map(|shown| &shown.item))
+    }
+
+    /// Stop showing `item` anywhere in this household. Whether it was shown.
+    pub fn take_down(&mut self, item: &DisplayId) -> bool {
+        let mut found = false;
+        for room in &mut self.rooms {
+            let before = room.displays.len();
+            room.displays.retain(|shown| &shown.item != item);
+            found |= room.displays.len() != before;
+        }
+        found
+    }
+
+    fn validate(&self) -> Result<(), HomeError> {
+        if self.rooms.is_empty() || self.rooms.len() > MAX_ROOMS {
+            return Err(HomeError::invalid("a home of one to three rooms"));
+        }
+        if self.placed() > MAX_PLACED_PER_HOUSEHOLD {
+            return Err(HomeError::invalid("a home with too much in it"));
+        }
+        self.rooms.iter().try_for_each(RoomLayout::validate)
+    }
+}
+
+/// Every household's home, for one colony.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HomeState {
+    pub format: String,
+    pub version: u32,
+    pub min_reader_version: u32,
+    /// The colony these homes belong to: a snapshot's `colony_key`. Homes kept for any other
+    /// colony are never shown to this one.
+    pub colony_key: String,
+    #[serde(default)]
+    pub households: Vec<HouseholdHome>,
+}
+
+impl HomeState {
+    /// No homes arranged yet: every house opens as it first would.
+    pub fn new(colony_key: &str) -> Self {
+        Self {
+            format: STATE_FORMAT.to_owned(),
+            version: HOME_FORMAT_VERSION,
+            min_reader_version: 1,
+            colony_key: colony_key.to_owned(),
+            households: Vec::new(),
+        }
+    }
+
+    pub fn household(&self, keeper: TravelerId) -> Option<&HouseholdHome> {
+        self.households.iter().find(|home| home.keeper == keeper)
+    }
+
+    pub fn household_mut(&mut self, keeper: TravelerId) -> Option<&mut HouseholdHome> {
+        self.households
+            .iter_mut()
+            .find(|home| home.keeper == keeper)
+    }
+
+    /// The household that shows `item`, if any does.
+    pub fn shown_by(&self, item: &DisplayId) -> Option<TravelerId> {
+        self.households
+            .iter()
+            .find(|home| home.shown().any(|shown| shown == item))
+            .map(|home| home.keeper)
+    }
+
+    /// Put `home` in place of the household's own, or add it.
+    pub fn set_household(&mut self, home: HouseholdHome) {
+        match self.household_mut(home.keeper) {
+            Some(kept) => *kept = home,
+            None => self.households.push(home),
+        }
+    }
+}
+
+impl HomeDocument for HomeState {
+    const FORMAT: &'static str = STATE_FORMAT;
+    const MAX_BYTES: u64 = MAX_STATE_BYTES;
+
+    fn validate(&self) -> Result<(), HomeError> {
+        let invalid = HomeError::invalid;
+        if !header_ok(
+            &self.format,
+            self.version,
+            self.min_reader_version,
+            STATE_FORMAT,
+        ) {
+            return Err(invalid("the state's header is not one this build writes"));
+        }
+        if !is_lower_hex(&self.colony_key, 16) {
+            return Err(invalid("a colony key is 16 lowercase hex digits"));
+        }
+        if self.households.len() > MAX_HOUSEHOLDS {
+            return Err(invalid("too many households"));
+        }
+        let mut keepers = BTreeSet::new();
+        let mut shown = BTreeSet::new();
+        for home in &self.households {
+            if !keepers.insert(home.keeper) {
+                return Err(invalid("a household is listed twice"));
+            }
+            home.validate()?;
+            for item in home.shown() {
+                // One thing, one place: moving a find to another house moves it, never copies it.
+                if !shown.insert(item) {
+                    return Err(invalid("one thing is shown in two places"));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{decode, encode};
+
+    pub(crate) fn room() -> RoomLayout {
+        RoomLayout {
+            width: 8,
+            depth: 8,
+            floor: CatalogId::known("floor.boards"),
+            wall: CatalogId::known("wall.plaster"),
+            pieces: vec![PlacedPiece {
+                uid: 1,
+                piece: CatalogId::known("shelf"),
+                x: 0,
+                y: 2,
+                turn: 1,
+            }],
+            displays: vec![
+                PlacedDisplay {
+                    item: DisplayId::find(3),
+                    spot: Spot::On { piece: 1, slot: 0 },
+                },
+                PlacedDisplay {
+                    item: DisplayId::find(76),
+                    spot: Spot::Wall {
+                        side: WallSide::North,
+                        at: 5,
+                    },
+                },
+            ],
+        }
+    }
+
+    fn state() -> HomeState {
+        let mut state = HomeState::new("0123456789abcdef");
+        state.households.push(HouseholdHome {
+            keeper: TravelerId(7),
+            rooms: vec![room()],
+        });
+        state
+    }
+
+    #[test]
+    fn a_state_round_trips_byte_for_byte() {
+        let bytes = encode(&state()).unwrap();
+        let read: HomeState = decode(&bytes).unwrap();
+        assert_eq!(read, state());
+        assert_eq!(encode(&read).unwrap(), bytes);
+    }
+
+    #[test]
+    fn one_find_cannot_be_shown_in_two_houses() {
+        let mut twice = state();
+        twice.households.push(HouseholdHome {
+            keeper: TravelerId(8),
+            rooms: vec![room()],
+        });
+        assert!(twice.validate().is_err());
+        twice.households[1].take_down(&DisplayId::find(3));
+        twice.households[1].take_down(&DisplayId::find(76));
+        assert!(twice.validate().is_ok());
+    }
+
+    #[test]
+    fn layouts_that_do_not_add_up_are_refused() {
+        let mut outside = state();
+        outside.households[0].rooms[0].pieces[0].x = 8;
+        let mut turned = state();
+        turned.households[0].rooms[0].pieces[0].turn = TURNS;
+        let mut floating = state();
+        floating.households[0].rooms[0].displays[0].spot = Spot::On { piece: 9, slot: 0 };
+        let mut high = state();
+        high.households[0].rooms[0].displays[1].spot = Spot::Wall {
+            side: WallSide::West,
+            at: 8,
+        };
+        let mut crowded = state();
+        crowded.households[0].rooms[0].displays[1].spot = Spot::On { piece: 1, slot: 0 };
+        let mut huge = state();
+        huge.households[0].rooms[0].width = MAX_ROOM_TILES + 1;
+        let mut rambling = state();
+        rambling.households[0].rooms = vec![room(); MAX_ROOMS + 1];
+        let mut roofless = state();
+        roofless.households[0].rooms.clear();
+        let mut cluttered = state();
+        cluttered.households[0].rooms[0].pieces = (0..=MAX_PLACED_PER_HOUSEHOLD as u16)
+            .map(|uid| PlacedPiece {
+                uid,
+                piece: CatalogId::known("cushion"),
+                x: 0,
+                y: 0,
+                turn: 0,
+            })
+            .collect();
+        let mut stranger = state();
+        stranger.colony_key = "not a key".to_owned();
+        for state in [
+            outside, turned, floating, high, crowded, huge, rambling, roofless, cluttered, stranger,
+        ] {
+            assert!(state.validate().is_err(), "{state:?} was accepted");
+        }
+    }
+
+    #[test]
+    fn identifiers_that_are_not_identifiers_are_refused_when_read() {
+        let mut value = serde_json::to_value(state()).unwrap();
+        value["households"][0]["rooms"][0]["pieces"][0]["piece"] = "../../colony.json".into();
+        let bytes = serde_json::to_vec(&value).unwrap();
+        assert!(decode::<HomeState>(&bytes).is_err());
+    }
+}

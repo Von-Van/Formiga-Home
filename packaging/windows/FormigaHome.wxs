@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Formiga Home for one user, where Formiga Desktop looks for it: the registry key and values
+     are the ones formiga-home-contract's discovery module names. -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="Formiga Home"
+      Manufacturer="Formiga"
+      Version="$(HomeVersion)"
+      UpgradeCode="6059D08F-C440-46AF-97BB-C6450E05898B"
+      Scope="perUser">
+    <MajorUpgrade DowngradeErrorMessage="A newer Formiga Home is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Icon Id="HomeIcon" SourceFile="$(HomeIcon)" />
+    <Property Id="ARPPRODUCTICON" Value="HomeIcon" />
+    <Property Id="ARPCOMMENTS" Value="The inside of your Formiga colony's houses." />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="INSTALLFOLDER" Name="Formiga Home">
+        <Component Id="HomeApplication" Guid="F01F7F8D-5AF6-4102-9C46-B9C23E86CCBA">
+          <File Id="HomeExecutable" Source="$(HomeExe)" Name="Formiga Home.exe" KeyPath="yes" />
+          <RegistryValue
+              Root="HKCU"
+              Key="Software\Formiga\Home"
+              Name="Path"
+              Type="string"
+              Value="[INSTALLFOLDER]Formiga Home.exe" />
+          <RegistryValue
+              Root="HKCU"
+              Key="Software\Formiga\Home"
+              Name="Version"
+              Type="string"
+              Value="$(HomeVersion)" />
+          <RegistryValue
+              Root="HKCU"
+              Key="Software\Formiga\Home"
+              Name="HomeVersion"
+              Type="integer"
+              Value="$(HomeContractVersion)" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="Formiga">
+        <Component Id="HomeShortcut" Guid="7453910E-9EDC-4934-94A7-F9AEEA64AC06">
+          <Shortcut
+              Id="HomeStartMenuShortcut"
+              Name="Formiga Home"
+              Target="[INSTALLFOLDER]Formiga Home.exe"
+              WorkingDirectory="INSTALLFOLDER"
+              Icon="HomeIcon" />
+          <RemoveFolder Id="RemoveHomeProgramsFolder" On="uninstall" />
+          <RegistryValue
+              Root="HKCU"
+              Key="Software\Formiga\Home"
+              Name="StartMenuShortcut"
+              Type="integer"
+              Value="1"
+              KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="Formiga Home" Level="1">
+      <ComponentRef Id="HomeApplication" />
+      <ComponentRef Id="HomeShortcut" />
+    </Feature>
+  </Package>
+</Wix>

@@ -1,0 +1,10 @@
+/target/
+/dist/
+/.DS_Store
+*.log
+/*.png
+# Local [patch] overrides pointing at a Desktop checkout; see README.md.
+/.cargo/config.toml
+
+# Worktrees Claude Code makes for parallel work
+.claude/worktrees/
