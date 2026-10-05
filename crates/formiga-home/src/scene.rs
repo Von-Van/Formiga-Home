@@ -1,4 +1,4 @@
-//! One frame of the room: its shell, everything in it back to front, the residents among it all,
+//! One frame of the house: its shell, everything in it back to front, the residents among it all,
 //! and whatever the owner is pointing at or carrying.
 //!
 //! Things are drawn in an order worked out from where they stand on the floor rather than from a
@@ -10,18 +10,20 @@
 use crate::actor::Actor;
 use crate::art::{PieceCache, Sprite, displays, shell};
 use crate::catalog;
+use crate::house::{At, Height, House, Room, Wall};
 use crate::household::Id;
-use crate::iso::{SCENE_HEIGHT, SCENE_WIDTH, View};
+use crate::iso::View;
 use crate::paint::{self, rgba};
 use crate::room::{self, Footprint, Place, Showing};
 use formiga_art::{Canvas, Rgba};
-use formiga_home_contract::{DisplayId, DisplayItem, HomeSnapshot, RoomLayout, Spot};
+use formiga_home_contract::{DisplayId, DisplayItem, HomeSnapshot};
 use std::collections::HashMap;
 
 /// How high on a wall something hangs, in pixels above the floor.
 pub const HANG_HEIGHT: i32 = 32;
 
-/// Something in the room the owner can point at.
+/// Something in the house the owner can point at. A piece goes by its name in the house, and the
+/// floor by a tile of the house's floor.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
     Resident(Id),
@@ -51,6 +53,15 @@ pub struct Overlay {
     pub lifted: Option<Target>,
     /// Lamps switched off.
     pub lamps_off: Vec<u16>,
+    /// The table-top light behind the house, as a photo has it; otherwise the picture is clear
+    /// round the house, for the page it is drawn on.
+    pub backdrop: bool,
+    /// A room still being placed, picked out so it reads as the new one.
+    pub new_room: Option<u8>,
+    /// The room the owner is choosing finishes for, outlined.
+    pub chosen_room: Option<u8>,
+    /// A doorway being carried: the stretch of wall it would go in, and whether it fits there.
+    pub door: Option<(Wall, bool)>,
 }
 
 /// One thing to draw, with the floor it stands on.
@@ -59,6 +70,8 @@ enum Drawn {
     Piece(usize),
     FloorThing(usize),
     Resident(usize),
+    /// A wall cut down low, by its place among the house's walls.
+    Wall(usize),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -104,8 +117,9 @@ impl Placed {
     }
 }
 
-/// What the shell was last drawn for: its floor, its walls, its size, and what hangs on them.
-type ShellKey = (String, String, u8, u8, Vec<(DisplayId, Spot)>);
+/// What the shell was last drawn for: the rooms, their walls, what hangs on them, and whether
+/// with the backdrop.
+type ShellKey = (Vec<Room>, Vec<Wall>, Vec<(DisplayId, At)>, bool);
 
 pub struct Scene {
     pub view: View,
@@ -135,11 +149,12 @@ impl From<Place> for PlaceKey {
 }
 
 impl Scene {
-    pub fn new(layout: &RoomLayout) -> Self {
+    pub fn new(house: &House) -> Self {
+        let view = View::of(house);
         Self {
-            view: View::new(layout.width, layout.depth),
+            view,
             shell_key: None,
-            shell: Canvas::new(SCENE_WIDTH, SCENE_HEIGHT),
+            shell: Canvas::new(view.size.0, view.size.1),
             pieces: PieceCache::default(),
             things: HashMap::new(),
         }
@@ -156,29 +171,30 @@ impl Scene {
         self.pieces.get(piece, turn)
     }
 
-    /// The shell, with whatever hangs on its walls, drawn again only when either changes.
-    fn refresh_shell(&mut self, layout: &RoomLayout, snapshot: &HomeSnapshot) {
-        let mut hung: Vec<_> = layout
-            .displays
+    /// The shell, with whatever hangs on its walls, drawn again only when either changes. The
+    /// house's picture is as big as the house needs.
+    pub fn refresh_shell(&mut self, house: &House, snapshot: &HomeSnapshot, backdrop: bool) {
+        let mut hung: Vec<_> = house
+            .shown
             .iter()
-            .filter(|shown| matches!(shown.spot, Spot::Wall { .. }))
-            .map(|shown| (shown.item.clone(), shown.spot))
+            .filter(|shown| matches!(shown.at, At::Wall { .. }))
+            .map(|shown| (shown.item.clone(), shown.at))
             .collect();
         hung.sort_by_key(|shown| shown.1);
-        let key = (
-            layout.floor.as_str().to_owned(),
-            layout.wall.as_str().to_owned(),
-            layout.width,
-            layout.depth,
-            hung,
-        );
+        let key = (house.rooms.clone(), house.walls.clone(), hung, backdrop);
         if self.shell_key.as_ref() == Some(&key) {
             return;
         }
-        self.view = View::new(layout.width, layout.depth);
-        let mut canvas = shell::draw(&self.view, layout.floor.as_str(), layout.wall.as_str());
-        for (item, spot) in &key.4 {
-            let Spot::Wall { side, at } = *spot else {
+        self.view = View::of(house);
+        let mut canvas = shell::draw(&self.view, house, backdrop);
+        for (item, at) in &key.2 {
+            let At::Wall { room, side, at } = *at else {
+                continue;
+            };
+            let Some(wall) = house
+                .wall(room, side, at)
+                .filter(|wall| wall.height == Height::Full && !wall.door)
+            else {
                 continue;
             };
             let Some(item) = snapshot.item(item) else {
@@ -187,7 +203,7 @@ impl Scene {
             let Some(showing) = room::showing(item, Place::Wall) else {
                 continue;
             };
-            let at_screen = self.view.on_wall(side, at, HANG_HEIGHT);
+            let at_screen = self.view.on_wall(wall, HANG_HEIGHT);
             let sprite = self.thing(item, Place::Wall, showing);
             let (ox, oy) = sprite.origin(at_screen);
             let picture = sprite.canvas.clone();
@@ -200,7 +216,7 @@ impl Scene {
     /// Everything that stands on the floor, in the order it is drawn.
     fn order(
         &mut self,
-        layout: &RoomLayout,
+        house: &House,
         snapshot: &HomeSnapshot,
         actors: &mut [Actor],
         now: f32,
@@ -208,7 +224,7 @@ impl Scene {
     ) -> Vec<Placed> {
         let view = self.view;
         let mut placed = Vec::new();
-        for (index, piece) in layout.pieces.iter().enumerate() {
+        for (index, piece) in house.pieces.iter().enumerate() {
             if lifted == Some(&Target::Piece(piece.uid)) {
                 continue;
             }
@@ -229,8 +245,8 @@ impl Scene {
                 flat,
             });
         }
-        for (index, shown) in layout.displays.iter().enumerate() {
-            let Spot::Floor { x, y } = shown.spot else {
+        for (index, shown) in house.shown.iter().enumerate() {
+            let At::Floor { x, y } = shown.at else {
                 continue;
             };
             if lifted == Some(&Target::Shown(shown.item.clone())) {
@@ -266,36 +282,68 @@ impl Scene {
                 flat: false,
             });
         }
+        // A wall cut down low stands on the line between two tiles: in front of the one behind
+        // it, and behind its own.
+        for (index, wall) in house.walls.iter().enumerate() {
+            if wall.height != Height::Low || wall.door {
+                continue;
+            }
+            let (a, b) = wall.foot();
+            placed.push(Placed {
+                what: Drawn::Wall(index),
+                x: (a.0, b.0),
+                y: (a.1, b.1),
+                rect: shell::low_wall_rect(&view, wall),
+                flat: false,
+            });
+        }
         sort_back_to_front(placed)
     }
 
-    /// The room as it is at `now`.
+    /// The house as it is at `now`, in a picture as big as [`Self::view`] says.
     pub fn compose(
         &mut self,
-        layout: &RoomLayout,
+        house: &House,
         snapshot: &HomeSnapshot,
         actors: &mut [Actor],
         now: f32,
         overlay: &Overlay,
     ) -> Canvas {
-        self.refresh_shell(layout, snapshot);
+        self.refresh_shell(house, snapshot, overlay.backdrop);
         let mut canvas = self.shell.clone();
         let view = self.view;
+        // The front door stands open while anyone is in its doorway.
+        for wall in house
+            .walls
+            .iter()
+            .filter(|wall| wall.opens_outside() && wall.height == Height::Full)
+        {
+            let (mx, my) = wall.middle();
+            let passing = actors.iter().any(|actor| {
+                !actor.hidden && (actor.pos.0 - mx).powi(2) + (actor.pos.1 - my).powi(2) < 0.7
+            });
+            if passing {
+                shell::front_door(&mut canvas, &view, wall, true);
+            }
+        }
+        // A light that is on, and how high its bulb glows.
         let lit = |placed: &formiga_home_contract::PlacedPiece| {
-            placed.piece.as_str() == "lamp" && !overlay.lamps_off.contains(&placed.uid)
+            catalog::piece(&placed.piece)
+                .and_then(|piece| piece.glow())
+                .filter(|_| !overlay.lamps_off.contains(&placed.uid))
         };
-        for placed in layout.pieces.iter().filter(|placed| lit(placed)) {
+        for placed in house.pieces.iter().filter(|placed| lit(placed).is_some()) {
             let (cx, cy) = room::footprint(placed).centre();
             crate::art::furniture::lamp_pool(&mut canvas, view.pixel(cx, cy));
         }
-        let order = self.order(layout, snapshot, actors, now, overlay.lifted.as_ref());
+        let order = self.order(house, snapshot, actors, now, overlay.lifted.as_ref());
         let resident_opacity = if overlay.arranging { 170 } else { 255 };
         // Who has been drawn so far, for the tall pieces that would hide them.
         let mut drawn_residents: Vec<(i32, i32, i32, i32)> = Vec::new();
         for entry in &order {
             match entry.what {
                 Drawn::Piece(index) => {
-                    let piece = &layout.pieces[index];
+                    let piece = &house.pieces[index];
                     let hides = !entry.flat
                         && catalog::piece(&piece.piece).is_some_and(|kind| kind.tall())
                         && drawn_residents
@@ -303,7 +351,7 @@ impl Scene {
                             .any(|rect| rects_meet(*rect, entry.rect));
                     self.draw_piece(
                         &mut canvas,
-                        layout,
+                        house,
                         snapshot,
                         actors,
                         index,
@@ -311,15 +359,14 @@ impl Scene {
                         hides,
                         resident_opacity,
                     );
-                    if lit(piece) {
+                    if let Some(glow) = lit(piece) {
                         let (cx, cy) = room::footprint(piece).centre();
-                        crate::art::furniture::lamp_bulb(&mut canvas, view.pixel(cx, cy));
+                        crate::art::furniture::lamp_bulb(&mut canvas, view.pixel(cx, cy), glow);
                     }
                 }
                 Drawn::FloorThing(index) => {
-                    let shown = &layout.displays[index];
-                    let (Spot::Floor { x, y }, Some(item)) =
-                        (shown.spot, snapshot.item(&shown.item))
+                    let shown = &house.shown[index];
+                    let (At::Floor { x, y }, Some(item)) = (shown.at, snapshot.item(&shown.item))
                     else {
                         continue;
                     };
@@ -338,6 +385,9 @@ impl Scene {
                     actor.draw(&mut canvas, &view, now, resident_opacity);
                     drawn_residents.push(entry.rect);
                 }
+                Drawn::Wall(index) => {
+                    shell::low_wall(&mut canvas, &view, house, &house.walls[index]);
+                }
             }
         }
         if !overlay.arranging {
@@ -346,7 +396,34 @@ impl Scene {
             }
         }
         if let Some(target) = &overlay.hovered {
-            self.ring(&mut canvas, layout, snapshot, actors, now, target);
+            self.ring(&mut canvas, house, snapshot, actors, now, target);
+        }
+        if let Some(footprint) = overlay.new_room.and_then(|room| house.footprint(room)) {
+            outline_tiles(&mut canvas, &view, footprint, rgba(0x7fd08a, 230));
+        }
+        if let Some(footprint) = overlay.chosen_room.and_then(|room| house.footprint(room)) {
+            outline_tiles(&mut canvas, &view, footprint, rgba(0xf4c95d, 230));
+        }
+        if let Some((wall, fits)) = &overlay.door {
+            let tint = if *fits {
+                rgba(0x7fd08a, 230)
+            } else {
+                rgba(0xe0606a, 230)
+            };
+            let rise = match wall.height {
+                Height::Full => 40,
+                Height::Low => shell::LOW_WALL,
+            };
+            let (a, b) = wall.foot();
+            let (a, b) = (view.pixel(a.0, a.1), view.pixel(b.0, b.1));
+            for (from, to) in [
+                (a, b),
+                ((b.0, b.1 - rise), (a.0, a.1 - rise)),
+                (a, (a.0, a.1 - rise)),
+                (b, (b.0, b.1 - rise)),
+            ] {
+                paint::line(&mut canvas, from, to, tint);
+            }
         }
         if let Some(ghost) = &overlay.ghost {
             let tint = if ghost.fits {
@@ -370,7 +447,7 @@ impl Scene {
     fn draw_piece(
         &mut self,
         canvas: &mut Canvas,
-        layout: &RoomLayout,
+        house: &House,
         snapshot: &HomeSnapshot,
         actors: &mut [Actor],
         index: usize,
@@ -379,7 +456,7 @@ impl Scene {
         resident_opacity: u8,
     ) {
         let view = self.view;
-        let placed = &layout.pieces[index];
+        let placed = &house.pieces[index];
         let at = view.pixel(f32::from(placed.x), f32::from(placed.y));
         let Some(kind) = catalog::piece(&placed.piece) else {
             let sprite = crate::art::furniture::draw(&UNKNOWN, false);
@@ -402,11 +479,11 @@ impl Scene {
         });
         paint::blit_faded(canvas, &sprite.canvas, ox, oy, opacity);
         // What is shown on it, lowest first.
-        let mut shown: Vec<_> = layout
-            .displays
+        let mut shown: Vec<_> = house
+            .shown
             .iter()
-            .filter_map(|shown| match shown.spot {
-                Spot::On { piece, slot } if piece == placed.uid => Some((slot, &shown.item)),
+            .filter_map(|shown| match shown.at {
+                At::On { piece, slot } if piece == placed.uid => Some((slot, &shown.item)),
                 _ => None,
             })
             .collect();
@@ -444,7 +521,7 @@ impl Scene {
     fn ring(
         &mut self,
         canvas: &mut Canvas,
-        layout: &RoomLayout,
+        house: &House,
         snapshot: &HomeSnapshot,
         actors: &mut [Actor],
         now: f32,
@@ -469,7 +546,7 @@ impl Scene {
                 }
             }
             Target::Piece(uid) => {
-                if let Some(placed) = layout.piece(*uid)
+                if let Some(placed) = house.piece(*uid)
                     && let Some(kind) = catalog::piece(&placed.piece)
                 {
                     let sprite = self.pieces.get(kind, placed.turn);
@@ -480,7 +557,7 @@ impl Scene {
                 }
             }
             Target::Shown(item) => {
-                if let Some((sprite, at)) = self.shown_sprite(layout, snapshot, item) {
+                if let Some((sprite, at)) = self.shown_sprite(house, snapshot, item) {
                     let (ox, oy) = sprite.origin(at);
                     paint::ring(canvas, &sprite.canvas, ox, oy, color);
                 }
@@ -497,14 +574,14 @@ impl Scene {
         }
     }
 
-    /// Where something shown at `spot` has its anchor on the scene.
-    pub fn spot_anchor(&self, layout: &RoomLayout, spot: Spot) -> Option<(i32, i32)> {
+    /// Where something shown at `at` has its anchor on the scene.
+    pub fn spot_anchor(&self, house: &House, at: At) -> Option<(i32, i32)> {
         let view = self.view;
-        Some(match spot {
-            Spot::Wall { side, at } => view.on_wall(side, at, HANG_HEIGHT),
-            Spot::Floor { x, y } => floor_anchor(&view, x, y),
-            Spot::On { piece, slot } => {
-                let surface = room::surfaces(layout.piece(piece)?)
+        Some(match at {
+            At::Wall { room, side, at } => view.on_wall(house.wall(room, side, at)?, HANG_HEIGHT),
+            At::Floor { x, y } => floor_anchor(&view, x, y),
+            At::On { piece, slot } => {
+                let surface = room::surfaces(house.piece(piece)?)
                     .into_iter()
                     .nth(usize::from(slot))?;
                 let (sx, sy) = view.screen(surface.at.0, surface.at.1);
@@ -516,15 +593,15 @@ impl Scene {
     /// A shown thing's picture and where its anchor is, wherever it is shown.
     fn shown_sprite(
         &mut self,
-        layout: &RoomLayout,
+        house: &House,
         snapshot: &HomeSnapshot,
         item: &DisplayId,
     ) -> Option<(Sprite, (i32, i32))> {
-        let shown = layout.displays.iter().find(|shown| &shown.item == item)?;
+        let shown = house.shown.iter().find(|shown| &shown.item == item)?;
         let thing = snapshot.item(item)?;
-        let place = room::place_of(layout, shown.spot)?;
+        let place = house.place_of(shown.at)?;
         let showing = room::showing(thing, place)?;
-        let at = self.spot_anchor(layout, shown.spot)?;
+        let at = self.spot_anchor(house, shown.at)?;
         Some((self.thing(thing, place, showing).clone(), at))
     }
 
@@ -532,30 +609,30 @@ impl Scene {
     /// then the floor.
     pub fn hit(
         &mut self,
-        layout: &RoomLayout,
+        house: &House,
         snapshot: &HomeSnapshot,
         actors: &mut [Actor],
         now: f32,
         point: (i32, i32),
     ) -> Option<Target> {
-        self.refresh_shell(layout, snapshot);
+        self.view = View::of(house);
         let view = self.view;
         for actor in actors.iter_mut().filter(|actor| !actor.hidden) {
             if actor.covers(&view, now, point) {
                 return Some(Target::Resident(actor.id));
             }
         }
-        for shown in &layout.displays {
-            if let Some((sprite, at)) = self.shown_sprite(layout, snapshot, &shown.item)
+        for shown in &house.shown {
+            if let Some((sprite, at)) = self.shown_sprite(house, snapshot, &shown.item)
                 && sprite.covers(at, point)
             {
                 return Some(Target::Shown(shown.item.clone()));
             }
         }
-        let order = self.order(layout, snapshot, actors, now, None);
+        let order = self.order(house, snapshot, actors, now, None);
         for entry in order.iter().rev() {
             if let Drawn::Piece(index) = entry.what {
-                let placed = &layout.pieces[index];
+                let placed = &house.pieces[index];
                 let Some(kind) = catalog::piece(&placed.piece) else {
                     continue;
                 };
@@ -567,8 +644,9 @@ impl Scene {
             }
         }
         let tile = view.tile_at(point.0 as f32 + 0.5, point.1 as f32 + 0.5)?;
+        house.room_at(i32::from(tile.0), i32::from(tile.1))?;
         // A rug is picked by its floor, once nothing standing on it was.
-        let rug = layout.pieces.iter().find(|placed| {
+        let rug = house.pieces.iter().find(|placed| {
             catalog::piece(&placed.piece).is_some_and(|kind| kind.flat)
                 && room::footprint(placed).contains(tile.0, tile.1)
         });
@@ -591,6 +669,7 @@ static UNKNOWN: catalog::Piece = catalog::Piece {
     surfaces: &[],
     arrives: catalog::Arrival::Always,
     lift: 0,
+    set: catalog::Set::Home,
 };
 
 /// Where a thing standing on a floor tile has its foot.

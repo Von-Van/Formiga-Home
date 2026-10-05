@@ -11,6 +11,7 @@
 pub mod cues;
 pub mod displays;
 pub mod furniture;
+pub mod notebook;
 pub mod shell;
 
 use crate::catalog::Piece;
@@ -343,4 +344,12 @@ pub mod ramps {
     pub const BERRY: Ramp = Ramp::new(0x7a2630, 0xa83a47, 0xc8505e, 0xe07c86, 0xf4b2b6);
     pub const GLAZE: Ramp = Ramp::new(0x2d4675, 0x41639e, 0x5b80bf, 0x84a5d8, 0xb8cdee);
     pub const VELVET: Ramp = Ramp::new(0x3e1620, 0x5c2030, 0x7a2c3a, 0x96404c, 0xb45c64);
+    pub const DRIFTWOOD: Ramp = Ramp::new(0x5e5a52, 0x8c867a, 0xb1aa9b, 0xcfc8b9, 0xe8e3d6);
+    pub const SEA: Ramp = Ramp::new(0x23476a, 0x356894, 0x4d86b5, 0x76a6cf, 0xa8c8e4);
+    pub const SHELL: Ramp = Ramp::new(0xa0706a, 0xd0a49a, 0xecc6bc, 0xf8e0d8, 0xfff4ee);
+    pub const BARK: Ramp = Ramp::new(0x36261b, 0x553b2a, 0x70503a, 0x8b6a50, 0xa88a6c);
+    pub const MOSS: Ramp = Ramp::new(0x334d24, 0x4a6b31, 0x62873e, 0x7fa352, 0xa6c47a);
+    pub const PEACH: Ramp = Ramp::new(0x9a4a2e, 0xd0724a, 0xe8946a, 0xf4b690, 0xfcd8bc);
+    pub const NIGHT: Ramp = Ramp::new(0x141a3a, 0x222b58, 0x323f78, 0x4a5a98, 0x6f80ba);
+    pub const MOON: Ramp = Ramp::new(0x9a8a5a, 0xcab98a, 0xe6d8a8, 0xf4ecc8, 0xfffbe8);
 }

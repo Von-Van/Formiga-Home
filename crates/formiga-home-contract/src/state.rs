@@ -36,6 +36,22 @@ pub enum Spot {
     Floor { x: u8, y: u8 },
 }
 
+/// Where a room stands on its house's plan: the far corner of its floor, in tiles from the first
+/// room's. The plan's `x` runs along the rooms' width and its `y` along their depth.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct PlanPoint {
+    pub x: i8,
+    pub y: i8,
+}
+
+/// A doorway in one of a room's two far walls, `at` tiles along it. It opens onto whatever is on
+/// the wall's other side: another room of the house, or outside, which is the way visitors come in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Door {
+    pub side: WallSide,
+    pub at: u8,
+}
+
 /// A piece of furniture where it stands. `uid` names this piece in its room, so what is shown on
 /// it moves with it; `turn` is quarter turns from the piece's own front.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,6 +82,16 @@ pub struct RoomLayout {
     pub pieces: Vec<PlacedPiece>,
     #[serde(default)]
     pub displays: Vec<PlacedDisplay>,
+    /// Where the room stands on the house's plan, since version 3. The first room stands at the
+    /// plan's origin; a room with no place given is set out by Home beside the others.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<PlanPoint>,
+    /// What kind of room it is, by Home's catalogue: a nook, a gallery. Since version 3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<CatalogId>,
+    /// Its doorways, since version 3.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub doors: Vec<Door>,
 }
 
 impl RoomLayout {
@@ -73,11 +99,33 @@ impl RoomLayout {
         self.pieces.iter().find(|piece| piece.uid == uid)
     }
 
+    /// How long one of its far walls is, in tiles.
+    pub fn wall_length(&self, side: WallSide) -> u8 {
+        match side {
+            WallSide::North => self.width,
+            WallSide::West => self.depth,
+        }
+    }
+
+    /// Whether there is a doorway `at` tiles along the wall on `side`.
+    pub fn has_door(&self, side: WallSide, at: u8) -> bool {
+        self.doors.contains(&Door { side, at })
+    }
+
     fn validate(&self) -> Result<(), HomeError> {
         let invalid = HomeError::invalid;
         let sides = MIN_ROOM_TILES..=MAX_ROOM_TILES;
         if !sides.contains(&self.width) || !sides.contains(&self.depth) {
             return Err(invalid("a room of a size no room can be"));
+        }
+        if self.doors.len() > MAX_DOORS {
+            return Err(invalid("a room with too many doors"));
+        }
+        let mut doors = BTreeSet::new();
+        for door in &self.doors {
+            if door.at >= self.wall_length(door.side) || !doors.insert(*door) {
+                return Err(invalid("a door that is not in a wall"));
+            }
         }
         let mut uids = BTreeSet::new();
         for piece in &self.pieces {
@@ -110,8 +158,21 @@ impl RoomLayout {
             if !spots.insert(shown.spot) {
                 return Err(invalid("two things are shown in one place"));
             }
+            if let Spot::Wall { side, at } = shown.spot
+                && self.has_door(side, at)
+            {
+                return Err(invalid("something hangs in a doorway"));
+            }
         }
         Ok(())
+    }
+
+    /// The tiles it covers on the house's plan, as `(left, top, right, bottom)`, ends excluded,
+    /// if it has been given a place.
+    pub fn plan_extent(&self) -> Option<(i32, i32, i32, i32)> {
+        let at = self.plan?;
+        let (x, y) = (i32::from(at.x), i32::from(at.y));
+        Some((x, y, x + i32::from(self.width), y + i32::from(self.depth)))
     }
 }
 
@@ -220,6 +281,44 @@ impl HouseholdHome {
             return Err(HomeError::invalid("a home with too much in it"));
         }
         self.rooms.iter().try_for_each(RoomLayout::validate)?;
+        // The first room is where the plan starts; no two rooms stand in one place, and the
+        // house stays within reach of it.
+        if self.rooms[0]
+            .plan
+            .is_some_and(|at| at != PlanPoint { x: 0, y: 0 })
+        {
+            return Err(HomeError::invalid(
+                "the first room is where the plan starts",
+            ));
+        }
+        let origin = PlanPoint { x: 0, y: 0 };
+        let extents: Vec<_> = self
+            .rooms
+            .iter()
+            .enumerate()
+            .filter_map(|(index, room)| match index {
+                0 => RoomLayout {
+                    plan: Some(origin),
+                    ..room.clone()
+                }
+                .plan_extent(),
+                _ => room.plan_extent(),
+            })
+            .collect();
+        let reach = i32::from(MAX_PLAN_REACH);
+        for (index, a) in extents.iter().enumerate() {
+            if a.0 < -reach || a.1 < -reach || a.2 > reach || a.3 > reach {
+                return Err(HomeError::invalid(
+                    "a room too far from the rest of its house",
+                ));
+            }
+            let overlaps = extents[index + 1..]
+                .iter()
+                .any(|b| a.0 < b.2 && b.0 < a.2 && a.1 < b.3 && b.1 < a.3);
+            if overlaps {
+                return Err(HomeError::invalid("two rooms stand in one place"));
+            }
+        }
         if self.likings.len() > MAX_LIKINGS {
             return Err(HomeError::invalid("a home with too many likings"));
         }
@@ -361,6 +460,9 @@ mod tests {
                     },
                 },
             ],
+            plan: None,
+            kind: None,
+            doors: Vec::new(),
         }
     }
 
@@ -431,6 +533,86 @@ mod tests {
         stranger.colony_key = "not a key".to_owned();
         for state in [
             outside, turned, floating, high, crowded, huge, rambling, roofless, cluttered, stranger,
+        ] {
+            assert!(state.validate().is_err(), "{state:?} was accepted");
+        }
+    }
+
+    /// The front room and a nook behind it, through a door in the front room's far wall.
+    fn two_rooms() -> HomeState {
+        let mut state = state();
+        let home = &mut state.households[0];
+        home.rooms[0].doors.push(Door {
+            side: WallSide::West,
+            at: 6,
+        });
+        home.rooms.push(RoomLayout {
+            width: 4,
+            depth: 4,
+            floor: CatalogId::known("floor.rose"),
+            wall: CatalogId::known("wall.stripes"),
+            pieces: Vec::new(),
+            displays: Vec::new(),
+            plan: Some(PlanPoint { x: 2, y: -4 }),
+            kind: Some(CatalogId::known("room.nook")),
+            doors: Vec::new(),
+        });
+        // The nook's way in is the doorway in the front room's far wall it backs onto.
+        home.rooms[0].doors.push(Door {
+            side: WallSide::North,
+            at: 3,
+        });
+        state
+    }
+
+    #[test]
+    fn a_house_of_rooms_round_trips_and_older_rooms_are_written_as_they_were() {
+        let house = two_rooms();
+        house.validate().unwrap();
+        let bytes = encode(&house).unwrap();
+        assert_eq!(decode::<HomeState>(&bytes).unwrap(), house);
+        // A room with nothing new about it is written exactly as version 2 wrote it.
+        let one_room = serde_json::to_value(room()).unwrap();
+        for field in ["plan", "kind", "doors"] {
+            assert!(one_room.get(field).is_none(), "{field}");
+        }
+    }
+
+    #[test]
+    fn doors_and_rooms_that_do_not_add_up_are_refused() {
+        let mut off_the_wall = two_rooms();
+        off_the_wall.households[0].rooms[1].doors.push(Door {
+            side: WallSide::North,
+            at: 4,
+        });
+        let mut many_doors = two_rooms();
+        many_doors.households[0].rooms[0].doors = (0..=MAX_DOORS as u8)
+            .map(|at| Door {
+                side: WallSide::West,
+                at,
+            })
+            .collect();
+        let mut hung_in_a_doorway = two_rooms();
+        hung_in_a_doorway.households[0].rooms[0].doors.push(Door {
+            side: WallSide::North,
+            at: 5,
+        });
+        let mut on_top_of_each_other = two_rooms();
+        on_top_of_each_other.households[0].rooms[1].plan = Some(PlanPoint { x: 5, y: 5 });
+        let mut moved_the_start = two_rooms();
+        moved_the_start.households[0].rooms[0].plan = Some(PlanPoint { x: 1, y: 0 });
+        let mut far_away = two_rooms();
+        far_away.households[0].rooms[1].plan = Some(PlanPoint {
+            x: MAX_PLAN_REACH,
+            y: 0,
+        });
+        for state in [
+            off_the_wall,
+            many_doors,
+            hung_in_a_doorway,
+            on_top_of_each_other,
+            moved_the_start,
+            far_away,
         ] {
             assert!(state.validate().is_err(), "{state:?} was accepted");
         }

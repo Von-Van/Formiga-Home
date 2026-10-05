@@ -19,20 +19,23 @@ use crate::actor::{Actor, Pose};
 use crate::art::cues::Cue;
 use crate::catalog::{self, Family, Use};
 use crate::character::Drive;
+use crate::house::{At, House};
 use crate::household::{Household, Id};
 use crate::path::Floor;
 use crate::room;
 use formiga_art::{AccessoryArt, ExpressionKind};
 use formiga_core::{Accessory, ActionKind, Gesture, Habit, TemperamentKind};
 use formiga_home_contract::{
-    DisplayId, DisplayItem, DisplayMode, DisplaySource, HomeSnapshot, Liked, Liking, RoomLayout,
-    Spot, TravelerId, WallSide,
+    DisplayId, DisplayItem, DisplayMode, DisplaySource, HomeSnapshot, Liked, Liking, TravelerId,
 };
 use formiga_travel::{Band, Trait};
 use std::collections::VecDeque;
 
 /// How many things the owner can ask of one resident at once, the one under way included.
 pub const QUEUE_LIMIT: usize = 3;
+
+/// How long in one room before every other room appeals as much as it does, in seconds.
+const ROOM_RESTLESS: f32 = 150.0;
 
 /// How many times something must be chosen before it is a favourite.
 pub const FAVOURITE_AFTER: u16 = 3;
@@ -187,14 +190,9 @@ impl Act {
     }
 
     /// What the owner is offered, and what the queue shows: "Nap in the armchair", "Hug Pip".
-    pub fn label(
-        &self,
-        household: &Household,
-        layout: &RoomLayout,
-        snapshot: &HomeSnapshot,
-    ) -> String {
+    pub fn label(&self, household: &Household, house: &House, snapshot: &HomeSnapshot) -> String {
         let piece = |uid: &u16| {
-            layout
+            house
                 .piece(*uid)
                 .and_then(|placed| catalog::piece(&placed.piece))
                 .map_or("something", |piece| piece.name)
@@ -249,8 +247,8 @@ impl Act {
     }
 
     /// What it is doing, as the room's status line says it: "napping on the armchair".
-    fn doing(&self, household: &Household, layout: &RoomLayout, snapshot: &HomeSnapshot) -> String {
-        let label = self.label(household, layout, snapshot);
+    fn doing(&self, household: &Household, house: &House, snapshot: &HomeSnapshot) -> String {
+        let label = self.label(household, house, snapshot);
         let mut words = label.splitn(2, ' ');
         let verb = words.next().unwrap_or_default();
         let rest = words.next().unwrap_or_default();
@@ -292,8 +290,16 @@ pub enum Event {
     Arrived(Id),
     /// A visitor has gone home.
     Left(Id),
-    /// A resident has used something in its home once more.
-    Used(Id, Liked),
+    /// A resident has used something in its home once more: a piece, by its name in the house,
+    /// or something shown.
+    Used(Id, Used),
+}
+
+/// What was used.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Used {
+    Piece(u16),
+    Shown(DisplayId),
 }
 
 /// How a resident takes part in someone else's act.
@@ -379,6 +385,11 @@ struct Mind {
     handled: Option<Handled>,
     /// What it has had a good look at since it came in.
     seen: Vec<DisplayId>,
+    /// The room it is in, and since when; and how restless that has made it, from nothing just
+    /// in to everything after a few minutes, for the other rooms to come to mind.
+    room: Option<u8>,
+    entered: f32,
+    restless: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -427,23 +438,12 @@ pub enum Kind {
     Find,
 }
 
-impl Kind {
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Seat => "seat",
-            Self::Bed => "bed",
-            Self::Toy => "toy",
-            Self::Find => "find",
-        }
-    }
-}
-
 /// What kind of thing in a home `thing` is, if it is one that can be a favourite.
-pub fn kind_of(layout: &RoomLayout, thing: &Liked) -> Option<Kind> {
+pub fn kind_of(house: &House, thing: &Liked) -> Option<Kind> {
     match thing {
         Liked::Shown { .. } => Some(Kind::Find),
-        Liked::Piece { uid, .. } => {
-            let piece = catalog::piece(&layout.piece(*uid)?.piece)?;
+        Liked::Piece { .. } => {
+            let piece = catalog::piece(&house.piece(house.of_liked(thing)?)?.piece)?;
             if piece.has(Use::Sleep) {
                 Some(Kind::Bed)
             } else if piece.has(Use::Sit { seats: 1 }) {
@@ -459,13 +459,13 @@ pub fn kind_of(layout: &RoomLayout, thing: &Liked) -> Option<Kind> {
 
 /// A resident's favourites: of each kind, what it has chosen most, once it has chosen it often
 /// enough.
-pub fn favourites(likings: &[Liking], layout: &RoomLayout, resident: Id) -> Vec<(Kind, Liked)> {
+pub fn favourites(likings: &[Liking], house: &House, resident: Id) -> Vec<(Kind, Liked)> {
     let mut best: Vec<(Kind, Liked, u16)> = Vec::new();
     for liking in likings {
         if liking.resident != TravelerId(resident) || liking.uses < FAVOURITE_AFTER {
             continue;
         }
-        let Some(kind) = kind_of(layout, &liking.thing) else {
+        let Some(kind) = kind_of(house, &liking.thing) else {
             continue;
         };
         match best.iter_mut().find(|(known, ..)| *known == kind) {
@@ -482,10 +482,11 @@ pub fn favourites(likings: &[Liking], layout: &RoomLayout, resident: Id) -> Vec<
 }
 
 /// What `liked` is called, for the drawer: "the armchair", "the shell".
-pub fn name_of(layout: &RoomLayout, snapshot: &HomeSnapshot, liked: &Liked) -> String {
+pub fn name_of(house: &House, snapshot: &HomeSnapshot, liked: &Liked) -> String {
     match liked {
-        Liked::Piece { uid, .. } => layout
-            .piece(*uid)
+        Liked::Piece { .. } => house
+            .of_liked(liked)
+            .and_then(|name| house.piece(name))
             .and_then(|placed| catalog::piece(&placed.piece))
             .map_or("something".to_owned(), |piece| {
                 format!("the {}", piece.name.to_lowercase())
@@ -513,21 +514,22 @@ pub struct Life {
 }
 
 impl Life {
-    /// The household come home: everyone somewhere about the room, already minded to do
+    /// The household come home: everyone somewhere about the first room, already minded to do
     /// something, and any visitors due a little later.
-    pub fn new(household: &Household, layout: &RoomLayout) -> Self {
-        let floor = Floor::of(layout);
+    pub fn new(household: &Household, house: &House) -> Self {
+        let floor = Floor::of(house);
         let reduce_motion = household.reduce_motion();
         let mut taken: Vec<(i32, i32)> = Vec::new();
         let mut actors = Vec::new();
         let mut minds = Vec::new();
+        let first = &house.rooms[0];
         for (index, resident) in household.residents.iter().enumerate() {
             let mut dice = Dice::new(resident.id);
             let wish = (
-                (2.0 + dice.between(0.0, f32::from(layout.width) - 3.0)) as i32,
-                (2.0 + dice.between(0.0, f32::from(layout.depth) - 3.0)) as i32,
+                i32::from(first.x) + (2.0 + dice.between(0.0, f32::from(first.width) - 3.0)) as i32,
+                i32::from(first.y) + (2.0 + dice.between(0.0, f32::from(first.depth) - 3.0)) as i32,
             );
-            let mut tile = floor.nearest_open(wish).unwrap_or((0, 0));
+            let mut tile = floor.nearest_open_in(wish, 0).unwrap_or(wish);
             if taken.contains(&tile) {
                 tile = floor
                     .beside(tile.0 as u8, tile.1 as u8, 1, 1, (0, 1))
@@ -545,7 +547,7 @@ impl Life {
                 dice,
             ));
         }
-        let (outside, _) = door(layout, &floor);
+        let (outside, _) = door(house, &floor);
         for (index, visitor) in household.visitors.iter().enumerate() {
             let mut dice = Dice::new(visitor.id);
             let at = 22.0 + index as f32 * 14.0 + dice.between(0.0, 10.0);
@@ -554,11 +556,7 @@ impl Life {
             actors.push(actor);
             minds.push(Mind::new(visitor.id, Presence::Expected { at }, at, dice));
         }
-        let known = layout
-            .displays
-            .iter()
-            .map(|shown| shown.item.clone())
-            .collect();
+        let known = house.shown.iter().map(|shown| shown.item.clone()).collect();
         Self {
             actors,
             minds,
@@ -717,9 +715,9 @@ impl Life {
     }
 
     /// Set down on the open tile nearest where it was let go.
-    pub fn put_down(&mut self, layout: &RoomLayout, id: Id, now: f32) {
+    pub fn put_down(&mut self, house: &House, id: Id, now: f32) {
         let Some(index) = self.index(id) else { return };
-        let floor = Floor::of(layout);
+        let floor = Floor::of(house);
         let tile = floor
             .nearest_open(Floor::tile_of(self.actors[index].pos))
             .unwrap_or((0, 0));
@@ -732,7 +730,7 @@ impl Life {
 
     /// Everyone stops where they are, gets down off anything, and waits while the room is
     /// arranged round them. A visitor still to come waits too.
-    pub fn pause(&mut self, household: &Household, layout: &RoomLayout, now: f32) {
+    pub fn pause(&mut self, household: &Household, house: &House, now: f32) {
         self.paused = true;
         for index in 0..self.minds.len() {
             self.end(index, now, false);
@@ -749,31 +747,27 @@ impl Life {
             actor.lift = 0.0;
             actor.strike(Pose::idle(face), now);
         }
-        self.make_room(layout);
+        self.make_room(house);
     }
 
     /// Back to life, minus anything asked for that the room no longer has. Whatever has been put
     /// on show since the room was last arranged is new, and an inquisitive resident will go and
     /// look.
-    pub fn resume(&mut self, layout: &RoomLayout, snapshot: &HomeSnapshot, now: f32) {
+    pub fn resume(&mut self, house: &House, snapshot: &HomeSnapshot, now: f32) {
         self.paused = false;
-        self.make_room(layout);
+        self.make_room(house);
         for mind in &mut self.minds {
-            mind.queue.retain(|act| still_there(act, layout, snapshot));
+            mind.queue.retain(|act| still_there(act, house, snapshot));
             mind.dawdle_until = mind.dawdle_until.max(now + 0.3);
         }
-        let shown: Vec<DisplayId> = layout
-            .displays
-            .iter()
-            .map(|shown| shown.item.clone())
-            .collect();
+        let shown: Vec<DisplayId> = house.shown.iter().map(|shown| shown.item.clone()).collect();
         self.novel = shown
             .iter()
             .filter(|item| !self.known.contains(item))
             .cloned()
             .collect();
         self.known = shown;
-        self.lamps_off.retain(|uid| layout.piece(*uid).is_some());
+        self.lamps_off.retain(|uid| house.piece(*uid).is_some());
     }
 
     #[cfg(test)]
@@ -782,8 +776,8 @@ impl Life {
     }
 
     /// Anyone standing where a piece now stands steps to the nearest open floor.
-    pub fn make_room(&mut self, layout: &RoomLayout) {
-        let floor = Floor::of(layout);
+    pub fn make_room(&mut self, house: &House) {
+        let floor = Floor::of(house);
         let mut taken: Vec<(i32, i32)> = Vec::new();
         for actor in &mut self.actors {
             if actor.on_piece.is_some() || actor.hidden {
@@ -806,7 +800,7 @@ impl Life {
     pub fn doing(
         &self,
         household: &Household,
-        layout: &RoomLayout,
+        house: &House,
         snapshot: &HomeSnapshot,
         id: Id,
     ) -> String {
@@ -830,7 +824,7 @@ impl Life {
                     format!("{name} is with {leader}.")
                 }
                 Part::Leads => {
-                    format!("{name} is {}.", plan.act.doing(household, layout, snapshot))
+                    format!("{name} is {}.", plan.act.doing(household, house, snapshot))
                 }
             },
             _ if self.paused => format!("{name} is waiting while the room is arranged."),
@@ -843,7 +837,7 @@ impl Life {
     pub fn tick(
         &mut self,
         household: &Household,
-        layout: &RoomLayout,
+        house: &House,
         snapshot: &HomeSnapshot,
         likings: &[Liking],
         now: f32,
@@ -853,14 +847,14 @@ impl Life {
             return;
         }
         let dt = dt.clamp(0.0, 0.25);
-        let floor = Floor::of(layout);
+        let floor = Floor::of(house);
         for index in 0..self.minds.len() {
             let Some(resident) = household.resident(self.minds[index].id) else {
                 continue;
             };
             match self.minds[index].presence {
                 Presence::Expected { at } if now >= at => {
-                    self.knock(household, layout, &floor, index, now);
+                    self.knock(household, house, &floor, index, now);
                 }
                 Presence::Expected { .. } | Presence::Gone => continue,
                 Presence::Leaving => {
@@ -877,7 +871,7 @@ impl Life {
                         && self.minds[index].handled.is_none()
                         && !self.minds[index].plan.as_ref().is_some_and(|p| p.asked) =>
                 {
-                    self.go_home(layout, &floor, index, now);
+                    self.go_home(house, &floor, index, now);
                     continue;
                 }
                 _ => {}
@@ -902,9 +896,17 @@ impl Life {
             }
             let actor = &mut self.actors[index];
             actor.advance(dt);
+            let room = house.room_of_point(actor.pos);
+            let mind = &mut self.minds[index];
+            if room != mind.room {
+                mind.room = room;
+                mind.entered = now;
+            }
+            mind.restless = ((now - mind.entered) / ROOM_RESTLESS).clamp(0.0, 1.0);
+            let actor = &mut self.actors[index];
             // Nobody stands about on the furniture: off a piece, the open floor is a step away.
             let tile = Floor::tile_of(actor.pos);
-            let inside = actor.pos.1 < f32::from(layout.depth);
+            let inside = house.room_of_point(actor.pos).is_some();
             if actor.on_piece.is_none()
                 && !actor.walking()
                 && inside
@@ -913,7 +915,7 @@ impl Life {
             {
                 actor.walk([(open.0 as f32 + 0.5, open.1 as f32 + 0.5)]);
             }
-            self.step(household, layout, snapshot, likings, &floor, index, now);
+            self.step(household, house, snapshot, likings, &floor, index, now);
         }
     }
 
@@ -921,12 +923,12 @@ impl Life {
     fn knock(
         &mut self,
         household: &Household,
-        layout: &RoomLayout,
+        house: &House,
         floor: &Floor,
         index: usize,
         now: f32,
     ) {
-        let (outside, inside) = door(layout, floor);
+        let (outside, inside) = door(house, floor);
         let mind = &mut self.minds[index];
         let stay = mind.dice.between(150.0, 210.0);
         mind.presence = Presence::Visiting { until: now + stay };
@@ -960,7 +962,7 @@ impl Life {
                 Some(Act::GrumbleAt(visitor))
             } else if character.keeps_apart() {
                 // Off to the seat furthest from the door, or failing one, the far corner.
-                let seats = self.free_seats(layout);
+                let seats = self.free_seats(house);
                 let far = seats.iter().max_by(|a, b| {
                     let d = |s: &Seat| (s.at.0 - outside.0).powi(2) + (s.at.1 - outside.1).powi(2);
                     d(a).total_cmp(&d(b))
@@ -968,7 +970,7 @@ impl Life {
                 far.map(|seat| Act::CurlUp(seat.piece))
                     .filter(|act| {
                         act.piece()
-                            .and_then(|uid| layout.piece(uid))
+                            .and_then(|uid| house.piece(uid))
                             .and_then(|placed| catalog::piece(&placed.piece))
                             .is_some_and(|piece| piece.has(Use::Nap))
                     })
@@ -978,15 +980,15 @@ impl Life {
             };
             if let Some(act) = answer {
                 self.end(r, now, false);
-                self.begin(layout, snapshot, floor, r, act, false, now);
+                self.begin(house, snapshot, floor, r, act, false, now);
             }
         }
     }
 
     /// Time for a visitor to go: whatever it was doing it leaves, and out it goes the way it came.
-    fn go_home(&mut self, layout: &RoomLayout, floor: &Floor, index: usize, now: f32) {
+    fn go_home(&mut self, house: &House, floor: &Floor, index: usize, now: f32) {
         self.end(index, now, false);
-        let (outside, inside) = door(layout, floor);
+        let (outside, inside) = door(house, floor);
         let actor = &mut self.actors[index];
         let mut route = floor.route(actor.pos, inside).unwrap_or_default();
         route.push(outside);
@@ -1000,7 +1002,7 @@ impl Life {
     fn step(
         &mut self,
         household: &Household,
-        layout: &RoomLayout,
+        house: &House,
         snapshot: &HomeSnapshot,
         likings: &[Liking],
         floor: &Floor,
@@ -1014,11 +1016,11 @@ impl Life {
             let next = match self.minds[index].queue.pop_front() {
                 Some(act) => Some((act, true)),
                 None => self
-                    .choose(household, layout, snapshot, likings, index)
+                    .choose(household, house, snapshot, likings, index)
                     .map(|act| (act, false)),
             };
             if let Some((act, asked)) = next {
-                self.begin(layout, snapshot, floor, index, act, asked, now);
+                self.begin(house, snapshot, floor, index, act, asked, now);
             } else {
                 self.minds[index].dawdle_until = now + 2.0;
             }
@@ -1057,7 +1059,7 @@ impl Life {
                     })
                 });
                 if partner_here {
-                    self.arrive(household, layout, snapshot, index, &plan, now);
+                    self.arrive(household, house, snapshot, index, &plan, now);
                 } else {
                     self.set_stage(index, Stage::Waiting { since: now });
                 }
@@ -1066,12 +1068,12 @@ impl Life {
                 let partner = plan.act.partner().and_then(|other| self.index(other));
                 let ready = partner.is_none_or(|o| !self.actors[o].walking());
                 if ready || now - since > 6.0 {
-                    self.arrive(household, layout, snapshot, index, &plan, now);
+                    self.arrive(household, house, snapshot, index, &plan, now);
                 }
             }
             Stage::Prelude { until } => {
                 if now >= until {
-                    self.perform(household, layout, snapshot, index, &plan, now);
+                    self.perform(household, house, snapshot, index, &plan, now);
                 }
             }
             Stage::Doing { until } => {
@@ -1093,7 +1095,7 @@ impl Life {
     #[allow(clippy::too_many_arguments)]
     fn begin(
         &mut self,
-        layout: &RoomLayout,
+        house: &House,
         snapshot: &HomeSnapshot,
         floor: &Floor,
         index: usize,
@@ -1102,7 +1104,7 @@ impl Life {
         now: f32,
     ) {
         let id = self.minds[index].id;
-        if !still_there(&act, layout, snapshot) || self.worn_by_another(&act, id) {
+        if !still_there(&act, house, snapshot) || self.worn_by_another(&act, id) {
             self.minds[index].dawdle_until = now + 0.5;
             return;
         }
@@ -1127,8 +1129,8 @@ impl Life {
                 return;
             }
         }
-        let seats = self.free_seats(layout);
-        let spot = self.spot_for(layout, floor, index, &act, &seats);
+        let seats = self.free_seats(house);
+        let spot = self.spot_for(house, floor, index, &act, &seats);
         let Some((tile, seat, face)) = spot else {
             self.minds[index].dawdle_until = now + 1.0;
             return;
@@ -1158,7 +1160,7 @@ impl Life {
             if let Some(mine) = seat {
                 free.retain(|other| *other != mine);
             }
-            let joined = self.join_spot(layout, floor, &act, tile, seat, &free);
+            let joined = self.join_spot(house, floor, &act, tile, seat, &free);
             let (their_tile, their_seat) = joined.unwrap_or((tile, None));
             let other = &mut self.actors[o];
             let route = floor
@@ -1183,9 +1185,9 @@ impl Life {
     }
 
     /// Every seat and lying place in the room not already taken.
-    fn free_seats(&self, layout: &RoomLayout) -> Vec<Seat> {
+    fn free_seats(&self, house: &House) -> Vec<Seat> {
         let mut seats = Vec::new();
-        for placed in &layout.pieces {
+        for placed in &house.pieces {
             let Some(piece) = catalog::piece(&placed.piece) else {
                 continue;
             };
@@ -1235,7 +1237,7 @@ impl Life {
     #[allow(clippy::type_complexity)]
     fn spot_for(
         &self,
-        layout: &RoomLayout,
+        house: &House,
         floor: &Floor,
         index: usize,
         act: &Act,
@@ -1252,7 +1254,7 @@ impl Life {
         };
         if let Act::Sprawl(uid) = act {
             // Out on the rug itself, which is walked over: the open tile of it nearest its middle.
-            let placed = layout.piece(*uid)?;
+            let placed = house.piece(*uid)?;
             let footprint = room::footprint(placed);
             let (cx, cy) = footprint.centre();
             let tile = footprint
@@ -1267,7 +1269,7 @@ impl Life {
             return Some(((i32::from(tile.0), i32::from(tile.1)), None, None));
         }
         if let Some(uid) = act.piece() {
-            let placed = layout.piece(uid)?;
+            let placed = house.piece(uid)?;
             let footprint = room::footprint(placed);
             let around = floor.beside(
                 placed.x,
@@ -1284,7 +1286,7 @@ impl Life {
             return Some((tile, None, Some(footprint.centre())));
         }
         if let Some(item) = act.item() {
-            let (around, look) = item_spot(layout, floor, item)?;
+            let (around, look) = item_spot(house, floor, item)?;
             return Some((nearest(around)?, None, Some(look)));
         }
         match act {
@@ -1301,7 +1303,7 @@ impl Life {
                         .map(|_| *a)
                 });
                 let seat = pair.or_else(|| seats.first().copied())?;
-                let placed = layout.piece(seat.piece)?;
+                let placed = house.piece(seat.piece)?;
                 let footprint = room::footprint(placed);
                 let tile = *floor
                     .beside(
@@ -1336,7 +1338,7 @@ impl Life {
     /// Where whoever joins an act goes: beside the leader, or to the other seat.
     fn join_spot(
         &self,
-        layout: &RoomLayout,
+        house: &House,
         floor: &Floor,
         act: &Act,
         leader: (i32, i32),
@@ -1346,7 +1348,7 @@ impl Life {
         let settles = matches!(act, Act::SitTogether(_) | Act::InviteLittle(..));
         if settles {
             let near = |uid: u16| {
-                let placed = layout.piece(uid)?;
+                let placed = house.piece(uid)?;
                 let footprint = room::footprint(placed);
                 floor
                     .beside(
@@ -1379,7 +1381,7 @@ impl Life {
     fn arrive(
         &mut self,
         household: &Household,
-        layout: &RoomLayout,
+        house: &House,
         snapshot: &HomeSnapshot,
         index: usize,
         plan: &Plan,
@@ -1414,7 +1416,7 @@ impl Life {
                 self.actors[index].strike(pose, now);
                 self.set_stage(index, Stage::Prelude { until: now + 1.1 });
             }
-            None => self.perform(household, layout, snapshot, index, plan, now),
+            None => self.perform(household, house, snapshot, index, plan, now),
         }
         // Whoever joins it gets on with their part as the leader does.
         if plan.part == Part::Leads
@@ -1439,7 +1441,7 @@ impl Life {
             {
                 self.actors[index].face_towards(face);
             }
-            self.perform(household, layout, snapshot, o, &theirs, now);
+            self.perform(household, house, snapshot, o, &theirs, now);
         }
     }
 
@@ -1448,7 +1450,7 @@ impl Life {
     fn perform(
         &mut self,
         household: &Household,
-        layout: &RoomLayout,
+        house: &House,
         snapshot: &HomeSnapshot,
         index: usize,
         plan: &Plan,
@@ -1480,7 +1482,7 @@ impl Life {
                     self.minds[index].seen.push(item.clone());
                 }
                 if let Act::Browse(uid) = act {
-                    for item in shown_on(layout, *uid) {
+                    for item in shown_on(house, *uid) {
                         if !self.minds[index].seen.contains(&item) {
                             self.minds[index].seen.push(item);
                         }
@@ -1696,8 +1698,8 @@ impl Life {
             if mind.presence == Presence::Home && plan.part == Part::Leads {
                 let liked = match (&plan.act, plan.act.piece(), plan.act.item()) {
                     (Act::SwitchLamp(_) | Act::Browse(_), _, _) => None,
-                    (_, Some(uid), _) => Some(Liked::Piece { room: 0, uid }),
-                    (_, _, Some(item)) => Some(Liked::Shown { item: item.clone() }),
+                    (_, Some(uid), _) => Some(Used::Piece(uid)),
+                    (_, _, Some(item)) => Some(Used::Shown(item.clone())),
                     _ => None,
                 };
                 if let Some(liked) = liked {
@@ -1758,7 +1760,7 @@ impl Life {
     fn choose(
         &mut self,
         household: &Household,
-        layout: &RoomLayout,
+        house: &House,
         snapshot: &HomeSnapshot,
         likings: &[Liking],
         index: usize,
@@ -1767,7 +1769,7 @@ impl Life {
         let resident = household.resident(id)?;
         let character = &resident.character;
         let visiting = household.is_visitor(id);
-        let seats = self.free_seats(layout);
+        let seats = self.free_seats(house);
         let others: Vec<Id> = self
             .minds
             .iter()
@@ -1785,10 +1787,10 @@ impl Life {
             .minds
             .iter()
             .any(|mind| mind.id != id && household.is_visitor(mind.id) && mind.presence.in_house());
-        let loved = favourites(likings, layout, id);
+        let loved = favourites(likings, house, id);
         let favourite = |thing: Liked| loved.iter().any(|(_, liked)| *liked == thing);
         let piece_favourite = |uid: u16| {
-            if favourite(Liked::Piece { room: 0, uid }) {
+            if house.liked(uid).is_some_and(&favourite) {
                 1.8
             } else {
                 1.0
@@ -1805,7 +1807,7 @@ impl Life {
         };
         let kind = character.kind;
         let lazy = kind == TemperamentKind::Lazybones;
-        for placed in &layout.pieces {
+        for placed in &house.pieces {
             let Some(piece) = catalog::piece(&placed.piece) else {
                 continue;
             };
@@ -1857,7 +1859,7 @@ impl Life {
             if piece.family == Family::Lights && character.fusses() {
                 options.push((Act::SwitchLamp(uid), 0.25));
             }
-            if piece.family == Family::Shelves && !shown_on(layout, uid).is_empty() {
+            if piece.family == Family::Shelves && !shown_on(house, uid).is_empty() {
                 let lots = if character.studies() || visiting {
                     1.0
                 } else {
@@ -1891,7 +1893,7 @@ impl Life {
             }
         }
         let seen = self.minds[index].seen.clone();
-        for shown in &layout.displays {
+        for shown in &house.shown {
             let item = &shown.item;
             let Some(thing) = snapshot.item(item) else {
                 continue;
@@ -2015,17 +2017,42 @@ impl Life {
                 options.push((Act::SitTogether(*other), 0.8 * weight));
             }
         }
-        let floor = Floor::of(layout);
+        let floor = Floor::of(house);
         let mind = &mut self.minds[index];
+        // Somewhere in one of the rooms, each as likely as the next however big.
+        let room =
+            ((mind.dice.next() * house.rooms.len() as f32) as usize).min(house.rooms.len() - 1);
+        let area = &house.rooms[room];
         let wander = (
-            (mind.dice.next() * f32::from(layout.width)) as i32,
-            (mind.dice.next() * f32::from(layout.depth)) as i32,
+            i32::from(area.x) + (mind.dice.next() * f32::from(area.width)) as i32,
+            i32::from(area.y) + (mind.dice.next() * f32::from(area.depth)) as i32,
         );
-        if let Some(tile) = floor.nearest_open(wander) {
+        let here = house.room_of_point(me);
+        let restless = mind.restless;
+        if let Some(tile) = floor.nearest_open_in(wander, room as u8) {
             let far = ((tile.0 as f32 + 0.5 - me.0).powi(2) + (tile.1 as f32 + 0.5 - me.1).powi(2))
                 .sqrt();
+            // A look round another room appeals the longer it has been in this one.
+            let elsewhere = if Some(room as u8) == here {
+                1.0
+            } else {
+                1.0 + restless * 2.0
+            };
             if far > 1.5 {
-                options.push((Act::Wander(tile.0 as u8, tile.1 as u8), 0.45));
+                options.push((Act::Wander(tile.0 as u8, tile.1 as u8), 0.5 * elsewhere));
+            }
+        }
+        // What is in the room it is in comes to mind first, until it has been there a while.
+        for (act, weight) in &mut options {
+            let there = match (act.piece(), act.item()) {
+                (Some(uid), _) => house
+                    .piece(uid)
+                    .and_then(|placed| house.room_of_point(room::footprint(placed).centre())),
+                (_, Some(item)) => item_room(house, item),
+                _ => here,
+            };
+            if there != here {
+                *weight *= 0.8 + restless * 0.7;
             }
         }
         let whimsy = character.whimsy();
@@ -2046,7 +2073,7 @@ impl Life {
         best.map(|(act, _)| act)
     }
 
-    /// Who is asleep: for tests and the status line.
+    /// Who is asleep: for tests.
     #[cfg(test)]
     pub fn asleep(&self, id: Id) -> bool {
         self.actor(id)
@@ -2083,15 +2110,36 @@ impl Mind {
             dice,
             handled: None,
             seen: Vec::new(),
+            room: None,
+            entered: 0.0,
+            restless: 0.0,
         }
     }
 }
 
-/// The way in: a point just outside the floor's near edge, and the open tile inside it.
-fn door(layout: &RoomLayout, floor: &Floor) -> ((f32, f32), (i32, i32)) {
-    let wanted = (i32::from(layout.width) / 2, i32::from(layout.depth) - 1);
-    let inside = floor.nearest_open(wanted).unwrap_or(wanted);
-    let outside = (inside.0 as f32 + 0.5, f32::from(layout.depth) + 0.9);
+/// The way in: a point in the front door's doorway, and the open tile inside it. A house with no
+/// front door is come into across the first room's near edge.
+fn door(house: &House, floor: &Floor) -> ((f32, f32), (i32, i32)) {
+    if let Some(wall) = house.front_door() {
+        let (x, y) = (i32::from(wall.x), i32::from(wall.y));
+        let inside = floor.nearest_open_in((x, y), wall.room).unwrap_or((x, y));
+        let (mx, my) = wall.middle();
+        let outside = match wall.side {
+            formiga_home_contract::WallSide::North => (mx, my + 0.15),
+            formiga_home_contract::WallSide::West => (mx + 0.15, my),
+        };
+        return (outside, inside);
+    }
+    let first = &house.rooms[0];
+    let wanted = (
+        i32::from(first.x + first.width / 2),
+        i32::from(first.y + first.depth) - 1,
+    );
+    let inside = floor.nearest_open_in(wanted, 0).unwrap_or(wanted);
+    let outside = (
+        inside.0 as f32 + 0.5,
+        f32::from(first.y + first.depth) + 0.9,
+    );
     (outside, inside)
 }
 
@@ -2136,11 +2184,11 @@ fn wearable(item: &DisplayItem) -> Option<AccessoryArt> {
 }
 
 /// What is shown on a piece.
-fn shown_on(layout: &RoomLayout, uid: u16) -> Vec<DisplayId> {
-    layout
-        .displays
+fn shown_on(house: &House, uid: u16) -> Vec<DisplayId> {
+    house
+        .shown
         .iter()
-        .filter(|shown| matches!(shown.spot, Spot::On { piece, .. } if piece == uid))
+        .filter(|shown| matches!(shown.at, At::On { piece, .. } if piece == uid))
         .map(|shown| shown.item.clone())
         .collect()
 }
@@ -2177,11 +2225,11 @@ pub fn seat_points(
 type Viewpoint = (Vec<(i32, i32)>, (f32, f32));
 
 /// Where someone stands to look at something shown, and the point they look at.
-fn item_spot(layout: &RoomLayout, floor: &Floor, item: &DisplayId) -> Option<Viewpoint> {
-    let shown = layout.displays.iter().find(|shown| &shown.item == item)?;
-    match shown.spot {
-        Spot::On { piece, slot } => {
-            let placed = layout.piece(piece)?;
+fn item_spot(house: &House, floor: &Floor, item: &DisplayId) -> Option<Viewpoint> {
+    let shown = house.shown.iter().find(|shown| &shown.item == item)?;
+    match shown.at {
+        At::On { piece, slot } => {
+            let placed = house.piece(piece)?;
             let footprint = room::footprint(placed);
             let at = room::surfaces(placed).get(usize::from(slot))?.at;
             Some((
@@ -2195,12 +2243,10 @@ fn item_spot(layout: &RoomLayout, floor: &Floor, item: &DisplayId) -> Option<Vie
                 at,
             ))
         }
-        Spot::Wall { side, at } => {
-            let (tile, look) = match side {
-                WallSide::North => ((i32::from(at), 0), (f32::from(at) + 0.5, 0.0)),
-                WallSide::West => ((0, i32::from(at)), (0.0, f32::from(at) + 0.5)),
-            };
-            let near = floor.nearest_open(tile)?;
+        At::Wall { room, side, at } => {
+            let wall = house.wall(room, side, at)?;
+            let (tile, look) = ((i32::from(wall.x), i32::from(wall.y)), wall.middle());
+            let near = floor.nearest_open_in(tile, room)?;
             let mut around = vec![near];
             around.extend(
                 floor
@@ -2210,23 +2256,35 @@ fn item_spot(layout: &RoomLayout, floor: &Floor, item: &DisplayId) -> Option<Vie
             );
             Some((around, look))
         }
-        Spot::Floor { x, y } => Some((
+        At::Floor { x, y } => Some((
             floor.beside(x, y, 1, 1, (0, 1)),
             (f32::from(x) + 0.5, f32::from(y) + 0.5),
         )),
     }
 }
 
-/// Whether the room still has what an act is about.
-fn still_there(act: &Act, layout: &RoomLayout, snapshot: &HomeSnapshot) -> bool {
+/// The room something shown is in.
+fn item_room(house: &House, item: &DisplayId) -> Option<u8> {
+    let shown = house.shown.iter().find(|shown| &shown.item == item)?;
+    match shown.at {
+        At::On { piece, .. } => house
+            .piece(piece)
+            .and_then(|placed| house.room_at(i32::from(placed.x), i32::from(placed.y))),
+        At::Wall { room, .. } => Some(room),
+        At::Floor { x, y } => house.room_at(i32::from(x), i32::from(y)),
+    }
+}
+
+/// Whether the house still has what an act is about.
+fn still_there(act: &Act, house: &House, snapshot: &HomeSnapshot) -> bool {
     if let Some(uid) = act.piece()
-        && layout.piece(uid).is_none()
+        && house.piece(uid).is_none()
     {
         return false;
     }
     if let Some(item) = act.item() {
         return snapshot.item(item).is_some()
-            && layout.displays.iter().any(|shown| &shown.item == item);
+            && house.shown.iter().any(|shown| &shown.item == item);
     }
     true
 }
@@ -2235,7 +2293,7 @@ fn still_there(act: &Act, layout: &RoomLayout, snapshot: &HomeSnapshot) -> bool 
 /// is everyone in the house just now.
 pub fn choices(
     household: &Household,
-    layout: &RoomLayout,
+    house: &House,
     snapshot: &HomeSnapshot,
     present: &[Id],
     id: Id,
@@ -2256,7 +2314,7 @@ pub fn choices(
     match target {
         Target::Floor(x, y) => acts.push(Act::GoTo(*x, *y)),
         Target::Piece(uid) => {
-            let Some(placed) = layout.piece(*uid) else {
+            let Some(placed) = house.piece(*uid) else {
                 return acts;
             };
             let Some(piece) = catalog::piece(&placed.piece) else {
@@ -2305,7 +2363,7 @@ pub fn choices(
             if acts.is_empty() || piece.flat {
                 let footprint = room::footprint(placed);
                 let (cx, cy) = footprint.centre();
-                let floor = Floor::of(layout);
+                let floor = Floor::of(house);
                 let beside = floor
                     .beside(
                         placed.x,

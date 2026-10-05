@@ -9,6 +9,7 @@ mod art;
 mod catalog;
 mod character;
 mod host;
+mod house;
 mod household;
 mod icon;
 mod iso;
@@ -44,6 +45,12 @@ Usage: formiga-home [--sample | --formiga-home <VISIT DIRECTORY> | --from-save <
   --render-poses <PNG>     Draw everyone in every pose Home uses, for review
   --render-finds <PNG>     Draw everything the colony has, every way it can be shown, for review
   --at <SECONDS>           With --render-room: the household's own life that far in
+  --rooms <N>              With --render-room or a rehearsal: the house grown to N rooms (up to 3)
+  --snap <PNG>             Open the window, and after --at seconds (3 if not given) save a
+                           picture of the window itself and close, for review
+  --page <PAGE>            With --snap: open arranging, on finds, furniture or rooms
+  --theme <THEME>          With --snap: the notebook light or dark, whatever the household's
+                           own preference
   --scale <N>              Pixels per scene pixel in a PNG (default 3)
   --home-version           Print the newest Home version this build reads, for packaging
   --icon <FOLDER>          Write Home's icon as .icns, .ico and .png, for packaging
@@ -71,6 +78,10 @@ struct Args {
     wall: String,
     scale: u32,
     at: Option<f32>,
+    rooms: usize,
+    snap: Option<PathBuf>,
+    page: Option<String>,
+    theme: Option<String>,
 }
 
 fn parse_args(mut args: impl Iterator<Item = std::ffi::OsString>) -> Result<Option<Args>> {
@@ -83,6 +94,10 @@ fn parse_args(mut args: impl Iterator<Item = std::ffi::OsString>) -> Result<Opti
         wall: "wall.leafy".to_owned(),
         scale: 3,
         at: None,
+        rooms: 1,
+        snap: None,
+        page: None,
+        theme: None,
     };
     let value = |args: &mut dyn Iterator<Item = std::ffi::OsString>, flag: &str| {
         args.next()
@@ -126,6 +141,19 @@ fn parse_args(mut args: impl Iterator<Item = std::ffi::OsString>) -> Result<Opti
                         .parse()
                         .context("--at is a number of seconds")?,
                 );
+            }
+            Some("--snap") => parsed.snap = Some(value(&mut args, "--snap")?),
+            Some("--theme") => {
+                parsed.theme = Some(value(&mut args, "--theme")?.to_string_lossy().into());
+            }
+            Some("--page") => {
+                parsed.page = Some(value(&mut args, "--page")?.to_string_lossy().into());
+            }
+            Some("--rooms") => {
+                parsed.rooms = value(&mut args, "--rooms")?
+                    .to_string_lossy()
+                    .parse()
+                    .context("--rooms is a number")?;
             }
             Some("--scale") => {
                 parsed.scale = value(&mut args, "--scale")?
@@ -210,7 +238,11 @@ fn main() -> Result<()> {
             };
             let household =
                 Household::new(snapshot.clone()).context("could not draw the household")?;
-            let homes = store::RehearsalHomes::new(data.as_deref(), &snapshot.colony_key);
+            let mut homes = store::RehearsalHomes::new(data.as_deref(), &snapshot.colony_key);
+            if args.rooms > 1 {
+                // For review: the rehearsal's house grown, as if the owner had built on.
+                homes.grow(&snapshot, args.rooms);
+            }
             (
                 host::Host::Rehearsal(host::Rehearsal::new(snapshot, homes, label)),
                 household,
@@ -219,10 +251,10 @@ fn main() -> Result<()> {
     };
     let open = open.and_then(Result::ok);
     let place = data.as_deref().and_then(store::WindowPlace::load);
-    let mut viewport = eframe::egui::ViewportBuilder::default()
+    let mut viewport = app::frameless(eframe::egui::ViewportBuilder::default())
         .with_title(format!("Formiga Home \u{2014} {}", household.house_name()))
         .with_inner_size(place.map_or([840.0, 620.0], |place| [place.width, place.height]))
-        .with_min_inner_size([480.0, 360.0])
+        .with_min_inner_size([640.0, 480.0])
         .with_icon({
             let picture = icon::at(64);
             eframe::egui::IconData {
@@ -234,6 +266,10 @@ fn main() -> Result<()> {
     if let Some(place) = place {
         viewport = viewport.with_position([place.x, place.y]);
     }
+    if args.snap.is_some() {
+        // A window for review only: it stays behind whatever the owner is doing.
+        viewport = viewport.with_active(false);
+    }
     let options = eframe::NativeOptions {
         viewport,
         ..Default::default()
@@ -242,13 +278,16 @@ fn main() -> Result<()> {
         "Formiga Home",
         options,
         Box::new(move |cc| {
-            Ok(Box::new(app::HomeApp::new(
-                &cc.egui_ctx,
-                household,
-                host,
-                data,
-                open,
-            )))
+            let mut app = app::HomeApp::new(&cc.egui_ctx, household, host, data, open);
+            if let Some(path) = args.snap {
+                app.snap(path, args.at.unwrap_or(3.0), args.page.as_deref());
+                match args.theme.as_deref() {
+                    Some("dark") => cc.egui_ctx.set_theme(eframe::egui::ThemePreference::Dark),
+                    Some("light") => cc.egui_ctx.set_theme(eframe::egui::ThemePreference::Light),
+                    _ => {}
+                }
+            }
+            Ok(Box::new(app))
         }),
     )
     .map_err(|error| anyhow::anyhow!("the window could not open: {error}"))
@@ -266,18 +305,24 @@ fn render_to(render: &Render, household: &Household, args: &Args) -> Canvas {
             } else {
                 starter::home(&household.snapshot)
             };
-            let layout = &home.rooms[0];
-            let mut scene = scene::Scene::new(layout);
+            let mut home = staging::grown(home, args.rooms, &household.snapshot);
+            arrange::settle(&mut home);
+            let house = house::House::of(&home.rooms);
+            let mut scene = scene::Scene::new(&house);
+            let mut overlay = scene::Overlay {
+                backdrop: true,
+                ..scene::Overlay::default()
+            };
             match args.at {
                 // The household's own life, run forward as the window would run it.
                 Some(until) => {
-                    let mut life = life::Life::new(household, layout);
+                    let mut life = life::Life::new(household, &house);
                     let mut now = 0.0;
                     while now < until {
                         now += 1.0 / 30.0;
                         life.tick(
                             household,
-                            layout,
+                            &house,
                             &household.snapshot,
                             &home.likings,
                             now,
@@ -285,26 +330,17 @@ fn render_to(render: &Render, household: &Household, args: &Args) -> Canvas {
                         );
                     }
                     for id in life.present() {
-                        println!("{}", life.doing(household, layout, &household.snapshot, id));
+                        println!("{}", life.doing(household, &house, &household.snapshot, id));
                     }
-                    let mut seen = layout.clone();
+                    let mut seen = house.clone();
                     let worn = life.worn();
-                    seen.displays.retain(|shown| !worn.contains(&shown.item));
-                    let overlay = scene::Overlay {
-                        lamps_off: life.lamps_off().to_vec(),
-                        ..scene::Overlay::default()
-                    };
+                    seen.shown.retain(|shown| !worn.contains(&shown.item));
+                    overlay.lamps_off = life.lamps_off().to_vec();
                     scene.compose(&seen, &household.snapshot, &mut life.actors, now, &overlay)
                 }
                 None => {
-                    let mut actors = staging::pose(household, &home, household.reduce_motion());
-                    scene.compose(
-                        layout,
-                        &household.snapshot,
-                        &mut actors,
-                        0.5,
-                        &scene::Overlay::default(),
-                    )
+                    let mut actors = staging::pose(household, &house, household.reduce_motion());
+                    scene.compose(&house, &household.snapshot, &mut actors, 0.5, &overlay)
                 }
             }
         }

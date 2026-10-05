@@ -93,6 +93,49 @@ impl Family {
     }
 }
 
+/// The sets furniture and finishes come in: the house's own, always there, and three that are
+/// made to go together and arrive with time, each in its own colours and motifs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Set {
+    Home,
+    Seaside,
+    Woodland,
+    Starlit,
+}
+
+impl Set {
+    pub const ALL: [Self; 4] = [Self::Home, Self::Seaside, Self::Woodland, Self::Starlit];
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Home => "Home",
+            Self::Seaside => "Seaside",
+            Self::Woodland => "Woodland",
+            Self::Starlit => "Starlit",
+        }
+    }
+
+    /// When a set's pieces and finishes arrive: slowly, a set at a time.
+    pub const fn arrives(self) -> Arrival {
+        match self {
+            Self::Home => Arrival::Always,
+            Self::Seaside => Arrival::AfterDays(5),
+            Self::Woodland => Arrival::AfterDays(12),
+            Self::Starlit => Arrival::AfterDays(24),
+        }
+    }
+}
+
+impl Arrival {
+    pub fn come(self, days_lived: u32, things: usize) -> bool {
+        match self {
+            Self::Always => true,
+            Self::AfterDays(days) => days_lived >= days,
+            Self::AfterFinds(finds) => things >= finds,
+        }
+    }
+}
+
 /// One piece of furniture.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Piece {
@@ -110,6 +153,7 @@ pub struct Piece {
     pub arrives: Arrival,
     /// How high someone sitting or lying on it is lifted off the floor, in pixels.
     pub lift: i32,
+    pub set: Set,
 }
 
 impl Piece {
@@ -150,10 +194,17 @@ impl Piece {
     }
 
     pub fn available(&self, days_lived: u32, things: usize) -> bool {
-        match self.arrives {
-            Arrival::Always => true,
-            Arrival::AfterDays(days) => days_lived >= days,
-            Arrival::AfterFinds(finds) => things >= finds,
+        self.arrives.come(days_lived, things)
+    }
+
+    /// For a light, how high its bulb glows above the floor, in pixels.
+    pub fn glow(&self) -> Option<i32> {
+        match self.id {
+            "lamp" => Some(33),
+            "shell_lamp" => Some(21),
+            "mushroom_lamp" => Some(17),
+            "moon_lamp" => Some(28),
+            _ => (self.family == Family::Lights).then_some(self.height / 2),
         }
     }
 }
@@ -184,7 +235,7 @@ pub fn front(turn: u8) -> (i32, i32) {
 
 const SEAT: [Use; 2] = [Use::Sit { seats: 1 }, Use::Nap];
 
-pub static PIECES: [Piece; 16] = [
+pub static PIECES: [Piece; 31] = [
     Piece {
         id: "cushion",
         name: "Floor cushion",
@@ -196,6 +247,7 @@ pub static PIECES: [Piece; 16] = [
         surfaces: &[],
         arrives: Arrival::Always,
         lift: 4,
+        set: Set::Home,
     },
     Piece {
         id: "armchair",
@@ -208,6 +260,7 @@ pub static PIECES: [Piece; 16] = [
         surfaces: &[],
         arrives: Arrival::Always,
         lift: 9,
+        set: Set::Home,
     },
     Piece {
         id: "sofa",
@@ -220,6 +273,7 @@ pub static PIECES: [Piece; 16] = [
         surfaces: &[],
         arrives: Arrival::AfterDays(3),
         lift: 9,
+        set: Set::Home,
     },
     Piece {
         id: "bed",
@@ -232,6 +286,7 @@ pub static PIECES: [Piece; 16] = [
         surfaces: &[],
         arrives: Arrival::Always,
         lift: 6,
+        set: Set::Home,
     },
     Piece {
         id: "basket",
@@ -244,6 +299,7 @@ pub static PIECES: [Piece; 16] = [
         surfaces: &[],
         arrives: Arrival::Always,
         lift: 3,
+        set: Set::Home,
     },
     Piece {
         id: "side_table",
@@ -260,6 +316,7 @@ pub static PIECES: [Piece; 16] = [
         }],
         arrives: Arrival::Always,
         lift: 0,
+        set: Set::Home,
     },
     Piece {
         id: "low_table",
@@ -283,6 +340,7 @@ pub static PIECES: [Piece; 16] = [
         ],
         arrives: Arrival::Always,
         lift: 0,
+        set: Set::Home,
     },
     Piece {
         id: "shelf",
@@ -311,6 +369,7 @@ pub static PIECES: [Piece; 16] = [
         ],
         arrives: Arrival::Always,
         lift: 0,
+        set: Set::Home,
     },
     Piece {
         id: "case",
@@ -334,6 +393,7 @@ pub static PIECES: [Piece; 16] = [
         ],
         arrives: Arrival::AfterFinds(6),
         lift: 0,
+        set: Set::Home,
     },
     Piece {
         id: "round_rug",
@@ -346,6 +406,7 @@ pub static PIECES: [Piece; 16] = [
         surfaces: &[],
         arrives: Arrival::Always,
         lift: 0,
+        set: Set::Home,
     },
     Piece {
         id: "long_rug",
@@ -358,6 +419,7 @@ pub static PIECES: [Piece; 16] = [
         surfaces: &[],
         arrives: Arrival::AfterDays(7),
         lift: 0,
+        set: Set::Home,
     },
     Piece {
         id: "lamp",
@@ -370,6 +432,7 @@ pub static PIECES: [Piece; 16] = [
         surfaces: &[],
         arrives: Arrival::Always,
         lift: 0,
+        set: Set::Home,
     },
     Piece {
         id: "fern",
@@ -382,6 +445,7 @@ pub static PIECES: [Piece; 16] = [
         surfaces: &[],
         arrives: Arrival::Always,
         lift: 0,
+        set: Set::Home,
     },
     Piece {
         id: "ball",
@@ -394,6 +458,7 @@ pub static PIECES: [Piece; 16] = [
         surfaces: &[],
         arrives: Arrival::Always,
         lift: 0,
+        set: Set::Home,
     },
     Piece {
         id: "toy_box",
@@ -406,6 +471,7 @@ pub static PIECES: [Piece; 16] = [
         surfaces: &[],
         arrives: Arrival::AfterDays(10),
         lift: 0,
+        set: Set::Home,
     },
     Piece {
         id: "snack_bowl",
@@ -418,6 +484,246 @@ pub static PIECES: [Piece; 16] = [
         surfaces: &[],
         arrives: Arrival::Always,
         lift: 0,
+        set: Set::Home,
+    },
+    // For showing things.
+    Piece {
+        id: "cabinet",
+        name: "Curio cabinet",
+        family: Family::Shelves,
+        size: (1, 1),
+        height: 54,
+        flat: false,
+        uses: &[],
+        surfaces: &[
+            Surface {
+                at: (0.5, 0.5),
+                height: 8,
+                holds: Holds::Shelf,
+            },
+            Surface {
+                at: (0.5, 0.5),
+                height: 22,
+                holds: Holds::Shelf,
+            },
+            Surface {
+                at: (0.5, 0.5),
+                height: 36,
+                holds: Holds::Shelf,
+            },
+        ],
+        arrives: Arrival::AfterFinds(10),
+        lift: 0,
+        set: Set::Home,
+    },
+    Piece {
+        id: "plinth",
+        name: "Bell jar",
+        family: Family::Shelves,
+        size: (1, 1),
+        height: 34,
+        flat: false,
+        uses: &[],
+        surfaces: &[Surface {
+            at: (0.5, 0.5),
+            height: 20,
+            holds: Holds::Shelf,
+        }],
+        arrives: Arrival::AfterFinds(4),
+        lift: 0,
+        set: Set::Home,
+    },
+    Piece {
+        id: "counter",
+        name: "Glass counter",
+        family: Family::Shelves,
+        size: (2, 1),
+        height: 20,
+        flat: false,
+        uses: &[],
+        surfaces: &[
+            Surface {
+                at: (0.42, 0.5),
+                height: 10,
+                holds: Holds::Shelf,
+            },
+            Surface {
+                at: (1.0, 0.5),
+                height: 10,
+                holds: Holds::Shelf,
+            },
+            Surface {
+                at: (1.58, 0.5),
+                height: 10,
+                holds: Holds::Shelf,
+            },
+        ],
+        arrives: Arrival::AfterFinds(14),
+        lift: 0,
+        set: Set::Home,
+    },
+    // The seaside set.
+    Piece {
+        id: "deckchair",
+        name: "Deckchair",
+        family: Family::Seats,
+        size: (1, 1),
+        height: 22,
+        flat: false,
+        uses: &SEAT,
+        surfaces: &[],
+        arrives: Set::Seaside.arrives(),
+        lift: 5,
+        set: Set::Seaside,
+    },
+    Piece {
+        id: "driftwood_bed",
+        name: "Driftwood bed",
+        family: Family::Beds,
+        size: (1, 2),
+        height: 16,
+        flat: false,
+        uses: &[Use::Sleep, Use::Nap],
+        surfaces: &[],
+        arrives: Set::Seaside.arrives(),
+        lift: 6,
+        set: Set::Seaside,
+    },
+    Piece {
+        id: "rope_rug",
+        name: "Rope rug",
+        family: Family::Rugs,
+        size: (2, 2),
+        height: 0,
+        flat: true,
+        uses: &[],
+        surfaces: &[],
+        arrives: Set::Seaside.arrives(),
+        lift: 0,
+        set: Set::Seaside,
+    },
+    Piece {
+        id: "shell_lamp",
+        name: "Shell lamp",
+        family: Family::Lights,
+        size: (1, 1),
+        height: 30,
+        flat: false,
+        uses: &[],
+        surfaces: &[],
+        arrives: Set::Seaside.arrives(),
+        lift: 0,
+        set: Set::Seaside,
+    },
+    // The woodland set.
+    Piece {
+        id: "toadstool",
+        name: "Toadstool",
+        family: Family::Seats,
+        size: (1, 1),
+        height: 13,
+        flat: false,
+        uses: &SEAT,
+        surfaces: &[],
+        arrives: Set::Woodland.arrives(),
+        lift: 11,
+        set: Set::Woodland,
+    },
+    Piece {
+        id: "moss_bed",
+        name: "Moss bed",
+        family: Family::Beds,
+        size: (1, 2),
+        height: 16,
+        flat: false,
+        uses: &[Use::Sleep, Use::Nap],
+        surfaces: &[],
+        arrives: Set::Woodland.arrives(),
+        lift: 6,
+        set: Set::Woodland,
+    },
+    Piece {
+        id: "log_table",
+        name: "Log table",
+        family: Family::Tables,
+        size: (1, 1),
+        height: 12,
+        flat: false,
+        uses: &[],
+        surfaces: &[Surface {
+            at: (0.5, 0.5),
+            height: 12,
+            holds: Holds::Top,
+        }],
+        arrives: Set::Woodland.arrives(),
+        lift: 0,
+        set: Set::Woodland,
+    },
+    Piece {
+        id: "mushroom_lamp",
+        name: "Mushroom lamp",
+        family: Family::Lights,
+        size: (1, 1),
+        height: 24,
+        flat: false,
+        uses: &[],
+        surfaces: &[],
+        arrives: Set::Woodland.arrives(),
+        lift: 0,
+        set: Set::Woodland,
+    },
+    // The starlit set.
+    Piece {
+        id: "night_bed",
+        name: "Night-sky bed",
+        family: Family::Beds,
+        size: (1, 2),
+        height: 16,
+        flat: false,
+        uses: &[Use::Sleep, Use::Nap],
+        surfaces: &[],
+        arrives: Set::Starlit.arrives(),
+        lift: 6,
+        set: Set::Starlit,
+    },
+    Piece {
+        id: "star_rug",
+        name: "Star rug",
+        family: Family::Rugs,
+        size: (2, 2),
+        height: 0,
+        flat: true,
+        uses: &[],
+        surfaces: &[],
+        arrives: Set::Starlit.arrives(),
+        lift: 0,
+        set: Set::Starlit,
+    },
+    Piece {
+        id: "moon_lamp",
+        name: "Moon lamp",
+        family: Family::Lights,
+        size: (1, 1),
+        height: 36,
+        flat: false,
+        uses: &[],
+        surfaces: &[],
+        arrives: Set::Starlit.arrives(),
+        lift: 0,
+        set: Set::Starlit,
+    },
+    Piece {
+        id: "telescope",
+        name: "Toy telescope",
+        family: Family::Toys,
+        size: (1, 1),
+        height: 30,
+        flat: false,
+        uses: &[Use::Play],
+        surfaces: &[],
+        arrives: Set::Starlit.arrives(),
+        lift: 0,
+        set: Set::Starlit,
     },
 ];
 
@@ -430,45 +736,158 @@ pub fn piece(id: &CatalogId) -> Option<&'static Piece> {
 pub struct Finish {
     pub id: &'static str,
     pub name: &'static str,
+    pub set: Set,
 }
 
-pub static FLOORS: [Finish; 4] = [
+pub static FLOORS: [Finish; 7] = [
     Finish {
         id: "floor.boards",
         name: "Honey boards",
+        set: Set::Home,
     },
     Finish {
         id: "floor.checks",
         name: "Sage checks",
+        set: Set::Home,
     },
     Finish {
         id: "floor.straw",
         name: "Woven straw",
+        set: Set::Home,
     },
     Finish {
         id: "floor.rose",
         name: "Rose carpet",
+        set: Set::Home,
+    },
+    Finish {
+        id: "floor.sand",
+        name: "Driftwood boards",
+        set: Set::Seaside,
+    },
+    Finish {
+        id: "floor.moss",
+        name: "Moss carpet",
+        set: Set::Woodland,
+    },
+    Finish {
+        id: "floor.night",
+        name: "Midnight tiles",
+        set: Set::Starlit,
     },
 ];
 
-pub static WALLS: [Finish; 4] = [
+pub static WALLS: [Finish; 7] = [
     Finish {
         id: "wall.plaster",
         name: "Cream plaster",
+        set: Set::Home,
     },
     Finish {
         id: "wall.stripes",
         name: "Mint stripes",
+        set: Set::Home,
     },
     Finish {
         id: "wall.leafy",
         name: "Leafy paper",
+        set: Set::Home,
     },
     Finish {
         id: "wall.timber",
         name: "Timber",
+        set: Set::Home,
+    },
+    Finish {
+        id: "wall.waves",
+        name: "Sea stripes",
+        set: Set::Seaside,
+    },
+    Finish {
+        id: "wall.birch",
+        name: "Birch panels",
+        set: Set::Woodland,
+    },
+    Finish {
+        id: "wall.stars",
+        name: "Starry paper",
+        set: Set::Starlit,
     },
 ];
+
+/// A kind of room a house can grow: its size, and the few pieces it comes with, placed in its own
+/// tiles as `(piece, x, y, turn)`. The room's finishes start as the first room's.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Template {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub size: (u8, u8),
+    pub pieces: &'static [(&'static str, u8, u8, u8)],
+}
+
+/// Every kind of room a house can grow. Rooms come slowly, with the days a colony has lived:
+/// see [`rooms_allowed`].
+pub static ROOMS: [Template; 4] = [
+    Template {
+        id: "room.nook",
+        name: "Reading nook",
+        size: (4, 4),
+        pieces: &[("lamp", 0, 0, 0), ("armchair", 0, 2, 1), ("shelf", 2, 0, 0)],
+    },
+    Template {
+        id: "room.bedroom",
+        name: "Bedroom",
+        size: (5, 5),
+        pieces: &[
+            ("bed", 1, 0, 0),
+            ("side_table", 2, 0, 0),
+            ("basket", 4, 0, 0),
+            ("round_rug", 2, 2, 0),
+        ],
+    },
+    Template {
+        id: "room.gallery",
+        name: "Gallery",
+        size: (4, 7),
+        pieces: &[
+            ("cabinet", 0, 1, 1),
+            ("case", 0, 3, 1),
+            ("counter", 1, 0, 0),
+            ("shelf", 3, 0, 0),
+            ("plinth", 2, 4, 0),
+        ],
+    },
+    Template {
+        id: "room.playroom",
+        name: "Playroom",
+        size: (6, 5),
+        pieces: &[
+            ("toy_box", 0, 0, 0),
+            ("long_rug", 2, 2, 0),
+            ("ball", 4, 1, 0),
+        ],
+    },
+];
+
+pub fn template(id: &CatalogId) -> Option<&'static Template> {
+    ROOMS.iter().find(|template| template.id == id.as_str())
+}
+
+/// How many rooms a house may have after the colony has lived `days` days: a second room after
+/// two weeks, a third after forty days. Nothing hurries it, and a house never has to grow.
+pub fn rooms_allowed(days: u32) -> usize {
+    1 + usize::from(days >= 14) + usize::from(days >= 40)
+}
+
+/// What a room in a house is called: by its kind, or, for the room the house opens into, the
+/// front room.
+pub fn room_name(kind: Option<&CatalogId>, first: bool) -> &'static str {
+    match kind.and_then(template) {
+        Some(template) => template.name,
+        None if first => "Front room",
+        None => "Room",
+    }
+}
 
 /// How a house first looks inside, taking a hint from its outside.
 pub fn finishes_for(style: HouseStyle) -> (&'static str, &'static str) {
@@ -527,6 +946,59 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn every_kind_of_room_comes_with_pieces_that_fit_it() {
+        for template in &ROOMS {
+            assert!(CatalogId::parse(template.id).is_some(), "{}", template.id);
+            let mut taken: Vec<(u8, u8)> = Vec::new();
+            for &(id, x, y, turn) in template.pieces {
+                let piece = PIECES
+                    .iter()
+                    .find(|piece| piece.id == id)
+                    .unwrap_or_else(|| panic!("{}: {id}", template.id));
+                let (w, d) = piece.size_at(turn);
+                assert!(
+                    x + w <= template.size.0 && y + d <= template.size.1,
+                    "{}: {id} sticks out",
+                    template.id
+                );
+                if piece.flat {
+                    continue;
+                }
+                for ty in y..y + d {
+                    for tx in x..x + w {
+                        assert!(!taken.contains(&(tx, ty)), "{}: {id}", template.id);
+                        taken.push((tx, ty));
+                    }
+                }
+            }
+        }
+        assert_eq!(rooms_allowed(0), 1);
+        assert_eq!(rooms_allowed(40), formiga_home_contract::limits::MAX_ROOMS);
+    }
+
+    #[test]
+    fn every_set_comes_with_furniture_and_a_floor_and_a_wall_and_every_light_glows() {
+        for set in Set::ALL {
+            assert!(PIECES.iter().any(|piece| piece.set == set), "{set:?}");
+            assert!(FLOORS.iter().any(|finish| finish.set == set), "{set:?}");
+            assert!(WALLS.iter().any(|finish| finish.set == set), "{set:?}");
+            // A set's pieces come with it, and none before the set does.
+            for piece in PIECES
+                .iter()
+                .filter(|piece| piece.set == set && set != Set::Home)
+            {
+                assert_eq!(piece.arrives, set.arrives(), "{}", piece.id);
+            }
+        }
+        for piece in PIECES.iter().filter(|piece| piece.family == Family::Lights) {
+            let glow = piece
+                .glow()
+                .unwrap_or_else(|| panic!("{} gives no light", piece.id));
+            assert!((4..piece.height).contains(&glow), "{}", piece.id);
         }
     }
 

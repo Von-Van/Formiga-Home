@@ -49,6 +49,7 @@
 //! |---|---|
 //! | 1 | Everything |
 //! | 2 | `visitors`: friends Desktop lends for the visit; `likings`: what each resident has come to like in its home |
+//! | 3 | A room's `plan`, `kind` and `doors`: where each room stands in its house, what kind of room it is, and its doorways |
 //!
 //! The golden fixtures under `tests/fixtures` are every version as it was first written, and must
 //! keep reading.
@@ -83,11 +84,12 @@ pub use replies::{
 };
 pub use snapshot::{HomeCapability, HomeSnapshot, HouseStyle, Household, Neighbour};
 pub use state::{
-    HomeState, HouseholdHome, Liked, Liking, PlacedDisplay, PlacedPiece, RoomLayout, Spot, WallSide,
+    Door, HomeState, HouseholdHome, Liked, Liking, PlacedDisplay, PlacedPiece, PlanPoint,
+    RoomLayout, Spot, WallSide,
 };
 
 /// The version of every Home document this build writes, and the newest it reads.
-pub const HOME_FORMAT_VERSION: u32 = 2;
+pub const HOME_FORMAT_VERSION: u32 = 3;
 
 /// The `format` of each document.
 pub const SNAPSHOT_FORMAT: &str = "formiga.home.snapshot";
@@ -160,6 +162,10 @@ pub mod limits {
     /// A room's sides, in floor tiles.
     pub const MIN_ROOM_TILES: u8 = 4;
     pub const MAX_ROOM_TILES: u8 = 16;
+    /// Doorways in one room's two far walls.
+    pub const MAX_DOORS: usize = 4;
+    /// How far from the first room's far corner any room of the house may reach, in tiles.
+    pub const MAX_PLAN_REACH: i8 = 32;
     /// The turns a piece of furniture can be set at: a quarter turn each.
     pub const TURNS: u8 = 4;
     /// A companion's name, as a trip carries it.

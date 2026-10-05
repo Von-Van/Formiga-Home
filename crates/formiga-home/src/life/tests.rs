@@ -3,41 +3,31 @@ use crate::staging;
 use crate::starter;
 use formiga_home_contract::sample;
 
-fn home() -> (Household, RoomLayout) {
+fn home() -> (Household, House) {
     let household = Household::new(sample::snapshot()).unwrap();
-    let layout = staging::lived_in(&household, "floor.boards", "wall.leafy")
-        .rooms
-        .remove(0);
+    let layout = House::of(&staging::lived_in(&household, "floor.boards", "wall.leafy").rooms);
     (household, layout)
 }
 
 /// The sample household with every resident of one temperament.
-fn tempered(kind: TemperamentKind) -> (Household, RoomLayout) {
+fn tempered(kind: TemperamentKind) -> (Household, House) {
     let mut snapshot = sample::snapshot();
     for resident in &mut snapshot.residents {
         resident.character.temperament = kind.into();
     }
     let household = Household::new(snapshot).unwrap();
-    let layout = staging::lived_in(&household, "floor.boards", "wall.leafy")
-        .rooms
-        .remove(0);
+    let layout = House::of(&staging::lived_in(&household, "floor.boards", "wall.leafy").rooms);
     (household, layout)
 }
 
-fn run(
-    life: &mut Life,
-    household: &Household,
-    layout: &RoomLayout,
-    from: f32,
-    seconds: f32,
-) -> f32 {
+fn run(life: &mut Life, household: &Household, layout: &House, from: f32, seconds: f32) -> f32 {
     run_liking(life, household, layout, &[], from, seconds)
 }
 
 fn run_liking(
     life: &mut Life,
     household: &Household,
-    layout: &RoomLayout,
+    layout: &House,
     likings: &[Liking],
     from: f32,
     seconds: f32,
@@ -57,7 +47,7 @@ fn run_liking(
     now
 }
 
-fn piece(layout: &RoomLayout, id: &str) -> u16 {
+fn piece(layout: &House, id: &str) -> u16 {
     layout
         .pieces
         .iter()
@@ -109,13 +99,8 @@ fn an_asked_act_is_done_and_then_the_resident_is_its_own_again() {
     now = run(&mut life, &household, &layout, now, 15.0);
     assert!(life.queue(keeper).is_empty());
     assert!(
-        life.take_events().contains(&Event::Used(
-            keeper,
-            Liked::Piece {
-                room: 0,
-                uid: chair
-            }
-        )),
+        life.take_events()
+            .contains(&Event::Used(keeper, Used::Piece(chair))),
         "sitting in it counts as using it"
     );
     run(&mut life, &household, &layout, now, 10.0);
@@ -259,7 +244,7 @@ fn a_resident_carried_and_put_down_lands_on_open_floor() {
 #[test]
 fn arranging_holds_everyone_still_and_off_the_furniture() {
     let household = Household::new(sample::snapshot()).unwrap();
-    let layout = starter::room(&household.snapshot);
+    let layout = House::of(&[starter::room(&household.snapshot)]);
     let mut life = Life::new(&household, &layout);
     let mut now = run(&mut life, &household, &layout, 0.0, 30.0);
     life.pause(&household, &layout, now);
@@ -302,7 +287,7 @@ fn every_target_offers_something_and_a_find_can_always_be_looked_at() {
     let keeper = household.keeper().id;
     let snapshot = &household.snapshot;
     let present: Vec<Id> = household.residents.iter().map(|r| r.id).collect();
-    for shown in &layout.displays {
+    for shown in &layout.shown {
         let acts = choices(
             &household,
             &layout,
@@ -419,10 +404,12 @@ fn welcomes(kind: TemperamentKind, close: bool) -> Vec<Option<Act>> {
         }
     }
     let household = Household::new(snapshot).unwrap();
-    let layout = staging::lived_in(&household, "floor.boards", "wall.leafy")
-        .rooms
-        .remove(0);
+    let layout = House::of(&staging::lived_in(&household, "floor.boards", "wall.leafy").rooms);
     let mut life = Life::new(&household, &layout);
+    // Everyone wide awake when the knock comes: a sleeper is left to sleep.
+    for mind in &mut life.minds {
+        mind.drives[Drive::Rest.index()] = 0.0;
+    }
     let mut now = 0.0;
     for _ in 0..240 {
         now = run(&mut life, &household, &layout, now, 0.25);
@@ -546,4 +533,98 @@ fn a_grump_grumbles_at_whoever_is_in_its_favourite_chair() {
             == Some(Act::GrumbleAt(pip))
     });
     assert!(grumbled);
+}
+
+/// The sample house, lived in, with a reading nook built behind it.
+fn with_nook() -> (Household, House) {
+    let household = Household::new(sample::snapshot()).unwrap();
+    let home = staging::grown(
+        staging::lived_in(&household, "floor.boards", "wall.leafy"),
+        2,
+        &household.snapshot,
+    );
+    (household, House::of(&home.rooms))
+}
+
+#[test]
+fn someone_asked_to_sit_in_another_room_walks_through_the_doorway_to_get_there() {
+    let (household, house) = with_nook();
+    let keeper = household.keeper().id;
+    let chair = house
+        .pieces
+        .iter()
+        .find(|placed| {
+            placed.piece.as_str() == "armchair" && house.local(placed.uid).unwrap().0 == 1
+        })
+        .expect("the nook has its armchair")
+        .uid;
+    let doorway = house
+        .walls
+        .iter()
+        .find(|wall| wall.door && wall.beyond.is_some())
+        .copied()
+        .expect("a doorway into the nook");
+    let mut life = Life::new(&household, &house);
+    assert_eq!(life.ask(keeper, Act::Sit(chair), 0.0), Asked::Queued);
+    let mut now = 0.0;
+    let mut through = false;
+    for _ in 0..120 {
+        now = run(&mut life, &household, &house, now, 0.25);
+        let actor = life.actor(keeper).unwrap();
+        let tile = Floor::tile_of(actor.pos);
+        through |= tile == (i32::from(doorway.x), i32::from(doorway.y)) || tile == doorway.behind();
+        // Never anywhere but on the house's floor.
+        assert!(house.room_of_point(actor.pos).is_some(), "{:?}", actor.pos);
+        if actor.on_piece == Some(chair) {
+            break;
+        }
+    }
+    assert_eq!(life.actor(keeper).unwrap().on_piece, Some(chair));
+    assert!(through, "never went through the doorway");
+}
+
+#[test]
+fn a_visitor_comes_in_at_the_front_door() {
+    let (household, house) = with_nook();
+    let door = *house.front_door().expect("a front door");
+    let visitor = household.visitors[0].id;
+    let mut life = Life::new(&household, &house);
+    let mut now = 0.0;
+    for _ in 0..400 {
+        now = run(&mut life, &household, &house, now, 0.1);
+        if life.present().contains(&visitor) {
+            break;
+        }
+    }
+    let at = life.actor(visitor).unwrap().pos;
+    let (mx, my) = door.middle();
+    assert!(
+        (at.0 - mx).abs() < 1.2 && (at.1 - my).abs() < 1.2,
+        "came in at {at:?}, the door is at {:?}",
+        (mx, my)
+    );
+}
+
+#[test]
+fn in_a_house_of_rooms_everyone_gets_about_it() {
+    let household = Household::new(sample::snapshot()).unwrap();
+    let home = staging::grown(
+        staging::lived_in(&household, "floor.boards", "wall.leafy"),
+        3,
+        &household.snapshot,
+    );
+    let house = House::of(&home.rooms);
+    let mut life = Life::new(&household, &house);
+    let mut visited = std::collections::BTreeSet::new();
+    let mut now = 0.0;
+    for _ in 0..(10 * 60) {
+        now = run(&mut life, &household, &house, now, 1.0);
+        for someone in household.everyone() {
+            let actor = life.actor(someone.id).unwrap();
+            if let Some(room) = house.room_of_point(actor.pos).filter(|_| !actor.hidden) {
+                visited.insert(room);
+            }
+        }
+    }
+    assert_eq!(visited.len(), 3, "only ever in {visited:?}");
 }

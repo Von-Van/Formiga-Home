@@ -46,6 +46,13 @@ contract with Desktop before changing either side of it.
   edges in a darker shade of their own colour, never black; grain from `paint::noise`. Furniture
   is built from `art::Block`s on its footprint, drawn from the front and behind, and mirrored for
   the other two turns, so every piece must read the same on both sides of its front.
+- The whole house is one cutaway (`house.rs`). A wall two rooms share is cut down low and drawn in
+  turn with the furniture; so is any far wall that would hide part of another room. Only a
+  full-height wall takes a hanging, nothing stands in a doorway, and every house has a front door.
+- The notebook round the window (`art/notebook.rs`, `app/notebook.rs`) is painted to the same
+  rules and at the same pixel scale as the house; only lettering is egui's. The window has no
+  system frame: the cover moves it and its studs close it. Keep the notes short: detail belongs to
+  whoever is chosen, or to what is pointed at.
 - Whatever stands in front of someone using a piece, or in front of what it shows, goes in the
   sprite's `over` layer. A piece's near corner falls in the middle of its picture, so nothing
   that stands there may hide what is shown on it.
@@ -57,7 +64,9 @@ contract with Desktop before changing either side of it.
   why, plain names, tests named as sentences (`one_find_cannot_be_shown_in_two_houses`).
 - The gate, which CI runs on macOS and Windows:
   `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace`
-- `--render-room` (with `--lived-in`, `--floor`, `--wall` and `--at <seconds>`),
+- `--render-room` (with `--lived-in`, `--floor`, `--wall`, `--rooms <n>` and `--at <seconds>`),
   `--render-catalog`, `--render-finds` and `--render-poses` draw without a window. Look at them,
-  cropped and enlarged, after changing anything visual or any behaviour in `life.rs`.
+  cropped and enlarged, after changing anything visual or any behaviour in `life.rs`. For the
+  notebook itself, `--snap <png>` (with `--page`, `--theme`, `--rooms` and a scratch
+  `FORMIGA_HOME_DATA_DIR`) pictures the window and closes; never capture the screen instead.
 - Never commit planning material: checklists, roadmaps, "next" lists. Docs describe what exists.

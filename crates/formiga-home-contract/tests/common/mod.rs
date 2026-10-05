@@ -52,6 +52,9 @@ pub fn arranged(snapshot: &HomeSnapshot) -> HouseholdHome {
                     spot: Spot::Floor { x: 6, y: 6 },
                 },
             ],
+            plan: None,
+            kind: None,
+            doors: Vec::new(),
         }],
         likings: Vec::new(),
     }
@@ -83,6 +86,9 @@ pub fn neighbours_home(keeper: TravelerId) -> HouseholdHome {
                     },
                 },
             ],
+            plan: None,
+            kind: None,
+            doors: Vec::new(),
         }],
         likings: Vec::new(),
     }

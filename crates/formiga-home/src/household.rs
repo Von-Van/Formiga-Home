@@ -4,7 +4,7 @@
 use crate::character::Character;
 use formiga_art::AccessoryArt;
 use formiga_core::{AppearanceGenome, Creature};
-use formiga_home_contract::{DisplayId, HomeSnapshot, HomeState, TravelerId};
+use formiga_home_contract::{DisplayId, HomeSnapshot, HomeState};
 use formiga_travel::{Band, TravelError, TravelRole, Traveler};
 
 /// A resident's id, as the rest of Home passes it about.
@@ -107,11 +107,16 @@ impl Household {
     }
 
     /// Whose house a visitor comes from: "Biscuit's house".
-    pub fn home_of(&self, id: Id) -> String {
-        self.snapshot.neighbour(TravelerId(id)).map_or_else(
-            || "next door".to_owned(),
-            |house| format!("{}'s house", house.name),
-        )
+    /// Whom in the house a visitor came to see: the resident it is closest to.
+    pub fn friend_of(&self, visitor: Id) -> Option<&Resident> {
+        self.residents.iter().max_by_key(|resident| {
+            let bond = self.bond(resident.id, visitor);
+            (
+                bond.warmth,
+                bond.familiarity,
+                std::cmp::Reverse(resident.id),
+            )
+        })
     }
 
     pub fn reduce_motion(&self) -> bool {

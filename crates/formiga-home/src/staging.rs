@@ -5,6 +5,7 @@
 use crate::actor::{Actor, Pose};
 use crate::art::cues::Cue;
 use crate::catalog;
+use crate::house::House;
 use crate::household::Household;
 use crate::room;
 use crate::starter;
@@ -20,21 +21,21 @@ pub fn lived_in(household: &Household, floor: &str, wall: &str) -> HouseholdHome
     let layout = &mut home.rooms[0];
     layout.floor = CatalogId::parse(floor).unwrap_or_else(|| CatalogId::known("floor.boards"));
     layout.wall = CatalogId::parse(wall).unwrap_or_else(|| CatalogId::known("wall.leafy"));
-    let add = |layout: &mut formiga_home_contract::RoomLayout, id: &str, x, y, turn| {
-        let piece = catalog::PIECES.iter().find(|piece| piece.id == id).unwrap();
-        room::add_piece(layout, piece, x, y, turn)
-    };
     layout
         .pieces
         .retain(|placed| placed.piece.as_str() != "round_rug");
-    add(layout, "long_rug", 2, 3, 0);
-    let sofa = add(layout, "sofa", 3, 6, 2);
-    let table = add(layout, "low_table", 3, 4, 0);
-    let case = add(layout, "case", 7, 2, 3);
-    add(layout, "lamp", 7, 0, 0);
-    add(layout, "cushion", 6, 4, 0);
-    add(layout, "snack_bowl", 1, 6, 0);
-    let _ = sofa;
+    let add = |home: &mut HouseholdHome, id: &str, x, y, turn| {
+        let piece = catalog::PIECES.iter().find(|piece| piece.id == id).unwrap();
+        room::add_piece(home, 0, piece, x, y, turn)
+    };
+    add(&mut home, "long_rug", 2, 3, 0);
+    add(&mut home, "sofa", 3, 6, 2);
+    let table = add(&mut home, "low_table", 3, 4, 0);
+    let case = add(&mut home, "case", 7, 2, 3);
+    add(&mut home, "lamp", 7, 0, 0);
+    add(&mut home, "cushion", 6, 4, 0);
+    add(&mut home, "snack_bowl", 1, 6, 0);
+    let layout = &home.rooms[0];
     let shelf = layout
         .pieces
         .iter()
@@ -129,7 +130,7 @@ pub fn lived_in(household: &Household, floor: &str, wall: &str) -> HouseholdHome
             DisplayId::find(26),
             Spot::Wall {
                 side: WallSide::West,
-                at: 2,
+                at: 1,
             },
         ),
         (
@@ -148,16 +149,42 @@ pub fn lived_in(household: &Household, floor: &str, wall: &str) -> HouseholdHome
     home
 }
 
+/// The same house grown to `rooms` rooms: a reading nook behind it, then a gallery beside it, each
+/// furnished as its kind first comes and put wherever it is first offered.
+pub fn grown(
+    mut home: HouseholdHome,
+    rooms: usize,
+    snapshot: &formiga_home_contract::HomeSnapshot,
+) -> HouseholdHome {
+    for id in ["room.nook", "room.gallery"]
+        .into_iter()
+        .take(rooms.saturating_sub(1))
+    {
+        let template = catalog::ROOMS
+            .iter()
+            .find(|template| template.id == id)
+            .unwrap();
+        if let Some(bigger) = crate::arrange::room_places(&home, template, snapshot)
+            .into_iter()
+            .next()
+        {
+            home = bigger;
+        }
+    }
+    home
+}
+
 /// The household placed about the room for a picture: the keeper settled in the armchair, the
 /// little ones up and about by the toys.
-pub fn pose(household: &Household, home: &HouseholdHome, reduce_motion: bool) -> Vec<Actor> {
-    let layout = &home.rooms[0];
+pub fn pose(household: &Household, house: &House, reduce_motion: bool) -> Vec<Actor> {
+    let first = &house.rooms[0];
+    let (ox, oy) = (f32::from(first.x), f32::from(first.y));
     let mut actors = Vec::new();
     for (index, resident) in household.residents.iter().enumerate() {
-        let mut actor = Actor::new(resident, (4.5, 3.5), reduce_motion);
+        let mut actor = Actor::new(resident, (ox + 4.5, oy + 3.5), reduce_motion);
         match index {
             0 => {
-                if let Some(chair) = layout
+                if let Some(chair) = house
                     .pieces
                     .iter()
                     .find(|placed| placed.piece.as_str() == "armchair")
@@ -173,7 +200,7 @@ pub fn pose(household: &Household, home: &HouseholdHome, reduce_motion: bool) ->
                 }
             }
             1 => {
-                actor.pos = (4.6, 5.4);
+                actor.pos = (ox + 4.6, oy + 5.4);
                 actor.facing_right = true;
                 actor.strike(
                     Pose::new(ActionKind::SoloPlay, ExpressionKind::Joy).with_cue(Cue::Note),
@@ -181,7 +208,7 @@ pub fn pose(household: &Household, home: &HouseholdHome, reduce_motion: bool) ->
                 );
             }
             _ => {
-                actor.pos = (2.5 + index as f32, 2.5);
+                actor.pos = (ox + 2.5 + index as f32, oy + 2.5);
                 actor.strike(Pose::idle(resident.character.idle_face()), 0.0);
             }
         }

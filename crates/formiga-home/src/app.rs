@@ -8,24 +8,22 @@
 
 use crate::arrange::{self, Arranging, Carry, Landing};
 use crate::art::displays;
-use crate::catalog::{self, Arrival, FLOORS, Family, PIECES, WALLS};
+use crate::catalog::{self, FLOORS, Family, PIECES, WALLS};
 use crate::host::Host;
+use crate::house::{At, House};
 use crate::household::{Household, Id, Whereabouts};
-use crate::iso::{SCENE_HEIGHT, SCENE_WIDTH};
-use crate::life::{self, Act, Asked, Event, Life, QUEUE_LIMIT, choices};
+use crate::life::{self, Act, Asked, Event, Life, QUEUE_LIMIT, Used, choices};
 use crate::room::{self, Place, Showing};
 use crate::scene::{Ghost, Overlay, Scene, Target};
 use crate::store::{self, WindowPlace};
 use eframe::egui;
 use formiga_art::Canvas;
-use formiga_home_contract::{DisplayId, HomeState, Liked, RoomLayout, Spot, TravelerId};
+use formiga_home_contract::{DisplayId, HomeState, HouseholdHome, Liked, TravelerId};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
 const NOTICE_SECS: f32 = 4.0;
-/// Round the room, the colour the scene's own backdrop settles to.
-const LETTERBOX: egui::Color32 = egui::Color32::from_rgb(0xd6, 0xc7, 0xb1);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Mode {
@@ -60,6 +58,13 @@ pub struct HomeApp {
     host: Host,
     state: HomeState,
     keeper: TravelerId,
+    /// The visited household's rooms set out as one house, made again whenever they change.
+    house: House,
+    /// The room the Room page of the drawer is about.
+    room_page: u8,
+    /// A room being built: every place it could go, as the home it would make, and the one
+    /// shown.
+    placing: Option<(Vec<HouseholdHome>, usize)>,
     scene: Scene,
     life: Life,
     mode: Mode,
@@ -72,6 +77,12 @@ pub struct HomeApp {
     notice: Option<(String, f32)>,
     texture: Option<egui::TextureHandle>,
     thumbnails: HashMap<String, egui::TextureHandle>,
+    /// The notebook's cover, painted for the window's size.
+    chrome: notebook::Chrome,
+    /// The sticky note of how to do things, taped over the notes.
+    help: bool,
+    /// Which set the furniture page shows, or every set.
+    set_shown: Option<catalog::Set>,
     /// Seconds since the window opened, as egui's input says: one clock for the whole frame.
     clock: f32,
     /// Where the room was drawn last frame.
@@ -82,14 +93,15 @@ pub struct HomeApp {
     place: Option<WindowPlace>,
     left: bool,
     _open: Option<store::Open>,
+    /// For review: a picture of the window itself to save, and when, after which it closes.
+    snap: Option<(PathBuf, f32, bool)>,
 }
 
-/// The visited household's first room in `state`.
-fn layout_of(state: &HomeState, keeper: TravelerId) -> &RoomLayout {
-    &state
+/// The visited household's home in `state`.
+fn home_of(state: &HomeState, keeper: TravelerId) -> &HouseholdHome {
+    state
         .household(keeper)
         .expect("the visited household always has a home")
-        .rooms[0]
 }
 
 impl HomeApp {
@@ -106,22 +118,23 @@ impl HomeApp {
             formiga_travel::Theme::Dark => egui::ThemePreference::Dark,
             _ => egui::ThemePreference::System,
         });
-        // Names in the drawer are things to pick up, not text to select: a selectable label
-        // would take the click and the drag for itself.
-        ctx.all_styles_mut(|style| style.interaction.selectable_labels = false);
+        notebook::style(ctx);
         ctx.set_zoom_factor(f32::from(presentation.text_scale_percent.clamp(100, 150)) / 100.0);
         let mut state = host.state().clone();
         arrange::ensure_home(&mut state, &household.snapshot);
         let keeper = household.snapshot.household.keeper;
-        let layout = layout_of(&state, keeper);
-        let scene = Scene::new(layout);
-        let life = Life::new(&household, layout);
+        let house = House::of(&home_of(&state, keeper).rooms);
+        let scene = Scene::new(&house);
+        let life = Life::new(&household, &house);
         Self {
             selected: household.residents.first().map(|resident| resident.id),
             household,
             host,
             state,
             keeper,
+            house,
+            room_page: 0,
+            placing: None,
             scene,
             life,
             mode: Mode::Live,
@@ -133,6 +146,9 @@ impl HomeApp {
             notice: None,
             texture: None,
             thumbnails: HashMap::new(),
+            chrome: notebook::Chrome::default(),
+            help: false,
+            set_shown: None,
             clock: 0.0,
             room_rect: None,
             last: 0.0,
@@ -141,6 +157,57 @@ impl HomeApp {
             data,
             left: false,
             _open: open,
+            snap: None,
+        }
+    }
+
+    /// For review only: open on `page` of the arranging notes, or living in the house if none,
+    /// and after `at` seconds save a picture of the window to `path` and close.
+    pub fn snap(&mut self, path: PathBuf, at: f32, page: Option<&str>) {
+        self.snap = Some((path, at, false));
+        let page = match page {
+            Some("finds") => Some(Drawer::Finds),
+            Some("furniture") => Some(Drawer::Furniture),
+            Some("rooms") => Some(Drawer::Room),
+            _ => None,
+        };
+        if let Some(page) = page {
+            self.drawer = page;
+            self.set_mode(Mode::Arrange);
+        }
+    }
+
+    /// Ask for the picture when it is time, and save it when it comes.
+    fn take_snap(&mut self, ctx: &egui::Context) {
+        let Some((path, at, asked)) = self.snap.clone() else {
+            return;
+        };
+        if !asked && self.now() >= at {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
+            self.snap = Some((path.clone(), at, true));
+        }
+        let image = ctx.input(|input| {
+            input.events.iter().find_map(|event| match event {
+                egui::Event::Screenshot { image, .. } => Some(image.clone()),
+                _ => None,
+            })
+        });
+        if let Some(image) = image {
+            let [width, height] = image.size;
+            let mut canvas = Canvas::new(width as u32, height as u32);
+            for (index, pixel) in image.pixels.iter().enumerate() {
+                let [r, g, b, a] = pixel.to_srgba_unmultiplied();
+                canvas.set(
+                    (index % width) as i32,
+                    (index / width) as i32,
+                    formiga_art::Rgba::new(r, g, b, a),
+                );
+            }
+            if let Err(error) = crate::write_png(&path, &canvas, 1) {
+                eprintln!("formiga-home: {error:#}");
+            }
+            self.snap = None;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
 
@@ -180,22 +247,17 @@ impl HomeApp {
         let now = self.now();
         self.menu = None;
         if let Some(id) = self.carried.take() {
-            self.life
-                .put_down(layout_of(&self.state, self.keeper), id, now);
+            self.life.put_down(&self.house, id, now);
         }
         match mode {
             Mode::Arrange => {
-                self.life
-                    .pause(&self.household, layout_of(&self.state, self.keeper), now);
+                self.life.pause(&self.household, &self.house, now);
             }
             Mode::Live => {
                 self.arranging.carrying = None;
                 self.arranging.dragged = false;
-                self.life.resume(
-                    layout_of(&self.state, self.keeper),
-                    &self.household.snapshot,
-                    now,
-                );
+                self.placing = None;
+                self.life.resume(&self.house, &self.household.snapshot, now);
                 self.keep();
             }
         }
@@ -210,11 +272,7 @@ impl HomeApp {
 
     fn ask(&mut self, id: Id, act: Act) {
         let now = self.now();
-        let label = act.label(
-            &self.household,
-            layout_of(&self.state, self.keeper),
-            &self.household.snapshot,
-        );
+        let label = act.label(&self.household, &self.house, &self.household.snapshot);
         let name = self.name(id);
         match self.life.ask(id, act, now) {
             Asked::Queued => self.say(format!("{name}: {}", label.to_lowercase())),
@@ -243,7 +301,10 @@ impl HomeApp {
             self.save_photo();
         }
         if escape {
-            if self.menu.take().is_none() && self.arranging.carrying.take().is_none() {
+            if self.placing.take().is_none()
+                && self.menu.take().is_none()
+                && self.arranging.carrying.take().is_none()
+            {
                 self.selected = None;
             }
             self.arranging.dragged = false;
@@ -254,7 +315,11 @@ impl HomeApp {
         if turn {
             self.arranging.turn();
         }
-        if away && self.arranging.put_away(&mut self.state, self.keeper) {
+        if away
+            && self
+                .arranging
+                .put_away(&mut self.state, self.keeper, &self.house)
+        {
             self.changed("Put away.");
         }
         if undo && self.arranging.undo(&mut self.state) {
@@ -271,80 +336,13 @@ impl HomeApp {
         if let Some(home) = self.state.household_mut(self.keeper) {
             home.forget_what_is_gone();
         }
-        self.life.make_room(layout_of(&self.state, self.keeper));
+        self.house = House::of(&home_of(&self.state, self.keeper).rooms);
+        self.room_page = self
+            .room_page
+            .min(self.house.rooms.len().saturating_sub(1) as u8);
+        self.life.make_room(&self.house);
         self.keep();
         self.say(notice);
-    }
-
-    fn top_bar(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            ui.heading(self.household.house_name());
-            ui.separator();
-            let mut mode = self.mode;
-            ui.selectable_value(&mut mode, Mode::Live, "Live");
-            ui.selectable_value(&mut mode, Mode::Arrange, "Arrange");
-            if mode != self.mode {
-                self.set_mode(mode);
-            }
-            if self.mode == Mode::Arrange {
-                ui.separator();
-                if ui
-                    .add_enabled(self.arranging.can_undo(), egui::Button::new("Undo"))
-                    .clicked()
-                    && self.arranging.undo(&mut self.state)
-                {
-                    self.changed("Undone.");
-                }
-                if ui
-                    .add_enabled(self.arranging.can_redo(), egui::Button::new("Redo"))
-                    .clicked()
-                    && self.arranging.redo(&mut self.state)
-                {
-                    self.changed("Done again.");
-                }
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Leave the house").clicked() {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-                if ui
-                    .button("Photo\u{2026}")
-                    .on_hover_text("Save a picture of the room (P)")
-                    .clicked()
-                {
-                    self.save_photo();
-                }
-                if let Some(label) = self.host.rehearsal_label() {
-                    ui.weak(label);
-                }
-            });
-        });
-        ui.add_space(4.0);
-    }
-
-    fn status_bar(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(4.0);
-        let layout = layout_of(&self.state, self.keeper);
-        let snapshot = &self.household.snapshot;
-        let line = match self.selected {
-            Some(id) => self.life.doing(&self.household, layout, snapshot, id),
-            None => self
-                .life
-                .present()
-                .into_iter()
-                .map(|id| self.life.doing(&self.household, layout, snapshot, id))
-                .collect::<Vec<_>>()
-                .join(" "),
-        };
-        ui.horizontal(|ui| {
-            ui.label(line);
-            if let Some((notice, _)) = &self.notice {
-                ui.separator();
-                ui.label(egui::RichText::new(notice).italics());
-            }
-        });
-        ui.add_space(4.0);
     }
 
     fn thumbnail(
@@ -365,289 +363,23 @@ impl HomeApp {
         (texture.id(), size)
     }
 
-    fn drawer(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.add_space(6.0);
-                match self.mode {
-                    Mode::Live => self.drawer_live(ui),
-                    Mode::Arrange => {
-                        ui.horizontal(|ui| {
-                            ui.selectable_value(&mut self.drawer, Drawer::Finds, "Found things");
-                            ui.selectable_value(&mut self.drawer, Drawer::Furniture, "Furniture");
-                            ui.selectable_value(&mut self.drawer, Drawer::Room, "Room");
-                        });
-                        ui.separator();
-                        match self.drawer {
-                            Drawer::Furniture => self.drawer_furniture(ui, ctx),
-                            Drawer::Finds => self.drawer_finds(ui, ctx),
-                            Drawer::Room => self.drawer_room(ui),
-                        }
-                        ui.add_space(8.0);
-                        ui.separator();
-                        ui.weak(
-                            "Drag something, or click it, to pick it up; click to put it down. \
-                         R or a right-click turns a piece, Delete puts it away, and ⌘Z undoes.",
-                        );
-                    }
-                }
-            });
-    }
-
-    fn drawer_live(&mut self, ui: &mut egui::Ui) {
-        let now = self.now();
-        let layout = layout_of(&self.state, self.keeper).clone();
-        let snapshot = self.household.snapshot.clone();
-        let likings = self
-            .state
-            .household(self.keeper)
-            .map(|home| home.likings.clone())
-            .unwrap_or_default();
-        let present = self.life.present();
-        let residents: Vec<Id> = self.household.residents.iter().map(|r| r.id).collect();
-        let visiting: Vec<Id> = self
-            .household
-            .visitors
-            .iter()
-            .map(|r| r.id)
-            .filter(|id| present.contains(id))
-            .collect();
-        for (heading, ids) in [("Who is home", residents), ("Visiting", visiting)] {
-            if ids.is_empty() {
-                continue;
-            }
-            ui.strong(heading);
-            for id in ids {
-                let resident = self.household.resident(id).expect("someone in the house");
-                let label = if resident.is_little() {
-                    format!("{} (little one)", resident.name)
-                } else {
-                    resident.name.clone()
-                };
-                let phrase = resident.traveler.character.phrase.clone();
-                if ui
-                    .selectable_label(self.selected == Some(id), label)
-                    .clicked()
-                {
-                    self.selected = if self.selected == Some(id) {
-                        None
-                    } else {
-                        Some(id)
-                    };
-                    self.menu = None;
-                }
-                ui.weak(phrase);
-                if self.household.is_visitor(id) {
-                    ui.weak(format!("Over from {}", self.household.home_of(id)));
-                }
-                for (kind, thing) in life::favourites(&likings, &layout, id) {
-                    ui.weak(format!(
-                        "Favourite {}: {}",
-                        kind.label(),
-                        life::name_of(&layout, &snapshot, &thing)
-                    ));
-                }
-                ui.add_space(4.0);
-            }
-            ui.separator();
-        }
-        if let Some(id) = self.selected {
-            ui.strong(format!("Asked of {}", self.name(id)));
-            let queue = self.life.queue(id);
-            if queue.is_empty() {
-                ui.weak("Nothing. Click something in the room to see what they could do there.");
-            }
-            let mut cancel = None;
-            for (position, act) in queue.iter().enumerate() {
-                ui.horizontal(|ui| {
-                    if ui
-                        .small_button("✕")
-                        .on_hover_text("Take this back")
-                        .clicked()
-                    {
-                        cancel = Some(position);
-                    }
-                    ui.label(act.label(&self.household, &layout, &snapshot));
-                });
-            }
-            if let Some(position) = cancel {
-                self.life.cancel(id, position, now);
-            }
-            ui.add_space(6.0);
-        }
-        ui.separator();
-        ui.weak(
-            "Click a resident to choose them, then click a seat, a toy, a find or another \
-             resident to see what they could do. Click the floor to send them there. Drag a \
-             resident to carry them; right-click for a pat. When nothing is asked, everyone \
-             does as they please.",
-        );
-    }
-
-    fn drawer_furniture(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        let snapshot = &self.household.snapshot;
-        let (days, things) = (snapshot.days_lived, snapshot.inventory.len());
-        let layout = layout_of(&self.state, self.keeper).clone();
-        for family in Family::ALL {
-            let pieces: Vec<&'static catalog::Piece> =
-                PIECES.iter().filter(|p| p.family == family).collect();
-            if pieces.is_empty() {
-                continue;
-            }
-            ui.add_space(4.0);
-            ui.strong(family.label());
-            for piece in pieces {
-                let available = piece.available(days, things);
-                let (texture, size) = self.thumbnail(ctx, format!("piece:{}", piece.id), || {
-                    crate::art::furniture::draw(piece, false).canvas
-                });
-                let count = layout
-                    .pieces
-                    .iter()
-                    .filter(|placed| placed.piece.as_str() == piece.id)
-                    .count();
-                let response = ui
-                    .horizontal(|ui| {
-                        let scale = (40.0 / size.y.max(1.0)).min(1.5);
-                        ui.add(
-                            egui::Image::new((texture, size * scale)).tint(if available {
-                                egui::Color32::WHITE
-                            } else {
-                                egui::Color32::from_white_alpha(90)
-                            }),
-                        );
-                        ui.vertical(|ui| {
-                            if available {
-                                ui.label(piece.name);
-                            } else {
-                                ui.weak(piece.name);
-                            }
-                            match (available, piece.arrives, count) {
-                                (false, Arrival::AfterDays(_) | Arrival::AfterFinds(_), _) => {
-                                    ui.weak("Arrives in time");
-                                }
-                                (true, _, 0) => {}
-                                (true, _, count) => {
-                                    ui.weak(format!("{count} in the room"));
-                                }
-                                _ => {}
-                            }
-                        });
-                    })
-                    .response
-                    .interact(egui::Sense::click_and_drag());
-                if available && (response.clicked() || response.drag_started()) {
-                    self.arranging.carrying = Some(Carry::New { piece, turn: 0 });
-                    self.arranging.dragged = response.drag_started();
-                }
-                if available {
-                    response.on_hover_cursor(egui::CursorIcon::Grab);
-                }
-            }
-        }
-    }
-
-    fn drawer_finds(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        let snapshot = self.household.snapshot.clone();
-        if snapshot.inventory.is_empty() {
-            ui.weak("Nothing found yet. Whatever the colony finds will be here to show.");
-            return;
-        }
-        let layout = layout_of(&self.state, self.keeper).clone();
-        let mut put_away = None;
-        for item in &snapshot.inventory {
-            let (texture, size) =
-                self.thumbnail(ctx, format!("item:{}", item.id), || displays::icon(item));
-            let whereabouts = match self.household.whereabouts(&self.state, &item.id) {
-                Whereabouts::Nowhere => "Not shown anywhere yet".to_owned(),
-                Whereabouts::Here => format!("Here, {}", where_here(&layout, &item.id)),
-                Whereabouts::Elsewhere(house) => format!("In {house}"),
-            };
-            let here = matches!(
-                self.household.whereabouts(&self.state, &item.id),
-                Whereabouts::Here
-            );
-            let favourite = self.favourite_of(&Liked::Shown {
-                item: item.id.clone(),
-            });
-            let response = ui
-                .horizontal(|ui| {
-                    let scale = 2.0_f32.min(32.0 / size.x.max(size.y).max(1.0) * 2.0);
-                    ui.add(egui::Image::new((texture, size * scale)));
-                    ui.vertical(|ui| {
-                        ui.label(&item.name);
-                        ui.weak(whereabouts);
-                        if let Some(finder) = &item.finder_name {
-                            ui.weak(format!("Found by {finder}"));
-                        }
-                        if let Some(whose) = &favourite {
-                            ui.weak(whose);
-                        }
-                    });
-                })
-                .response
-                .interact(egui::Sense::click_and_drag());
-            if response.clicked() || response.drag_started() {
-                self.arranging.carrying = Some(Carry::Thing(item.id.clone()));
-                self.arranging.dragged = response.drag_started();
-            }
-            let response = response.on_hover_cursor(egui::CursorIcon::Grab);
-            if here {
-                response.context_menu(|ui| {
-                    if ui.button("Put away").clicked() {
-                        put_away = Some(item.id.clone());
-                        ui.close();
-                    }
-                });
-            }
-            ui.add_space(2.0);
-        }
-        if let Some(item) = put_away {
-            self.arranging.carrying = Some(Carry::Thing(item));
-            if self.arranging.put_away(&mut self.state, self.keeper) {
-                self.changed("Back in the drawer.");
-            }
-        }
-    }
-
-    fn drawer_room(&mut self, ui: &mut egui::Ui) {
-        let layout = layout_of(&self.state, self.keeper).clone();
-        ui.strong("Floor");
-        let mut floor = None;
-        for finish in &FLOORS {
-            if ui
-                .radio(layout.floor.as_str() == finish.id, finish.name)
-                .clicked()
-            {
-                floor = Some(finish.id);
-            }
-        }
-        ui.add_space(6.0);
-        ui.strong("Walls");
-        let mut wall = None;
-        for finish in &WALLS {
-            if ui
-                .radio(layout.wall.as_str() == finish.id, finish.name)
-                .clicked()
-            {
-                wall = Some(finish.id);
-            }
-        }
-        if floor.is_some() || wall.is_some() {
-            self.arranging
-                .finish(&mut self.state, self.keeper, floor, wall);
-            self.changed("The room has a new look.");
+    /// The house as it is drawn just now: the one being built, if a room is being placed.
+    fn shown_house(&self) -> House {
+        match &self.placing {
+            Some((places, shown)) => House::of(&places[*shown].rooms),
+            None => self.house_as_seen(),
         }
     }
 
     fn room_view(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let now = self.now();
+        let house = self.shown_house();
         let available = ui.available_rect_before_wrap();
-        let rect = scene_rect(available, ctx.pixels_per_point());
+        let view = crate::iso::View::of(&house);
+        let rect = scene_rect(available, ctx.pixels_per_point(), view.size);
         self.room_rect = Some(rect);
         let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
-        let scale = rect.width() / SCENE_WIDTH as f32;
+        let scale = rect.width() / view.size.0 as f32;
         // While something is carried the pointer is followed wherever it is pressed from, the
         // drawer included; otherwise only while it is over the room.
         let carrying = self.carried.is_some() || self.arranging.dragged;
@@ -661,14 +393,14 @@ impl HomeApp {
         let pixel = pointer.map(|(x, y)| (x as i32, y as i32));
         let released = ctx.input(|input| input.pointer.primary_released());
 
-        let keeper = self.keeper;
         let snapshot = self.household.snapshot.clone();
-        let layout = self.room_as_seen();
-        if self.menu.is_none() {
+        if self.menu.is_none() && self.placing.is_none() {
             self.hovered = pixel.and_then(|point| {
                 self.scene
-                    .hit(&layout, &snapshot, &mut self.life.actors, now, point)
+                    .hit(&house, &snapshot, &mut self.life.actors, now, point)
             });
+        } else if self.placing.is_some() {
+            self.hovered = None;
         }
 
         let mut overlay = Overlay {
@@ -679,12 +411,23 @@ impl HomeApp {
             ..Overlay::default()
         };
         match self.mode {
-            Mode::Live => self.live_pointer(&response, pointer, released, &layout, now),
+            Mode::Live => self.live_pointer(&response, pointer, released, now),
+            Mode::Arrange if self.placing.is_some() => {
+                overlay.new_room = self
+                    .placing
+                    .as_ref()
+                    .map(|(places, _)| (places[0].rooms.len() - 1) as u8);
+            }
             Mode::Arrange => {
-                self.arrange_pointer(&response, pointer, released, &layout);
-                overlay.ghost = self.ghost(&layout, pointer);
+                if self.drawer == Drawer::Room && house.rooms.len() > 1 {
+                    overlay.chosen_room = Some(self.room_page);
+                }
+                self.arrange_pointer(&response, pointer, released);
+                let (ghost, door) = self.ghost(pointer);
+                overlay.ghost = ghost;
+                overlay.door = door;
                 overlay.lifted = match &self.arranging.carrying {
-                    Some(Carry::Piece { uid, .. }) => Some(Target::Piece(*uid)),
+                    Some(Carry::Piece { name, .. }) => Some(Target::Piece(*name)),
                     Some(Carry::Thing(id)) => Some(Target::Shown(id.clone())),
                     _ => None,
                 };
@@ -703,13 +446,12 @@ impl HomeApp {
             );
         }
 
-        let _ = keeper;
-        let layout = self.room_as_seen();
+        let house = self.shown_house();
         let canvas = self
             .scene
-            .compose(&layout, &snapshot, &mut self.life.actors, now, &overlay);
+            .compose(&house, &snapshot, &mut self.life.actors, now, &overlay);
         let image = egui::ColorImage::from_rgba_unmultiplied(
-            [SCENE_WIDTH as usize, SCENE_HEIGHT as usize],
+            [canvas.width() as usize, canvas.height() as usize],
             &canvas.rgba_bytes(),
         );
         let texture = match &mut self.texture {
@@ -732,33 +474,41 @@ impl HomeApp {
             egui::Color32::WHITE,
         );
         // What is pointed at, in a tag over it: who, or what and whose favourite it is.
-        if let Some((name, (x, y))) = self.tag(&layout, now)
+        if let Some((name, (x, y))) = self.tag(&house, now)
             && self.mode == Mode::Live
         {
+            // A slip of card with the notebook's stepped edge, written in its ink.
+            let dark = ui.visuals().dark_mode;
+            let unit = notebook::unit(ctx.pixels_per_point());
             let at = rect.min + egui::vec2(x, y) * scale;
             let font = egui::FontId::proportional(13.0);
-            let galley =
-                painter.layout_no_wrap(name, font, egui::Color32::from_rgb(0x3a, 0x2a, 0x24));
-            let tag = egui::Rect::from_center_size(at, galley.size() + egui::vec2(10.0, 4.0));
+            let galley = painter.layout_no_wrap(name, font, notebook::ink::page(dark));
+            let tag = egui::Rect::from_center_size(at, galley.size() + egui::vec2(12.0, 6.0));
+            let tag = tag.translate(egui::vec2(
+                (rect.min.x + 2.0 - tag.min.x).max(0.0) + (rect.max.x - 2.0 - tag.max.x).min(0.0),
+                (rect.min.y + 2.0 - tag.min.y).max(0.0),
+            ));
             painter.rect_filled(
-                tag,
-                4.0,
-                egui::Color32::from_rgba_unmultiplied(0xfb, 0xf4, 0xe6, 230),
+                tag.translate(egui::vec2(unit, unit)),
+                0.0,
+                egui::Color32::from_black_alpha(50),
             );
+            painter.rect_filled(tag.shrink(unit), 0.0, notebook::ink::card(dark));
+            pages::stepped(&painter, tag, unit, notebook::ink::line(dark));
             painter.galley(
                 tag.center() - galley.size() / 2.0,
                 galley,
-                egui::Color32::BLACK,
+                notebook::ink::page(dark),
             );
         }
     }
 
-    /// The visited room as it looks just now: with any find being worn lifted out of it.
-    fn room_as_seen(&self) -> RoomLayout {
-        let mut layout = layout_of(&self.state, self.keeper).clone();
+    /// The house as it looks just now: with any find being worn lifted out of it.
+    fn house_as_seen(&self) -> House {
+        let mut house = self.house.clone();
         let worn = self.life.worn();
-        layout.displays.retain(|shown| !worn.contains(&shown.item));
-        layout
+        house.shown.retain(|shown| !worn.contains(&shown.item));
+        house
     }
 
     /// What has happened in the house since the last frame.
@@ -766,8 +516,13 @@ impl HomeApp {
         for event in self.life.take_events() {
             match event {
                 Event::Arrived(id) => {
-                    let from = self.household.home_of(id);
-                    self.say(format!("{} has come over from {from}.", self.name(id)));
+                    let notice = match self.household.friend_of(id) {
+                        Some(friend) => {
+                            format!("{} has come over to see {}.", self.name(id), friend.name)
+                        }
+                        None => format!("{} has come over.", self.name(id)),
+                    };
+                    self.say(notice);
                 }
                 Event::Left(id) => {
                     self.say(format!("{} has gone home.", self.name(id)));
@@ -775,8 +530,14 @@ impl HomeApp {
                         self.selected = None;
                     }
                 }
-                Event::Used(id, liked) => {
-                    if let Some(home) = self.state.household_mut(self.keeper) {
+                Event::Used(id, used) => {
+                    let liked = match used {
+                        Used::Piece(name) => self.house.liked(name),
+                        Used::Shown(item) => Some(Liked::Shown { item }),
+                    };
+                    if let (Some(liked), Some(home)) =
+                        (liked, self.state.household_mut(self.keeper))
+                    {
                         home.note_use(TravelerId(id), liked);
                     }
                 }
@@ -787,13 +548,12 @@ impl HomeApp {
     /// Whose favourite something in the house is: "Mochi's favourite".
     fn favourite_of(&self, liked: &Liked) -> Option<String> {
         let home = self.state.household(self.keeper)?;
-        let layout = &home.rooms[0];
         let names: Vec<String> = self
             .household
             .residents
             .iter()
             .filter(|resident| {
-                life::favourites(&home.likings, layout, resident.id)
+                life::favourites(&home.likings, &self.house, resident.id)
                     .iter()
                     .any(|(_, thing)| thing == liked)
             })
@@ -807,7 +567,7 @@ impl HomeApp {
     }
 
     /// The tag for whatever is pointed at, and where over it on the scene.
-    fn tag(&mut self, layout: &RoomLayout, now: f32) -> Option<(String, (f32, f32))> {
+    fn tag(&mut self, house: &House, now: f32) -> Option<(String, (f32, f32))> {
         let view = self.scene.view;
         match self.hovered.clone()? {
             Target::Resident(id) => {
@@ -820,23 +580,19 @@ impl HomeApp {
                 Some((name, ((l + r) as f32 / 2.0, t as f32 - 9.0)))
             }
             Target::Piece(uid) => {
-                let placed = layout.piece(uid)?;
+                let placed = house.piece(uid)?;
                 let piece = catalog::piece(&placed.piece)?;
                 let (cx, cy) = room::footprint(placed).centre();
                 let (sx, sy) = view.screen(cx, cy);
                 let mut name = piece.name.to_owned();
-                if let Some(whose) = self.favourite_of(&Liked::Piece { room: 0, uid }) {
+                if let Some(whose) = house.liked(uid).and_then(|liked| self.favourite_of(&liked)) {
                     name = format!("{name} \u{b7} {whose}");
                 }
                 Some((name, (sx, sy - piece.height as f32 - 8.0)))
             }
             Target::Shown(item) => {
-                let spot = layout
-                    .displays
-                    .iter()
-                    .find(|shown| shown.item == item)?
-                    .spot;
-                let (x, y) = self.scene.spot_anchor(layout, spot)?;
+                let at = house.shown.iter().find(|shown| shown.item == item)?.at;
+                let (x, y) = self.scene.spot_anchor(house, at)?;
                 let mut name = self.household.snapshot.item(&item)?.name.clone();
                 if let Some(whose) = self.favourite_of(&Liked::Shown { item }) {
                     name = format!("{name} \u{b7} {whose}");
@@ -847,16 +603,18 @@ impl HomeApp {
         }
     }
 
-    /// The room as a photo: everyone where they are, and none of the window's own marks.
+    /// The house as a photo: everyone where they are, on the table-top light, and none of the
+    /// window's own marks.
     fn photo(&mut self) -> Canvas {
         let now = self.now();
-        let layout = self.room_as_seen();
+        let house = self.house_as_seen();
         let overlay = Overlay {
             lamps_off: self.life.lamps_off().to_vec(),
+            backdrop: true,
             ..Overlay::default()
         };
         self.scene.compose(
-            &layout,
+            &house,
             &self.household.snapshot,
             &mut self.life.actors,
             now,
@@ -885,18 +643,17 @@ impl HomeApp {
         response: &egui::Response,
         pointer: Option<(f32, f32)>,
         released: bool,
-        layout: &RoomLayout,
         now: f32,
     ) {
         if let Some(id) = self.carried {
             if let Some((x, y)) = pointer {
                 let (fx, fy) = self.scene.view.floor_at(x, y + 10.0);
-                let (w, d) = (f32::from(layout.width), f32::from(layout.depth));
+                let (w, d) = (f32::from(self.house.width), f32::from(self.house.depth));
                 self.life
                     .carry(id, (fx.clamp(0.2, w - 0.2), fy.clamp(0.2, d - 0.2)));
             }
             if released || response.drag_stopped() {
-                self.life.put_down(layout, id, now);
+                self.life.put_down(&self.house, id, now);
                 self.carried = None;
             }
             return;
@@ -928,11 +685,12 @@ impl HomeApp {
             return;
         };
         let at = response.interact_pointer_pos().unwrap_or_default();
-        self.click_live(target, at, layout);
+        self.click_live(target, at);
     }
 
-    fn click_live(&mut self, target: Target, at: egui::Pos2, layout: &RoomLayout) {
+    fn click_live(&mut self, target: Target, at: egui::Pos2) {
         let now = self.now();
+        let house = self.house.clone();
         let snapshot = &self.household.snapshot;
         match (target, self.selected) {
             (Target::Resident(id), Some(chosen)) if id == chosen => {
@@ -953,11 +711,11 @@ impl HomeApp {
             }
             (target, Some(chosen)) => {
                 let present = self.life.present();
-                let acts = choices(&self.household, layout, snapshot, &present, chosen, &target);
+                let acts = choices(&self.household, &house, snapshot, &present, chosen, &target);
                 let mut entries: Vec<(Entry, String)> = acts
                     .into_iter()
                     .map(|act| {
-                        let label = act.label(&self.household, layout, snapshot);
+                        let label = act.label(&self.household, &house, snapshot);
                         (Entry::Ask(act), label)
                     })
                     .collect();
@@ -972,7 +730,7 @@ impl HomeApp {
                     Target::Shown(item) => snapshot
                         .item(item)
                         .map_or_else(String::new, |item| item.name.clone()),
-                    Target::Piece(uid) => layout
+                    Target::Piece(uid) => house
                         .piece(*uid)
                         .and_then(|placed| catalog::piece(&placed.piece))
                         .map_or_else(String::new, |piece| piece.name.to_owned()),
@@ -1001,22 +759,32 @@ impl HomeApp {
         response: &egui::Response,
         pointer: Option<(f32, f32)>,
         released: bool,
-        layout: &RoomLayout,
     ) {
         if response.secondary_clicked() {
             self.arranging.turn();
             return;
         }
-        // Picking something up from the room, by dragging it or by a click.
+        // Picking something up from the house, by dragging it or by a click: a doorway first,
+        // then what is pointed at.
         if self.arranging.carrying.is_none() && (response.drag_started() || response.clicked()) {
-            let carry = match self.hovered.clone() {
-                Some(Target::Piece(uid)) => layout.piece(uid).map(|placed| Carry::Piece {
-                    uid,
+            let door = pointer
+                .and_then(|point| arrange::wall_cell_at(&self.scene.view, &self.house, point))
+                .filter(|wall| wall.door)
+                .map(|wall| Carry::Door {
+                    room: wall.room,
+                    door: formiga_home_contract::Door {
+                        side: wall.side,
+                        at: wall.at,
+                    },
+                });
+            let carry = door.or_else(|| match self.hovered.clone() {
+                Some(Target::Piece(name)) => self.house.piece(name).map(|placed| Carry::Piece {
+                    name,
                     turn: placed.turn,
                 }),
                 Some(Target::Shown(item)) => Some(Carry::Thing(item)),
                 _ => None,
-            };
+            });
             if let Some(carry) = carry {
                 self.arranging.carrying = Some(carry);
                 self.arranging.dragged = response.drag_started();
@@ -1034,12 +802,14 @@ impl HomeApp {
         if !put_now {
             return;
         }
-        let landing = pointer.and_then(|point| self.landing(layout, point));
+        let landing = pointer.and_then(|point| self.landing(point));
+        let house = self.house.clone();
         let put = match landing {
             Some((landing, Some(_))) => self.arranging.put(
                 &mut self.state,
                 self.keeper,
                 &self.household.snapshot,
+                &house,
                 landing,
             ),
             _ => false,
@@ -1047,6 +817,7 @@ impl HomeApp {
         if put {
             let what = match carrying {
                 Carry::Thing(_) => "Shown.",
+                Carry::Door { .. } => "The doorway is moved.",
                 _ => "Put down.",
             };
             self.changed(what);
@@ -1062,20 +833,16 @@ impl HomeApp {
         self.arranging.dragged = false;
     }
 
-    fn landing(
-        &mut self,
-        layout: &RoomLayout,
-        point: (f32, f32),
-    ) -> Option<(Landing, Option<Showing>)> {
+    fn landing(&mut self, point: (f32, f32)) -> Option<(Landing, Option<Showing>)> {
+        let now = self.now();
         let over = match &self.hovered {
             Some(Target::Piece(uid)) => Some(*uid),
             _ => None,
         };
-        let now = self.now();
         let over = over.or_else(|| {
             let pixel = (point.0 as i32, point.1 as i32);
             match self.scene.hit(
-                layout,
+                &self.house,
                 &self.household.snapshot,
                 &mut self.life.actors,
                 now,
@@ -1087,82 +854,159 @@ impl HomeApp {
         });
         self.arranging.landing(
             &self.scene.view,
-            layout,
+            &self.house,
+            home_of(&self.state, self.keeper),
             &self.household.snapshot,
             point,
             over,
         )
     }
 
-    /// What is being carried, drawn where it would go: green where it fits, red where not.
-    fn ghost(&mut self, layout: &RoomLayout, pointer: Option<(f32, f32)>) -> Option<Ghost> {
-        let point = pointer?;
-        let (landing, showing) = self.landing(layout, point)?;
-        if let Some((piece, turn, _)) = self.arranging.carried_piece(layout) {
-            let Landing::Floor { x, y } = landing else {
-                return None;
+    /// What is being carried, drawn where it would go: green where it fits, red where not. A
+    /// doorway is shown as the stretch of wall it would go in.
+    fn ghost(
+        &mut self,
+        pointer: Option<(f32, f32)>,
+    ) -> (Option<Ghost>, Option<(crate::house::Wall, bool)>) {
+        let Some(point) = pointer else {
+            return (None, None);
+        };
+        let Some((landing, showing)) = self.landing(point) else {
+            return (None, None);
+        };
+        let house = self.house.clone();
+        if let Landing::Wall { room, door } = landing {
+            let wall = house.wall(room, door.side, door.at).copied();
+            return (None, wall.map(|wall| (wall, showing.is_some())));
+        }
+        if let Some((piece, turn, _)) = self.arranging.carried_piece(&house) {
+            let Landing::Floor { room, x, y } = landing else {
+                return (None, None);
             };
+            let Some(at) = house.room(room) else {
+                return (None, None);
+            };
+            let (x, y) = (at.x + x, at.y + y);
             let (w, d) = piece.size_at(turn);
             let sprite = self.scene.piece_sprite(piece, turn).clone();
-            return Some(Ghost {
-                sprite,
-                at: self.scene.view.pixel(f32::from(x), f32::from(y)),
-                fits: showing.is_some(),
-                footprint: Some(room::Footprint { x, y, w, d }),
-            });
+            return (
+                Some(Ghost {
+                    sprite,
+                    at: self.scene.view.pixel(f32::from(x), f32::from(y)),
+                    fits: showing.is_some(),
+                    footprint: Some(room::Footprint { x, y, w, d }),
+                }),
+                None,
+            );
         }
         let Some(Carry::Thing(id)) = &self.arranging.carrying else {
-            return None;
+            return (None, None);
         };
-        let item = self.household.snapshot.item(id)?.clone();
-        let Landing::Spot(spot) = landing else {
-            return None;
+        let Some(item) = self.household.snapshot.item(id).cloned() else {
+            return (None, None);
         };
-        let place = room::place_of(layout, spot).unwrap_or(Place::Top);
-        let at = self
+        let Landing::Spot { room, spot } = landing else {
+            return (None, None);
+        };
+        let Some(at) = house.at(room, spot) else {
+            return (None, None);
+        };
+        let place = house.place_of(at).unwrap_or(Place::Top);
+        let anchor = self
             .scene
-            .spot_anchor(layout, spot)
+            .spot_anchor(&house, at)
             .unwrap_or((point.0 as i32, point.1 as i32));
         let sprite = self
             .scene
             .thing(&item, place, showing.unwrap_or(Showing::Card))
             .clone();
-        let footprint = match spot {
-            Spot::Floor { x, y } => Some(room::Footprint { x, y, w: 1, d: 1 }),
+        let footprint = match at {
+            At::Floor { x, y } => Some(room::Footprint { x, y, w: 1, d: 1 }),
             _ => None,
         };
-        Some(Ghost {
-            sprite,
-            at,
-            fits: showing.is_some(),
-            footprint,
-        })
+        (
+            Some(Ghost {
+                sprite,
+                at: anchor,
+                fits: showing.is_some(),
+                footprint,
+            }),
+            None,
+        )
     }
 
     fn menu(&mut self, ctx: &egui::Context) {
         let Some(menu) = &self.menu else { return };
         let mut chosen = None;
         let mut close = false;
+        let unit = notebook::unit(ctx.pixels_per_point());
         let area = egui::Area::new(egui::Id::new("actions"))
             .order(egui::Order::Foreground)
             .fixed_pos(menu.at + egui::vec2(8.0, 8.0))
+            .constrain(true)
             .show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.set_min_width(150.0);
-                    if !menu.title.is_empty() {
-                        ui.strong(&menu.title);
-                        ui.separator();
-                    }
-                    for (entry, label) in &menu.entries {
-                        if ui.button(label).clicked() {
-                            chosen = Some(entry.clone());
+                let dark = ui.visuals().dark_mode;
+                // A card of choices, with the notebook's stepped edge and a shadow under it.
+                let shadow = ui.painter().add(egui::Shape::Noop);
+                let shown = egui::Frame::new()
+                    .fill(notebook::ink::card(dark))
+                    .inner_margin(egui::Margin::symmetric(8, 6))
+                    .show(ui, |ui| {
+                        // As wide as its longest choice, and every row that wide.
+                        let widest = menu
+                            .entries
+                            .iter()
+                            .map(|(_, label)| {
+                                ui.painter()
+                                    .layout_no_wrap(
+                                        label.clone(),
+                                        egui::TextStyle::Button.resolve(ui.style()),
+                                        egui::Color32::WHITE,
+                                    )
+                                    .size()
+                                    .x
+                            })
+                            .fold(150.0_f32, f32::max);
+                        ui.set_width(widest + 12.0);
+                        ui.spacing_mut().item_spacing.y = 1.0;
+                        if !menu.title.is_empty() {
+                            notebook::kicker(ui, &menu.title);
+                            ui.add_space(3.0);
                         }
-                    }
-                    ui.separator();
-                    if ui.button("Never mind").clicked() {
-                        close = true;
-                    }
-                });
+                        for (entry, label) in &menu.entries {
+                            let row = egui::Button::new(label)
+                                .frame(false)
+                                .min_size(egui::vec2(ui.available_width(), 20.0));
+                            if ui.add(row).clicked() {
+                                chosen = Some(entry.clone());
+                            }
+                        }
+                        ui.add_space(3.0);
+                        let never = egui::Button::new(
+                            egui::RichText::new("Never mind")
+                                .italics()
+                                .color(notebook::ink::muted(dark)),
+                        )
+                        .frame(false);
+                        if ui.add(never).clicked() {
+                            close = true;
+                        }
+                    });
+                let rect = shown.response.rect;
+                ui.painter().set(
+                    shadow,
+                    egui::Shape::rect_filled(
+                        rect.translate(egui::vec2(2.0 * unit, 2.0 * unit)),
+                        0.0,
+                        egui::Color32::from_black_alpha(60),
+                    ),
+                );
+                pages::stepped(
+                    ui.painter(),
+                    rect.expand(unit),
+                    unit,
+                    notebook::ink::line(dark),
+                );
             });
         let clicked_elsewhere = ctx.input(|input| input.pointer.any_click())
             && !area.response.contains_pointer()
@@ -1186,40 +1030,65 @@ impl HomeApp {
     }
 }
 
-/// Where in this house a thing is shown, as the drawer says it: "on the open shelf".
-fn where_here(layout: &RoomLayout, item: &DisplayId) -> String {
-    let Some(shown) = layout.displays.iter().find(|shown| &shown.item == item) else {
-        return "in another room".to_owned();
+/// Where in this house a thing is shown, as the drawer says it: "on the open shelf", or in a
+/// house of rooms, "on the open shelf in the gallery".
+fn where_here(house: &House, item: &DisplayId) -> String {
+    let Some(shown) = house.shown.iter().find(|shown| &shown.item == item) else {
+        return "put away".to_owned();
     };
-    match shown.spot {
-        Spot::On { piece, .. } => layout
+    let what = match shown.at {
+        At::On { piece, .. } => house
             .piece(piece)
             .and_then(|placed| catalog::piece(&placed.piece))
             .map_or_else(
                 || "on a shelf".to_owned(),
                 |piece| format!("on the {}", piece.name.to_lowercase()),
             ),
-        Spot::Wall { .. } => "on the wall".to_owned(),
-        Spot::Floor { .. } => "on the floor".to_owned(),
+        At::Wall { .. } => "on the wall".to_owned(),
+        At::Floor { .. } => "on the floor".to_owned(),
+    };
+    let room = house.spot(shown.at).map(|(room, _)| room);
+    match room.and_then(|room| house.room(room).map(|at| (room, at))) {
+        Some((index, at)) if house.rooms.len() > 1 => format!(
+            "{what} in the {}",
+            catalog::room_name(at.kind.as_ref(), index == 0).to_lowercase()
+        ),
+        _ => what,
     }
 }
 
-/// The room scaled up by a whole number of pixels where it fits, so every pixel stays square.
-fn scene_rect(available: egui::Rect, pixels_per_point: f32) -> egui::Rect {
-    let fit = (available.width() * pixels_per_point / SCENE_WIDTH as f32)
-        .min(available.height() * pixels_per_point / SCENE_HEIGHT as f32);
+/// The house's picture scaled up by a whole number of pixels where it fits, so every pixel stays
+/// square.
+fn scene_rect(available: egui::Rect, pixels_per_point: f32, size: (u32, u32)) -> egui::Rect {
+    let fit = (available.width() * pixels_per_point / size.0 as f32)
+        .min(available.height() * pixels_per_point / size.1 as f32);
     let pixels = if fit >= 1.0 {
         fit.floor()
     } else {
         fit.max(0.1)
     };
-    let size = egui::vec2(SCENE_WIDTH as f32, SCENE_HEIGHT as f32) * pixels / pixels_per_point;
+    let size = egui::vec2(size.0 as f32, size.1 as f32) * pixels / pixels_per_point;
     egui::Rect::from_center_size(available.center(), size)
 }
 
 impl eframe::App for HomeApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.frame(ui);
+    }
+
+    /// A window opened only to have its picture taken answers to nobody: whatever the pointer or
+    /// the keys do on it is let go, so a review never changes anything.
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        if self.snap.is_some() {
+            raw_input
+                .events
+                .retain(|event| matches!(event, egui::Event::Screenshot { .. }));
+        }
+    }
+
+    /// The leather, under everything, until the cover is painted over it.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.357, 0.227, 0.153, 1.0]
     }
 }
 
@@ -1260,13 +1129,10 @@ impl HomeApp {
         }
         self.keys(&ctx);
         if self.mode == Mode::Live {
-            let home = self
-                .state
-                .household(self.keeper)
-                .expect("the visited household always has a home");
+            let home = home_of(&self.state, self.keeper);
             self.life.tick(
                 &self.household,
-                &home.rooms[0],
+                &self.house,
                 &self.household.snapshot,
                 &home.likings,
                 now,
@@ -1281,17 +1147,70 @@ impl HomeApp {
         {
             self.notice = None;
         }
-        egui::Panel::top("bar").show(ui, |ui| self.top_bar(ui, &ctx));
-        egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
-        egui::Panel::right("drawer")
-            .resizable(false)
-            .exact_size(236.0)
-            .show(ui, |ui| self.drawer(ui, &ctx));
         egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(LETTERBOX))
-            .show(ui, |ui| self.room_view(ui, &ctx));
+            .frame(egui::Frame::NONE)
+            .show(ui, |ui| {
+                let layout = self.notebook(ui);
+                let page = layout.left.shrink(6.0 * layout.unit);
+                ui.scope_builder(egui::UiBuilder::new().max_rect(page), |ui| {
+                    self.room_view(ui, &ctx);
+                });
+                ui.scope_builder(egui::UiBuilder::new().max_rect(layout.notes), |ui| {
+                    self.notes(ui, &ctx, layout.unit);
+                });
+                self.help_note(ui, &ctx, layout.notes, layout.unit);
+                self.status_line(ui, &layout);
+            });
         self.menu(&ctx);
+        self.take_snap(&ctx);
         ctx.request_repaint_after(Duration::from_millis(33));
+    }
+}
+
+impl HomeApp {
+    /// The line along the foot of the cover: what whoever is chosen is doing, or what has just
+    /// happened; and, for a rehearsal, which one.
+    fn status_line(&mut self, ui: &mut egui::Ui, layout: &notebook::Layout) {
+        let dark = layout.dark;
+        let painter = ui.painter();
+        let (text, italic) = match &self.notice {
+            Some((notice, _)) => (notice.clone(), true),
+            None => match self.selected {
+                Some(id) => (
+                    self.life
+                        .doing(&self.household, &self.house, &self.household.snapshot, id),
+                    false,
+                ),
+                None => (String::new(), false),
+            },
+        };
+        let mut format = egui::TextFormat {
+            font_id: egui::FontId::proportional(13.0),
+            color: notebook::ink::cover(dark),
+            italics: italic,
+            ..Default::default()
+        };
+        let mut job = egui::text::LayoutJob::default();
+        job.append(&text, 0.0, format.clone());
+        let galley = painter.layout_job(job);
+        let at = egui::pos2(
+            layout.status.min.x,
+            layout.status.center().y - galley.size().y / 2.0,
+        );
+        painter.galley(at, galley, notebook::ink::cover(dark));
+        if let Some(label) = self.host.rehearsal_label() {
+            format.font_id = egui::FontId::proportional(11.0);
+            format.color = notebook::ink::deboss(dark);
+            format.italics = false;
+            let mut job = egui::text::LayoutJob::default();
+            job.append(label, 0.0, format);
+            let galley = painter.layout_job(job);
+            let at = egui::pos2(
+                layout.status.max.x - galley.size().x,
+                layout.status.center().y - galley.size().y / 2.0,
+            );
+            painter.galley(at, galley, notebook::ink::deboss(dark));
+        }
     }
 }
 
@@ -1300,6 +1219,11 @@ impl Drop for HomeApp {
         self.leave();
     }
 }
+
+mod notebook;
+mod pages;
+
+pub use notebook::frameless;
 
 #[cfg(test)]
 mod tests;

@@ -6,7 +6,7 @@ use super::*;
 use crate::host::Rehearsal;
 use crate::store::RehearsalHomes;
 use eframe::egui::{Event, Key, Modifiers, PointerButton, Pos2, RawInput, Rect};
-use formiga_home_contract::{DisplayId, sample};
+use formiga_home_contract::{DisplayId, RoomLayout, Spot, sample};
 use std::path::Path;
 
 struct Harness {
@@ -44,7 +44,7 @@ impl Harness {
 
     fn step(&mut self, events: Vec<Event>) {
         let input = RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(900.0, 640.0))),
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1100.0, 800.0))),
             time: Some(self.time),
             events,
             ..RawInput::default()
@@ -125,6 +125,28 @@ impl Harness {
             .find_map(|clipped| search(&clipped.shape, wanted))
     }
 
+    /// Where a control with its own id was laid out last frame: a tab, a tile, a stud.
+    fn at_id(&self, id: egui::Id) -> Pos2 {
+        self.ctx
+            .read_response(id)
+            .unwrap_or_else(|| panic!("nothing answers to {id:?}"))
+            .rect
+            .center()
+    }
+
+    fn click_id(&mut self, id: egui::Id) {
+        let at = self.at_id(id);
+        self.click(at);
+    }
+
+    fn arrange(&mut self) {
+        self.click_id(notebook::mode_id(Mode::Arrange));
+    }
+
+    fn turn_to(&mut self, page: Drawer) {
+        self.click_id(notebook::page_id(page));
+    }
+
     fn click_text(&mut self, wanted: &str) {
         let at = self
             .text(wanted)
@@ -135,14 +157,14 @@ impl Harness {
     /// A point of the scene, on the window.
     fn on_window(&self, (x, y): (f32, f32)) -> Pos2 {
         let rect = self.app.room_rect.expect("the room has been drawn");
-        let scale = rect.width() / SCENE_WIDTH as f32;
+        let scale = rect.width() / self.app.scene.view.size.0 as f32;
         rect.min + egui::vec2(x + 0.5, y + 0.5) * scale
     }
 
     /// Somewhere on the window the room shows `target` under the pointer.
     fn find(&mut self, target: &Target) -> Pos2 {
         let view = self.app.scene.view;
-        let layout = layout_of(&self.app.state, self.app.keeper).clone();
+        let layout = self.app.house.clone();
         let (cx, cy) = match target {
             Target::Floor(x, y) => view.tile_centre(*x, *y),
             Target::Piece(uid) => {
@@ -164,13 +186,8 @@ impl Harness {
                 ((l + r) as f32 / 2.0, (t + b) as f32 / 2.0)
             }
             Target::Shown(item) => {
-                let spot = layout
-                    .displays
-                    .iter()
-                    .find(|s| &s.item == item)
-                    .unwrap()
-                    .spot;
-                let (x, y) = self.app.scene.spot_anchor(&layout, spot).unwrap();
+                let at = layout.shown.iter().find(|s| &s.item == item).unwrap().at;
+                let (x, y) = self.app.scene.spot_anchor(&layout, at).unwrap();
                 (x as f32, y as f32 - 3.0)
             }
         };
@@ -199,7 +216,7 @@ impl Harness {
     }
 
     fn piece(&self, id: &str) -> u16 {
-        layout_of(&self.app.state, self.app.keeper)
+        self.layout()
             .pieces
             .iter()
             .find(|placed| placed.piece.as_str() == id)
@@ -215,8 +232,9 @@ impl Harness {
         self.app.household.residents[1].id
     }
 
+    /// The house's first room, as the state keeps it. Its pieces' names are the house's own.
     fn layout(&self) -> RoomLayout {
-        layout_of(&self.app.state, self.app.keeper).clone()
+        home_of(&self.app.state, self.app.keeper).rooms[0].clone()
     }
 }
 
@@ -283,7 +301,7 @@ fn another_resident_can_be_greeted_and_the_chosen_one_given_a_pat() {
         window.app.life.queue(keeper).is_empty(),
         "a pat lets go of what was asked"
     );
-    let layout = window.layout();
+    let layout = window.app.house.clone();
     let doing = window.app.life.doing(
         &window.app.household,
         &layout,
@@ -318,7 +336,7 @@ fn a_resident_right_clicked_gets_a_pat_and_one_dragged_is_set_down_on_open_floor
     let pip = window.pip();
     let at = window.find(&Target::Resident(pip));
     window.click_with(at, PointerButton::Secondary);
-    let layout = window.layout();
+    let layout = window.app.house.clone();
     let doing = window.app.life.doing(
         &window.app.household,
         &layout,
@@ -345,9 +363,9 @@ fn a_resident_right_clicked_gets_a_pat_and_one_dragged_is_set_down_on_open_floor
 fn a_find_from_the_drawer_goes_on_the_shelf_and_can_be_undone_and_redone() {
     let data = scratch("shelf");
     let mut window = Harness::open(&data);
-    window.click_text("Arrange");
+    window.arrange();
     assert_eq!(window.app.mode, Mode::Arrange);
-    window.click_text("Shell");
+    window.click_id(egui::Id::new(("find", "find.3")));
     assert_eq!(
         window.app.arranging.carrying,
         Some(Carry::Thing(DisplayId::find(3)))
@@ -372,8 +390,8 @@ fn a_find_from_the_drawer_goes_on_the_shelf_and_can_be_undone_and_redone() {
 fn a_shell_will_not_stand_on_the_floor_and_stays_in_hand() {
     let data = scratch("floorshell");
     let mut window = Harness::open(&data);
-    window.click_text("Arrange");
-    window.click_text("Shell");
+    window.arrange();
+    window.click_id(egui::Id::new(("find", "find.3")));
     let at = window.on_window(window.app.scene.view.tile_centre(6, 6));
     window.click(at);
     assert_eq!(window.app.state.shown_by(&DisplayId::find(3)), None);
@@ -390,11 +408,9 @@ fn a_shell_will_not_stand_on_the_floor_and_stays_in_hand() {
 fn a_cushion_dragged_from_the_catalogue_lands_where_it_is_let_go() {
     let data = scratch("cushion");
     let mut window = Harness::open(&data);
-    window.click_text("Arrange");
-    window.click_text("Furniture");
-    let from = window
-        .text("Floor cushion")
-        .expect("the cushion is in the catalogue");
+    window.arrange();
+    window.turn_to(Drawer::Furniture);
+    let from = window.at_id(egui::Id::new(("piece", "cushion")));
     let to = window.on_window(window.app.scene.view.tile_centre(6, 3));
     window.drag(from, to);
     let cushion = window
@@ -412,14 +428,14 @@ fn a_cushion_dragged_from_the_catalogue_lands_where_it_is_let_go() {
 fn a_piece_in_the_room_is_picked_up_turned_moved_and_put_away() {
     let data = scratch("move");
     let mut window = Harness::open(&data);
-    window.click_text("Arrange");
+    window.arrange();
     let chair = window.piece("armchair");
     let at = window.find(&Target::Piece(chair));
     window.click(at);
     assert_eq!(
         window.app.arranging.carrying,
         Some(Carry::Piece {
-            uid: chair,
+            name: chair,
             turn: 1
         })
     );
@@ -441,14 +457,14 @@ fn what_is_arranged_is_there_when_the_house_is_opened_again() {
     let data = scratch("again");
     {
         let mut window = Harness::open(&data);
-        window.click_text("Arrange");
-        window.click_text("Shell");
+        window.arrange();
+        window.click_id(egui::Id::new(("find", "find.3")));
         let shelf = window.piece("shelf");
         let at = window.find(&Target::Piece(shelf));
         window.click(at);
-        window.click_text("Room");
-        window.click_text("Rose carpet");
-        window.click_text("Live");
+        window.turn_to(Drawer::Room);
+        window.click_id(egui::Id::new(("floor", "floor.rose")));
+        window.click_id(notebook::mode_id(Mode::Live));
         assert_eq!(window.app.mode, Mode::Live);
     }
     let window = Harness::open(&data);
@@ -476,12 +492,12 @@ impl Harness {
 fn a_visitor_who_comes_in_is_listed_and_can_be_chosen() {
     let data = scratch("visitor");
     let mut window = Harness::open(&data);
-    assert!(window.text("Visiting").is_none(), "nobody has come yet");
+    assert!(window.text("VISITING").is_none(), "nobody has come yet");
     let visitor = window.app.household.visitors[0].id;
     let name = window.app.household.visitors[0].name.clone();
     window.pass(60.0);
     assert!(
-        window.text("Visiting").is_some(),
+        window.text("VISITING").is_some(),
         "the visitor never came in"
     );
     assert!(
@@ -498,15 +514,19 @@ fn a_photo_is_the_whole_room_and_nothing_of_the_window() {
     let data = scratch("photo");
     let mut window = Harness::open(&data);
     let photo = window.app.photo();
-    assert_eq!((photo.width(), photo.height()), (SCENE_WIDTH, SCENE_HEIGHT));
+    assert_eq!(
+        (photo.width(), photo.height()),
+        (crate::iso::SCENE_WIDTH, crate::iso::SCENE_HEIGHT)
+    );
     assert!(photo.pixels().iter().all(|pixel| pixel.a == 255));
     // The chosen resident's gold ring is the window's, not the room's.
     let keeper = window.keeper();
     assert_eq!(window.app.selected, Some(keeper));
-    let (layout, now) = (window.layout(), window.app.now());
+    let (layout, now) = (window.app.house.clone(), window.app.now());
     let overlay = Overlay {
         selected: Some(keeper),
         lamps_off: window.app.life.lamps_off().to_vec(),
+        backdrop: true,
         ..Overlay::default()
     };
     let mut marked = window.app.scene.compose(
@@ -519,5 +539,58 @@ fn a_photo_is_the_whole_room_and_nothing_of_the_window() {
     assert_ne!(photo, marked, "the photo has no ring");
     marked = window.app.photo();
     assert_eq!(photo, marked, "and the same moment photographs the same");
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+impl Harness {
+    /// Whether the window asked last frame to be closed.
+    fn asked_to_close(&self) -> bool {
+        self.output.as_ref().is_some_and(|output| {
+            output.viewport_output.values().any(|viewport| {
+                viewport
+                    .commands
+                    .iter()
+                    .any(|command| matches!(command, egui::ViewportCommand::Close))
+            })
+        })
+    }
+}
+
+#[test]
+fn a_room_chosen_from_the_rooms_page_is_built_where_it_is_shown_and_joins_the_house() {
+    let data = scratch("build");
+    let mut window = Harness::open(&data);
+    window.arrange();
+    window.turn_to(Drawer::Room);
+    window.click_id(egui::Id::new(("template", "room.nook")));
+    let (places, _) = window.app.placing.clone().expect("somewhere to build it");
+    assert!(places.len() >= 2);
+    // The next place along, then built there.
+    window.click_text("\u{25b6}");
+    let chosen = window.app.placing.as_ref().unwrap().1;
+    assert_eq!(chosen, 1);
+    window.click_text("Build here");
+    assert!(window.app.placing.is_none());
+    let home = home_of(&window.app.state, window.app.keeper).clone();
+    assert_eq!(home.rooms, places[1].rooms);
+    assert_eq!(window.app.house.reachable(), vec![true, true]);
+    // The household lives on through the doorway once arranging is done.
+    window.click_id(notebook::mode_id(Mode::Live));
+    window.pass(20.0);
+    assert!(window.app.life.present().len() >= 2);
+    formiga_home_contract::HomeDocument::validate(&window.app.state).unwrap();
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn the_cover_s_close_stud_leaves_the_house() {
+    let data = scratch("close");
+    let mut window = Harness::open(&data);
+    let close = notebook::stud_id(crate::art::notebook::Glyph::Close);
+    let at = window.at_id(close);
+    window.step(vec![Event::PointerMoved(at)]);
+    window.step(vec![Harness::button(at, PointerButton::Primary, true)]);
+    window.step(vec![Harness::button(at, PointerButton::Primary, false)]);
+    assert!(window.asked_to_close());
     let _ = std::fs::remove_dir_all(&data);
 }

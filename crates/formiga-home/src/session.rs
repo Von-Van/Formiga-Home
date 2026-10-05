@@ -257,11 +257,15 @@ mod tests {
             .uid;
         let mut arranging = Arranging::default();
         arranging.carrying = Some(Carry::Thing(formiga_home_contract::DisplayId::find(3)));
-        let landing = Landing::Spot(formiga_home_contract::Spot::On {
-            piece: shelf,
-            slot: 0,
-        });
-        assert!(arranging.put(&mut state, keeper, &snapshot, landing));
+        let landing = Landing::Spot {
+            room: 0,
+            spot: formiga_home_contract::Spot::On {
+                piece: shelf,
+                slot: 0,
+            },
+        };
+        let house = crate::house::House::of(&state.household(keeper).unwrap().rooms);
+        assert!(arranging.put(&mut state, keeper, &snapshot, &house, landing));
         visit.leave(&state).unwrap();
         let kept = desktop_closes(&dir, &snapshot, &sent);
         let _ = std::fs::remove_dir_all(dir.parent().unwrap());

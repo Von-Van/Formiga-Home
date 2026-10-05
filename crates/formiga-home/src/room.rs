@@ -172,27 +172,6 @@ pub fn blocked(layout: &RoomLayout, x: u8, y: u8) -> bool {
             .any(|shown| shown.spot == Spot::Floor { x, y })
 }
 
-/// Every tile, row by row, `true` where someone can stand.
-pub fn walkable(layout: &RoomLayout) -> Vec<bool> {
-    let mut grid = vec![true; usize::from(layout.width) * usize::from(layout.depth)];
-    for placed in layout.pieces.iter().filter(|placed| !is_flat(placed)) {
-        for (x, y) in footprint(placed).tiles() {
-            if x < layout.width && y < layout.depth {
-                grid[usize::from(y) * usize::from(layout.width) + usize::from(x)] = false;
-            }
-        }
-    }
-    for shown in &layout.displays {
-        if let Spot::Floor { x, y } = shown.spot
-            && x < layout.width
-            && y < layout.depth
-        {
-            grid[usize::from(y) * usize::from(layout.width) + usize::from(x)] = false;
-        }
-    }
-    grid
-}
-
 /// Whether `piece` can stand at `(x, y)` turned `turn`, leaving out the piece `moving` (which is
 /// the one being moved, if any): inside the room, and over nothing but rugs, unless it is a rug,
 /// which can lie under anything but another rug.
@@ -243,12 +222,12 @@ pub fn can_show(layout: &RoomLayout, item: &DisplayItem, spot: Spot) -> Option<S
     showing(item, place)
 }
 
-/// The next name free for a piece in this room.
-pub fn next_uid(layout: &RoomLayout) -> u16 {
-    layout
-        .pieces
+/// The next name free for a piece anywhere in the house, so that every piece is named once
+/// across all its rooms.
+pub fn next_uid(home: &HouseholdHome) -> u16 {
+    home.rooms
         .iter()
-        .map(|placed| placed.uid)
+        .flat_map(|layout| layout.pieces.iter().map(|placed| placed.uid))
         .max()
         .map_or(1, |uid| uid.saturating_add(1))
 }
@@ -258,16 +237,25 @@ pub fn has_room_for_more(home: &HouseholdHome) -> bool {
     home.placed() < MAX_PLACED_PER_HOUSEHOLD
 }
 
-/// Put a new piece in the room. Its name.
-pub fn add_piece(layout: &mut RoomLayout, piece: &Piece, x: u8, y: u8, turn: u8) -> u16 {
-    let uid = next_uid(layout);
-    layout.pieces.push(PlacedPiece {
-        uid,
-        piece: piece.catalog_id(),
-        x,
-        y,
-        turn,
-    });
+/// Put a new piece in one of the house's rooms. Its name.
+pub fn add_piece(
+    home: &mut HouseholdHome,
+    room: usize,
+    piece: &Piece,
+    x: u8,
+    y: u8,
+    turn: u8,
+) -> u16 {
+    let uid = next_uid(home);
+    if let Some(layout) = home.rooms.get_mut(room) {
+        layout.pieces.push(PlacedPiece {
+            uid,
+            piece: piece.catalog_id(),
+            x,
+            y,
+            turn,
+        });
+    }
     uid
 }
 
@@ -386,7 +374,8 @@ mod tests {
         show(&mut home, 0, &sheep.id, spot);
         assert_eq!(can_show(&home.rooms[0], &jar, spot), None);
         assert!(blocked(&home.rooms[0], 6, 6));
-        assert!(!walkable(&home.rooms[0])[6 * 8 + 6]);
+        let house = crate::house::House::of(&home.rooms);
+        assert!(!house.walkable()[6 * 8 + 6]);
         let armchair = catalog::PIECES.iter().find(|p| p.id == "armchair").unwrap();
         assert!(!can_place(&home.rooms[0], armchair, 6, 6, 0, None));
         // Shown again somewhere else in the house, it moves rather than doubling.

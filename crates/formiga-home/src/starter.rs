@@ -4,7 +4,9 @@
 //! at. Everything else is in the catalogue.
 
 use crate::catalog;
-use formiga_home_contract::{CatalogId, HomeSnapshot, HouseholdHome, PlacedPiece, RoomLayout};
+use formiga_home_contract::{
+    CatalogId, Door, HomeSnapshot, HouseholdHome, PlacedPiece, RoomLayout, WallSide,
+};
 use formiga_travel::TravelRole;
 
 /// The starter room's size, in tiles.
@@ -48,6 +50,13 @@ pub fn room(snapshot: &HomeSnapshot) -> RoomLayout {
             })
             .collect(),
         displays: Vec::new(),
+        plan: None,
+        kind: None,
+        // The front door, in the left-hand wall between the fern and the armchair.
+        doors: vec![Door {
+            side: WallSide::West,
+            at: 2,
+        }],
     }
 }
 
@@ -94,7 +103,7 @@ mod tests {
     #[test]
     fn there_is_room_to_walk_from_every_open_tile_to_every_other() {
         let layout = room(&sample::snapshot());
-        let open = room::walkable(&layout);
+        let open = crate::house::House::of(std::slice::from_ref(&layout)).walkable();
         let width = usize::from(layout.width);
         let start = open.iter().position(|free| *free).unwrap();
         let mut seen = vec![false; open.len()];

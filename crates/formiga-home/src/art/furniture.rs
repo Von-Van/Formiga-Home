@@ -5,7 +5,7 @@
 use super::ramps::*;
 use super::{Block, Easel, Sprite};
 use crate::catalog::Piece;
-use crate::paint::{self, rgb, rgba};
+use crate::paint::{self, Ramp, rgb, rgba};
 use formiga_art::Canvas;
 
 /// A piece's drawing, from the front or from behind.
@@ -23,7 +23,22 @@ pub fn draw(piece: &Piece, away: bool) -> Sprite {
     match piece.id {
         "cushion" => cushion(&mut easel),
         "armchair" | "sofa" => over = Some(seat(&mut easel, piece, away)),
-        "bed" => bed(&mut easel, flip, away),
+        "bed" => bed(&mut easel, flip, away, &BEDDING),
+        "driftwood_bed" => bed(&mut easel, flip, away, &SEASIDE_BEDDING),
+        "moss_bed" => bed(&mut easel, flip, away, &WOODLAND_BEDDING),
+        "night_bed" => bed(&mut easel, flip, away, &STARLIT_BEDDING),
+        "cabinet" => over = Some(cabinet(&mut easel, piece)),
+        "plinth" => over = Some(plinth(&mut easel, piece)),
+        "counter" => over = Some(counter(&mut easel, piece)),
+        "deckchair" => over = Some(deckchair(&mut easel, piece, away)),
+        "rope_rug" => rope_rug(&mut easel),
+        "shell_lamp" => shell_lamp(&mut easel),
+        "toadstool" => toadstool(&mut easel),
+        "log_table" => log_table(&mut easel),
+        "mushroom_lamp" => mushroom_lamp(&mut easel),
+        "star_rug" => star_rug(&mut easel),
+        "moon_lamp" => moon_lamp(&mut easel),
+        "telescope" => telescope(&mut easel, away),
         "basket" => basket(&mut easel),
         "side_table" => side_table(&mut easel),
         "low_table" => low_table(&mut easel),
@@ -144,17 +159,70 @@ fn seat(easel: &mut Easel, piece: &Piece, away: bool) -> Easel {
     front
 }
 
-fn bed(easel: &mut Easel, flip: impl Fn(Block) -> Block, away: bool) {
+/// What a bed is made of, and what its blanket shows on top.
+struct Bedding {
+    head: Ramp,
+    frame: Ramp,
+    sheet: Ramp,
+    blanket: Ramp,
+    pattern: Pattern,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Pattern {
+    /// A plain blanket with its hem turned down.
+    Hem,
+    /// Stripes across, like a beach towel.
+    Stripes,
+    /// Little leaves scattered over it.
+    Leaves,
+    /// Gold stars on the night sky.
+    Stars,
+}
+
+const BEDDING: Bedding = Bedding {
+    head: WALNUT,
+    frame: OAK,
+    sheet: LINEN,
+    blanket: ROSE,
+    pattern: Pattern::Hem,
+};
+
+const SEASIDE_BEDDING: Bedding = Bedding {
+    head: DRIFTWOOD,
+    frame: DRIFTWOOD,
+    sheet: LINEN,
+    blanket: SEA,
+    pattern: Pattern::Stripes,
+};
+
+const WOODLAND_BEDDING: Bedding = Bedding {
+    head: BARK,
+    frame: BARK,
+    sheet: MOSS,
+    blanket: SAGE,
+    pattern: Pattern::Leaves,
+};
+
+const STARLIT_BEDDING: Bedding = Bedding {
+    head: WALNUT,
+    frame: WALNUT,
+    sheet: LINEN,
+    blanket: NIGHT,
+    pattern: Pattern::Stars,
+};
+
+fn bed(easel: &mut Easel, flip: impl Fn(Block) -> Block, away: bool, bedding: &Bedding) {
     easel.shadow((0.06, 0.94), (0.04, 1.96), 70);
     let mut blocks = feet((0.1, 0.9), (0.1, 1.9), 3.0, 0.0);
     blocks.extend([
         // The headboard at the head, the far end, with the frame, the mattress and the
         // blanket in front of it.
-        Block::new((0.06, 0.94), (0.04, 0.16), (2.0, 19.0), WALNUT),
-        Block::new((0.1, 0.9), (0.16, 1.9), (3.0, 7.0), OAK),
-        Block::new((0.13, 0.87), (0.18, 1.86), (7.0, 10.0), LINEN),
-        Block::new((0.13, 0.87), (0.72, 1.88), (10.0, 12.0), ROSE),
-        Block::new((0.08, 0.92), (1.84, 1.95), (2.0, 10.0), WALNUT),
+        Block::new((0.06, 0.94), (0.04, 0.16), (2.0, 19.0), bedding.head),
+        Block::new((0.1, 0.9), (0.16, 1.9), (3.0, 7.0), bedding.frame),
+        Block::new((0.13, 0.87), (0.18, 1.86), (7.0, 10.0), bedding.sheet),
+        Block::new((0.13, 0.87), (0.72, 1.88), (10.0, 12.0), bedding.blanket),
+        Block::new((0.08, 0.92), (1.84, 1.95), (2.0, 10.0), bedding.head),
     ]);
     easel.blocks(blocks.into_iter().map(&flip).collect());
     // The pillow, plump at the head; and the blanket's turned-down hem.
@@ -163,7 +231,38 @@ fn bed(easel: &mut Easel, flip: impl Fn(Block) -> Block, away: bool) {
     easel.disc((0.46, head - 0.03), 5.0, 12.5, LINEN.shine);
     let hem = if away { 1.18 } else { 0.76 };
     let (a, b) = (easel.pixel(0.14, hem, 12.0), easel.pixel(0.86, hem, 12.0));
-    paint::line(&mut easel.canvas, a, b, ROSE.shine);
+    paint::line(&mut easel.canvas, a, b, bedding.blanket.shine);
+    if bedding.pattern == Pattern::Hem {
+        return;
+    }
+    // The blanket's pattern, over its top.
+    let (y0, y1) = if away { (0.12, 1.28) } else { (0.72, 1.88) };
+    let top = [
+        easel.at(0.13, y0, 12.0),
+        easel.at(0.87, y0, 12.0),
+        easel.at(0.87, y1, 12.0),
+        easel.at(0.13, y1, 12.0),
+    ];
+    let (anchor, salt) = (easel.anchor, easel.salt);
+    let ramp = bedding.blanket;
+    let canvas = &mut easel.canvas;
+    paint::fill_polygon(&top, |px, py| {
+        let (fx, fy) = floor_of(anchor, px, py + 12);
+        let mark = match bedding.pattern {
+            Pattern::Stripes => ((fy * 7.0).floor() as i32 % 2 == 0).then_some(LINEN.light),
+            Pattern::Leaves => (paint::chance(px, py, salt, 30) && (px + py) % 2 == 0)
+                .then_some(if fx < 0.5 { MOSS.light } else { MOSS.base }),
+            Pattern::Stars => paint::chance(px, py, salt, 9).then_some(BRASS.shine),
+            Pattern::Hem => None,
+        };
+        if let Some(mark) = mark
+            && (0.18..0.82).contains(&fx)
+        {
+            canvas.set(px, py, mark);
+        } else if bedding.pattern == Pattern::Stars && paint::chance(px, py, salt + 1, 6) {
+            canvas.set(px, py, ramp.light);
+        }
+    });
 }
 
 fn basket(easel: &mut Easel) {
@@ -277,6 +376,497 @@ fn case(easel: &mut Easel, piece: &Piece) -> Easel {
     glass
 }
 
+/// A tall glass-fronted cabinet for the colony's best things: walnut, crowned along its top, its
+/// three shelves lined in velvet. Like the case, its panes meet at the near corner in a bright
+/// line rather than a post, and go in front of whatever is shown in it.
+fn cabinet(easel: &mut Easel, piece: &Piece) -> Easel {
+    easel.shadow((0.08, 0.92), (0.08, 0.92), 65);
+    easel.block(Block::new((0.1, 0.9), (0.1, 0.9), (0.0, 5.0), WALNUT));
+    let back_x = [
+        easel.at(0.12, 0.12, 48.0),
+        easel.at(0.12, 0.88, 48.0),
+        easel.at(0.12, 0.88, 5.0),
+        easel.at(0.12, 0.12, 5.0),
+    ];
+    let back_y = [
+        easel.at(0.12, 0.12, 48.0),
+        easel.at(0.88, 0.12, 48.0),
+        easel.at(0.88, 0.12, 5.0),
+        easel.at(0.12, 0.12, 5.0),
+    ];
+    paint::polygon(&mut easel.canvas, &back_x, VELVET.shadow);
+    paint::polygon(&mut easel.canvas, &back_y, VELVET.base);
+    for (x, y) in [(0.1, 0.1), (0.8, 0.1), (0.1, 0.8)] {
+        easel.block(Block::new((x, x + 0.1), (y, y + 0.1), (5.0, 48.0), WALNUT));
+    }
+    for z in [8.0, 22.0, 36.0] {
+        easel.block(Block::new((0.13, 0.87), (0.13, 0.87), (z - 1.0, z), LINEN));
+    }
+    easel.block(Block::new((0.08, 0.92), (0.08, 0.92), (48.0, 51.0), WALNUT));
+    easel.block(Block::new((0.05, 0.95), (0.05, 0.95), (51.0, 53.0), WALNUT));
+    let (fx, fy) = easel.pixel(0.5, 0.5, 54.0);
+    paint::put(&mut easel.canvas, fx, fy, BRASS.light);
+    paint::put(&mut easel.canvas, fx, fy - 1, BRASS.shine);
+    glass_front(piece, easel.salt, (0.1, 0.9), (0.1, 0.9), (5.0, 48.0))
+}
+
+/// The panes of a glass-fronted piece: its two near faces, meeting in a bright line, with a glint
+/// across each.
+fn glass_front(piece: &Piece, salt: u32, x: (f32, f32), y: (f32, f32), z: (f32, f32)) -> Easel {
+    let mut glass = Easel::new(piece.size.0, piece.size.1, piece.height.max(8) + 4, salt);
+    let front_left = [
+        glass.at(x.0, y.1, z.1),
+        glass.at(x.1, y.1, z.1),
+        glass.at(x.1, y.1, z.0),
+        glass.at(x.0, y.1, z.0),
+    ];
+    let front_right = [
+        glass.at(x.1, y.0, z.1),
+        glass.at(x.1, y.1, z.1),
+        glass.at(x.1, y.1, z.0),
+        glass.at(x.1, y.0, z.0),
+    ];
+    paint::polygon(&mut glass.canvas, &front_left, rgba(0xd8f0f2, 70));
+    paint::polygon(&mut glass.canvas, &front_right, rgba(0xc4e2e6, 80));
+    let (top, bottom) = (
+        glass.pixel(x.1, y.1, z.1 - 1.0),
+        glass.pixel(x.1, y.1, z.0 + 1.0),
+    );
+    paint::line(&mut glass.canvas, top, bottom, rgba(0xf4fcfc, 120));
+    let tall = z.1 - z.0;
+    for (from, to) in [
+        (
+            glass.pixel(x.0 + (x.1 - x.0) * 0.2, y.1, z.1 - tall * 0.15),
+            glass.pixel(x.0 + (x.1 - x.0) * 0.42, y.1, z.0 + tall * 0.25),
+        ),
+        (
+            glass.pixel(x.1, y.0 + (y.1 - y.0) * 0.25, z.1 - tall * 0.12),
+            glass.pixel(x.1, y.0 + (y.1 - y.0) * 0.4, z.1 - tall * 0.45),
+        ),
+    ] {
+        paint::line(&mut glass.canvas, from, to, rgba(0xffffff, 150));
+    }
+    glass
+}
+
+/// A white plinth with a bell jar on it, for one thing on its own: the jar goes over what it
+/// keeps.
+fn plinth(easel: &mut Easel, piece: &Piece) -> Easel {
+    easel.shadow((0.18, 0.82), (0.18, 0.82), 55);
+    easel.blocks(vec![
+        Block::new((0.22, 0.78), (0.22, 0.78), (0.0, 3.0), WALNUT),
+        Block::new((0.3, 0.7), (0.3, 0.7), (3.0, 17.0), LINEN),
+        Block::new((0.24, 0.76), (0.24, 0.76), (17.0, 20.0), WALNUT),
+    ]);
+    let mut glass = Easel::new(
+        piece.size.0,
+        piece.size.1,
+        piece.height.max(8) + 4,
+        easel.salt,
+    );
+    let (cx, base) = glass.pixel(0.5, 0.5, 20.0);
+    let (r, side) = (7, 10);
+    for up in 0..=side + r {
+        // Straight up the sides, then round over the top.
+        let half = if up <= side {
+            r
+        } else {
+            let over = (up - side) as f32 / r as f32;
+            ((1.0 - over * over).max(0.0).sqrt() * r as f32).round() as i32
+        };
+        let y = base - up;
+        for dx in -half..=half {
+            let edge = dx.abs() == half;
+            let alpha = if edge { 130 } else { 50 };
+            paint::put(&mut glass.canvas, cx + dx, y, rgba(0xd8f0f2, alpha));
+        }
+    }
+    // A glint down its lit side, and a knob on top.
+    paint::vline(
+        &mut glass.canvas,
+        cx - 4,
+        base - side - 2,
+        side - 2,
+        rgba(0xffffff, 170),
+    );
+    paint::put(&mut glass.canvas, cx, base - side - r - 1, BRASS.light);
+    paint::put(&mut glass.canvas, cx, base - side - r - 2, BRASS.shine);
+    glass
+}
+
+/// A long, low museum counter of oak, its top a glass case lined in velvet for small things.
+fn counter(easel: &mut Easel, piece: &Piece) -> Easel {
+    easel.shadow((0.04, 1.96), (0.06, 0.94), 60);
+    easel.block(Block::new((0.06, 1.94), (0.1, 0.9), (0.0, 9.0), OAK));
+    let floor = [
+        easel.at(0.1, 0.14, 9.0),
+        easel.at(1.9, 0.14, 9.0),
+        easel.at(1.9, 0.86, 9.0),
+        easel.at(0.1, 0.86, 9.0),
+    ];
+    paint::polygon(&mut easel.canvas, &floor, VELVET.base);
+    // The far panes, faint, and the oak frame along the top at the back.
+    let back = [
+        easel.at(0.08, 0.12, 19.0),
+        easel.at(1.92, 0.12, 19.0),
+        easel.at(1.92, 0.12, 9.0),
+        easel.at(0.08, 0.12, 9.0),
+    ];
+    paint::polygon(&mut easel.canvas, &back, rgba(0xc4e2e6, 40));
+    let (a, b) = (easel.pixel(0.08, 0.12, 19.0), easel.pixel(1.92, 0.12, 19.0));
+    paint::line(&mut easel.canvas, a, b, OAK.base);
+    let mut glass = glass_front(piece, easel.salt, (0.08, 1.92), (0.12, 0.88), (9.0, 19.0));
+    // The glass top, and a brass edge round it.
+    let top = [
+        glass.at(0.08, 0.12, 19.0),
+        glass.at(1.92, 0.12, 19.0),
+        glass.at(1.92, 0.88, 19.0),
+        glass.at(0.08, 0.88, 19.0),
+    ];
+    paint::polygon(&mut glass.canvas, &top, rgba(0xe8f6f8, 70));
+    // A brass frame round the glass: along its top edges and up its corners.
+    for (from, to) in [
+        ((0.08, 0.88, 19.0), (1.92, 0.88, 19.0)),
+        ((1.92, 0.88, 19.0), (1.92, 0.12, 19.0)),
+        ((0.08, 0.88, 19.0), (0.08, 0.88, 9.0)),
+        ((1.92, 0.12, 19.0), (1.92, 0.12, 9.0)),
+    ] {
+        let (a, b) = (
+            glass.pixel(from.0, from.1, from.2),
+            glass.pixel(to.0, to.1, to.2),
+        );
+        paint::line(&mut glass.canvas, a, b, BRASS.light);
+    }
+    glass
+}
+
+/// A deckchair: a driftwood frame with a striped sling slung in it, low at the back and leaning
+/// back. The near rail is in front of whoever sits in it; turned away, so is its back.
+fn deckchair(easel: &mut Easel, piece: &Piece, away: bool) -> Easel {
+    easel.shadow((0.12, 0.88), (0.08, 0.92), 55);
+    let flip = |block: Block| if away { block.facing_away(1.0) } else { block };
+    let mut behind = vec![
+        flip(Block::new((0.12, 0.2), (0.12, 0.92), (0.0, 6.0), DRIFTWOOD)),
+        flip(Block::new(
+            (0.12, 0.2),
+            (0.06, 0.16),
+            (0.0, 21.0),
+            DRIFTWOOD,
+        )),
+    ];
+    let mut front = vec![
+        flip(Block::new((0.8, 0.88), (0.12, 0.92), (0.0, 6.0), DRIFTWOOD)),
+        flip(Block::new(
+            (0.8, 0.88),
+            (0.06, 0.16),
+            (0.0, 21.0),
+            DRIFTWOOD,
+        )),
+    ];
+    let mut back = Vec::new();
+    for slice in 0..6 {
+        let x0 = 0.2 + slice as f32 * 0.1;
+        let cloth = if slice % 2 == 0 { SEA } else { LINEN };
+        behind.push(flip(Block::new(
+            (x0, x0 + 0.1),
+            (0.34, 0.86),
+            (4.0, 6.0),
+            cloth,
+        )));
+        back.push(flip(Block::new(
+            (x0, x0 + 0.1),
+            (0.22, 0.34),
+            (6.0, 12.0),
+            cloth,
+        )));
+        back.push(flip(Block::new(
+            (x0, x0 + 0.1),
+            (0.12, 0.22),
+            (12.0, 19.0),
+            cloth,
+        )));
+    }
+    if away {
+        front.extend(back);
+    } else {
+        behind.extend(back);
+    }
+    easel.blocks(behind);
+    let mut over = Easel::new(
+        piece.size.0,
+        piece.size.1,
+        piece.height.max(8) + 4,
+        easel.salt,
+    );
+    over.blocks(front);
+    over
+}
+
+/// A rug of rope coiled round and round, sewn flat.
+fn rope_rug(easel: &mut Easel) {
+    let salt = easel.salt;
+    let corners = [
+        easel.at(0.0, 0.0, 0.0),
+        easel.at(2.0, 0.0, 0.0),
+        easel.at(2.0, 2.0, 0.0),
+        easel.at(0.0, 2.0, 0.0),
+    ];
+    let anchor = easel.anchor;
+    let canvas = &mut easel.canvas;
+    paint::fill_polygon(&corners, |px, py| {
+        let (fx, fy) = floor_of(anchor, px, py);
+        let r = ((fx - 1.0).powi(2) + (fy - 1.0).powi(2)).sqrt();
+        if r > 0.92 {
+            return;
+        }
+        let coil = (r * 11.0).fract();
+        let color = if coil < 0.2 {
+            WICKER.shadow
+        } else if coil < 0.5 {
+            WICKER.light
+        } else if r > 0.82 {
+            SEA.base
+        } else {
+            WICKER.base
+        };
+        let color = if paint::chance(px, py, salt, 30) {
+            paint::darker(color, 0.12)
+        } else {
+            color
+        };
+        canvas.set(px, py, color);
+    });
+}
+
+/// A table lamp with a shade like a scallop shell, on a driftwood stem.
+fn shell_lamp(easel: &mut Easel) {
+    easel.shadow((0.3, 0.7), (0.3, 0.7), 50);
+    easel.disc((0.5, 0.5), 5.0, 1.0, DRIFTWOOD.shadow);
+    easel.disc((0.48, 0.48), 3.5, 2.0, DRIFTWOOD.light);
+    let (cx, foot) = easel.pixel(0.5, 0.5, 2.0);
+    let (_, hinge) = easel.pixel(0.5, 0.5, 16.0);
+    paint::vline(&mut easel.canvas, cx, hinge, foot - hinge, DRIFTWOOD.base);
+    paint::vline(
+        &mut easel.canvas,
+        cx - 1,
+        hinge,
+        foot - hinge,
+        DRIFTWOOD.light,
+    );
+    // The shell: ribs fanning up and out from its hinge, scalloped at its rim.
+    let radius = 12.0;
+    for dy in -13_i32..=0 {
+        for dx in -13_i32..=13 {
+            let (fx, fy) = (dx as f32, -dy as f32 * 1.15);
+            let r = (fx * fx + fy * fy).sqrt();
+            let angle = fy.atan2(fx);
+            let rim = radius - 1.2 * (1.0 - (angle * 9.0).sin().abs());
+            if r > rim || fy < 0.5 {
+                continue;
+            }
+            let rib = ((angle / std::f32::consts::PI) * 9.0).floor() as i32;
+            let tone = if ((angle / std::f32::consts::PI) * 9.0).fract() < 0.18 {
+                SHELL.shadow
+            } else if rib % 2 == 0 {
+                SHELL.light
+            } else {
+                SHELL.base
+            };
+            let tone = if r > rim - 1.0 { SHELL.edge } else { tone };
+            easel.canvas.set(cx + dx, hinge + dy, tone);
+        }
+    }
+}
+
+/// A toadstool to sit on: a red cap with white spots on a stout cream stem.
+fn toadstool(easel: &mut Easel) {
+    easel.shadow((0.16, 0.84), (0.16, 0.84), 55);
+    easel.cylinder((0.5, 0.5), (4.5, 3.5), (0.0, 8.0), LINEN);
+    easel.cylinder((0.5, 0.5), (11.0, 10.5), (8.0, 11.0), BERRY);
+    easel.disc((0.5, 0.5), 10.5, 11.0, BERRY.light);
+    easel.disc((0.47, 0.46), 6.0, 12.5, BERRY.shine);
+    let (cx, cy) = easel.pixel(0.5, 0.5, 12.0);
+    for (dx, dy) in [(-6, 0), (-2, -2), (3, -1), (6, 1), (0, 2), (-4, 2)] {
+        paint::put(&mut easel.canvas, cx + dx, cy + dy, LINEN.shine);
+        paint::put(&mut easel.canvas, cx + dx + 1, cy + dy, LINEN.light);
+    }
+}
+
+/// A sawn log for a table: bark round its sides and its rings on top.
+fn log_table(easel: &mut Easel) {
+    easel.shadow((0.16, 0.84), (0.16, 0.84), 55);
+    easel.cylinder((0.5, 0.5), (10.0, 10.0), (0.0, 12.0), BARK);
+    // The bark's furrows.
+    let (cx, foot) = easel.pixel(0.5, 0.5, 0.0);
+    for dx in [-7, -3, 2, 6] {
+        for up in 1..11 {
+            if paint::chance(cx + dx, foot - up, easel.salt, 170) {
+                let y = foot - up + ((dx.abs() as f32 / 3.0) as i32);
+                paint::put(&mut easel.canvas, cx + dx, y, BARK.edge);
+            }
+        }
+    }
+    for (r, tone) in [
+        (10.0, WICKER.light),
+        (8.0, WICKER.base),
+        (6.5, WICKER.light),
+        (4.5, WICKER.base),
+        (2.5, WICKER.light),
+        (1.0, WICKER.shadow),
+    ] {
+        easel.disc((0.5, 0.5), r, 12.0, tone);
+    }
+}
+
+/// A lamp shaped like a mushroom, its cap the shade, with a little one beside it.
+fn mushroom_lamp(easel: &mut Easel) {
+    easel.shadow((0.18, 0.82), (0.18, 0.82), 50);
+    easel.cylinder((0.24, 0.72), (2.0, 1.5), (0.0, 5.0), LINEN);
+    easel.cylinder((0.24, 0.72), (4.0, 3.0), (5.0, 8.0), PEACH);
+    easel.disc((0.24, 0.72), 3.0, 8.0, PEACH.light);
+    easel.cylinder((0.5, 0.5), (3.5, 2.5), (0.0, 13.0), LINEN);
+    easel.cylinder((0.5, 0.5), (9.0, 6.0), (13.0, 21.0), PEACH);
+    easel.disc((0.5, 0.5), 6.0, 21.0, PEACH.light);
+    easel.disc((0.47, 0.47), 3.0, 22.0, PEACH.shine);
+    let (cx, cy) = easel.pixel(0.5, 0.5, 17.0);
+    for (dx, dy) in [(-5, 1), (-1, -1), (4, 0), (2, 2)] {
+        paint::put(&mut easel.canvas, cx + dx, cy + dy, LINEN.shine);
+    }
+}
+
+/// A rug the colour of the night, edged in gold, with stars on it.
+fn star_rug(easel: &mut Easel) {
+    let salt = easel.salt;
+    let corners = [
+        easel.at(0.0, 0.0, 0.0),
+        easel.at(2.0, 0.0, 0.0),
+        easel.at(2.0, 2.0, 0.0),
+        easel.at(0.0, 2.0, 0.0),
+    ];
+    let anchor = easel.anchor;
+    let stars = [
+        (0.55, 0.6),
+        (1.35, 0.5),
+        (1.0, 1.05),
+        (0.5, 1.45),
+        (1.5, 1.42),
+    ];
+    let canvas = &mut easel.canvas;
+    paint::fill_polygon(&corners, |px, py| {
+        let (fx, fy) = floor_of(anchor, px, py);
+        let inset = fx.min(fy).min(2.0 - fx).min(2.0 - fy);
+        if inset < 0.08 {
+            return;
+        }
+        let star = stars.iter().any(|&(sx, sy)| {
+            let (dx, dy) = ((fx - sx).abs(), (fy - sy).abs());
+            (dx < 0.05 && dy < 0.17) || (dy < 0.05 && dx < 0.17) || (dx + dy < 0.1)
+        });
+        let color = if inset < 0.15 {
+            BRASS.light
+        } else if star {
+            BRASS.shine
+        } else if paint::chance(px, py, salt, 6) {
+            MOON.light
+        } else if paint::chance(px, py, salt + 1, 40) {
+            NIGHT.shadow
+        } else {
+            NIGHT.base
+        };
+        canvas.set(px, py, color);
+    });
+}
+
+/// A lamp that is a little moon on a brass stand, craters and all.
+fn moon_lamp(easel: &mut Easel) {
+    easel.shadow((0.28, 0.72), (0.28, 0.72), 50);
+    easel.disc((0.5, 0.5), 5.0, 1.0, BRASS.shadow);
+    easel.disc((0.48, 0.48), 3.5, 2.0, BRASS.light);
+    let (cx, foot) = easel.pixel(0.5, 0.5, 2.0);
+    let (_, top) = easel.pixel(0.5, 0.5, 21.0);
+    paint::vline(&mut easel.canvas, cx, top, foot - top, BRASS.base);
+    let (mx, my) = easel.pixel(0.5, 0.5, 28.0);
+    let r: i32 = 8;
+    for dy in -r..=r {
+        for dx in -r..=r {
+            let d2 = dx * dx + dy * dy;
+            if d2 > r * r {
+                continue;
+            }
+            let lit =
+                (-(dx + dy) as f32) / (r as f32 * 1.4) + (1.0 - d2 as f32 / (r * r) as f32) * 0.4;
+            let tone = if lit > 0.55 {
+                MOON.shine
+            } else if lit > 0.15 {
+                MOON.light
+            } else if lit > -0.35 {
+                MOON.base
+            } else {
+                MOON.shadow
+            };
+            easel.canvas.set(mx + dx, my + dy, tone);
+        }
+    }
+    for (dx, dy) in [(-3, -2), (2, 1), (-1, 3), (4, -3)] {
+        paint::put(&mut easel.canvas, mx + dx, my + dy, MOON.shadow);
+        paint::put(&mut easel.canvas, mx + dx + 1, my + dy + 1, MOON.light);
+    }
+}
+
+/// A toy telescope on a walnut tripod, pointed up at the sky beyond the far wall.
+fn telescope(easel: &mut Easel, away: bool) {
+    easel.shadow((0.18, 0.82), (0.18, 0.82), 50);
+    let mount = easel.pixel(0.5, 0.5, 16.0);
+    let legs = if away {
+        [(0.22, 0.24), (0.78, 0.24), (0.5, 0.82)]
+    } else {
+        [(0.22, 0.76), (0.78, 0.76), (0.5, 0.18)]
+    };
+    for (x, y) in legs {
+        let foot = easel.pixel(x, y, 0.0);
+        paint::line(&mut easel.canvas, mount, foot, WALNUT.base);
+        paint::line(
+            &mut easel.canvas,
+            (mount.0 - 1, mount.1),
+            (foot.0 - 1, foot.1),
+            WALNUT.light,
+        );
+    }
+    // The tube, from the eyepiece over the mount to the lens, wide enough to keep its brass
+    // inside its edge, and wider at the lens.
+    let far = if away { 0.92 } else { 0.08 };
+    let (from, to) = (easel.at(0.5, 0.64, 15.0), easel.at(0.5, far, 30.0));
+    let steps = 40;
+    for step in 0..=steps {
+        let t = step as f32 / steps as f32;
+        let (x, y) = (from.0 + (to.0 - from.0) * t, from.1 + (to.1 - from.1) * t);
+        let (px, py) = (x.round() as i32, y.round() as i32);
+        let wide = if t > 0.82 { 3 } else { 2 };
+        for dx in -1..=1 {
+            for dy in -wide..=wide {
+                let tone = match dy {
+                    d if d < -1 => BRASS.shine,
+                    d if d < 0 => BRASS.light,
+                    d if d < wide => BRASS.base,
+                    _ => BRASS.shadow,
+                };
+                paint::put(&mut easel.canvas, px + dx, py + dy, tone);
+            }
+        }
+    }
+    // A band round the tube where it rests on the mount.
+    let (bx, by) = (
+        (from.0 + (to.0 - from.0) * 0.3).round() as i32,
+        (from.1 + (to.1 - from.1) * 0.3).round() as i32,
+    );
+    paint::vline(&mut easel.canvas, bx, by - 2, 5, WALNUT.base);
+    let lens = (to.0.round() as i32, to.1.round() as i32);
+    paint::put(&mut easel.canvas, lens.0, lens.1, GLAZE.light);
+    paint::put(&mut easel.canvas, lens.0, lens.1 - 1, GLAZE.shine);
+    let eye = (from.0.round() as i32, from.1.round() as i32);
+    paint::put(&mut easel.canvas, eye.0, eye.1, WALNUT.edge);
+}
+
 fn round_rug(easel: &mut Easel) {
     let (cx, cy) = (1.0, 1.0);
     let salt = easel.salt;
@@ -383,9 +973,9 @@ pub fn lamp_pool(canvas: &mut Canvas, foot: (i32, i32)) {
     }
 }
 
-/// The glow of the bulb under a lit lamp's shade.
-pub fn lamp_bulb(canvas: &mut Canvas, foot: (i32, i32)) {
-    paint::ellipse(canvas, foot.0, foot.1 - 33, 7, 2, rgba(0xfff1c4, 230));
+/// The glow of the bulb under a lit lamp's shade, `glow` pixels above its foot.
+pub fn lamp_bulb(canvas: &mut Canvas, foot: (i32, i32), glow: i32) {
+    paint::ellipse(canvas, foot.0, foot.1 - glow, 7, 2, rgba(0xfff1c4, 230));
 }
 
 fn fern(easel: &mut Easel) {
@@ -557,4 +1147,53 @@ pub fn sheet() -> Canvas {
         }
     }
     sheet
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::catalog::PIECES;
+
+    #[test]
+    fn every_piece_has_a_drawing_of_its_own_from_the_front_and_from_behind() {
+        let crate_of = |piece: &Piece| {
+            let mut easel = Easel::new(piece.size.0, piece.size.1, piece.height.max(8) + 4, 1);
+            unknown(&mut easel);
+            easel.finish().0
+        };
+        for piece in &PIECES {
+            for away in [false, true] {
+                let sprite = draw(piece, away);
+                assert!(
+                    sprite.canvas.alpha_bounds().is_some(),
+                    "{} draws nothing",
+                    piece.id
+                );
+                assert_ne!(
+                    sprite.canvas,
+                    crate_of(piece),
+                    "{} is drawn as a piece this build does not know",
+                    piece.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn whatever_is_shown_on_a_piece_is_shown_within_its_picture() {
+        for piece in &PIECES {
+            let sprite = draw(piece, false);
+            let (l, t, r, b) = sprite.canvas.alpha_bounds().unwrap();
+            let easel = Easel::new(piece.size.0, piece.size.1, piece.height.max(8) + 4, 1);
+            for surface in piece.surfaces {
+                let (x, y) = easel.pixel(surface.at.0, surface.at.1, surface.height as f32);
+                assert!(
+                    (l as i32..=r as i32).contains(&x) && (t as i32..=b as i32).contains(&y),
+                    "{}: a surface at {:?} is off its picture",
+                    piece.id,
+                    surface.at
+                );
+            }
+        }
+    }
 }

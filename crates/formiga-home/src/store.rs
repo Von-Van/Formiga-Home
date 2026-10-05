@@ -115,6 +115,19 @@ impl RehearsalHomes {
         }
     }
 
+    /// For review: the household's house in this rehearsal grown to `rooms` rooms, as if its
+    /// owner had built on, a reading nook first and then a gallery.
+    pub fn grow(&mut self, snapshot: &formiga_home_contract::HomeSnapshot, rooms: usize) {
+        let mut state = self.load(&snapshot.colony_key);
+        let home = crate::arrange::ensure_home(&mut state, snapshot);
+        if home.rooms.len() < rooms {
+            state.set_household(crate::staging::grown(home, rooms, snapshot));
+            if let Err(error) = self.save(&state) {
+                eprintln!("formiga-home: {error:#}");
+            }
+        }
+    }
+
     pub fn save(&self, state: &HomeState) -> anyhow::Result<()> {
         let Some(path) = &self.path else {
             return Ok(());

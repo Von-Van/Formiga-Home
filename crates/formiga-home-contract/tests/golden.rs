@@ -40,6 +40,34 @@ fn written_now() -> Vec<(String, Vec<u8>)> {
     for _ in 0..3 {
         home.note_use(snapshot.household.keeper, Liked::Piece { room: 0, uid: 2 });
     }
+    // Since version 3: a front door, and a nook behind the room through a doorway.
+    home.rooms[0].doors = vec![
+        Door {
+            side: WallSide::West,
+            at: 5,
+        },
+        Door {
+            side: WallSide::North,
+            at: 6,
+        },
+    ];
+    home.rooms.push(RoomLayout {
+        width: 4,
+        depth: 4,
+        floor: CatalogId::known("floor.rose"),
+        wall: CatalogId::known("wall.stripes"),
+        pieces: vec![PlacedPiece {
+            uid: 3,
+            piece: CatalogId::known("cushion"),
+            x: 1,
+            y: 1,
+            turn: 0,
+        }],
+        displays: Vec::new(),
+        plan: Some(PlanPoint { x: 4, y: -4 }),
+        kind: Some(CatalogId::known("room.nook")),
+        doors: Vec::new(),
+    });
     arranged_state.set_household(home);
     let result = HomeResult::new(&seal, closed_at(), "0.1.0", arranged_state);
     let receipt = HomeReceipt::new(

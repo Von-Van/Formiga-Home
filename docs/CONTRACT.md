@@ -110,8 +110,19 @@ never opens on a layout the colony has outgrown.
 `HomeState` holds up to twelve households, each keyed by its keeper. Each has one to three rooms,
 at most 96 pieces and displays in all, and, since version 2, up to 48 likings: how often each
 resident has chosen a piece (by room and uid) or a find (by display id). What a resident has chosen
-most of a kind is its favourite. Likings are flavour, kept by Home and read by nothing else. A room has a size in tiles, a floor and a wall finish,
-furniture as `{ uid, piece, x, y, turn }`, and displays as `{ item, spot }`. A spot is one of:
+most of a kind is its favourite. Likings are flavour, kept by Home and read by nothing else. A
+room has a size in tiles, a floor and a wall finish, furniture as `{ uid, piece, x, y, turn }`,
+and displays as `{ item, spot }`. Since version 3 a room may also have:
+
+- `plan: { x, y }`, where it stands on its house's plan: the far corner of its floor, in tiles
+  from the first room's, which is always at the origin. No two rooms stand in one place, and none
+  is more than 32 tiles from the first. A room with no place given is set out by Home.
+- `kind`, what kind of room it is, by Home's catalogue identifier, such as `room.nook`.
+- `doors: [{ side, at }]`, up to four doorways in its two far walls, `north` or `west`, `at` tiles
+  along. What a doorway opens onto is whatever is on the wall's other side on the plan: another
+  room of the house, or outside, where visitors come in. Nothing hangs in a doorway.
+
+A spot is one of:
 
 - `on { piece, slot }`, a surface of a piece in the same room;
 - `wall { side, at }`, `north` or `west`;
@@ -135,6 +146,7 @@ string is checked as plain text: see `limits` in `lib.rs`.
 | --- | --- |
 | 1 | Everything |
 | 2 | `visitors` in the snapshot; `likings` in each home. Both optional, so a version 1 reader still reads either |
+| 3 | `plan`, `kind` and `doors` in each room: a house of rooms, and its doorways. All optional, so an older reader still reads a house, as a set of rooms |
 
 ## Finding Home
 

@@ -1,9 +1,10 @@
-//! The room's geometry: a fixed 2:1 isometric grid, seen from the front corner, with the two far
-//! walls standing and the two near ones cut away.
+//! The house's geometry: a fixed 2:1 isometric grid, seen from the front corner, with the far
+//! walls standing and the near ones cut away.
 //!
-//! Floor positions are in tiles, `x` along the room's width (down to the right on screen) and `y`
-//! along its depth (down to the left). A tile is 32 pixels across and 16 down. Everything in a
-//! room is placed on this grid; the companions are drawn upright over it, anchored by their feet.
+//! Floor positions are in tiles, `x` along the house's width (down to the right on screen) and
+//! `y` along its depth (down to the left). A tile is 32 pixels across and 16 down. Everything in
+//! the house is placed on this grid; the companions are drawn upright over it, anchored by their
+//! feet.
 
 /// A floor tile's width and height on screen.
 pub const TILE_W: i32 = 32;
@@ -11,36 +12,88 @@ pub const TILE_H: i32 = 16;
 const HALF_W: f32 = (TILE_W / 2) as f32;
 const HALF_H: f32 = (TILE_H / 2) as f32;
 
-/// The picture every room is drawn into, before it is scaled up whole for the window.
+/// The smallest picture a house is drawn into, before it is scaled up whole for the window. One
+/// room eight tiles a side fills it; a bigger house is drawn into a bigger picture of the same
+/// shape, which the window shows smaller.
 pub const SCENE_WIDTH: u32 = 320;
 pub const SCENE_HEIGHT: u32 = 216;
+/// Room left round the house in its picture, across and down.
+const MARGIN: (f32, f32) = (32.0, 13.0);
 
 /// How tall the far walls stand above the floor.
 pub const WALL_HEIGHT: i32 = 56;
 /// How thick the floor is drawn at the cut-away front edges: the dollhouse's cross-section.
 pub const SLAB: i32 = 5;
 
-/// Where a room of a given size sits in the scene.
+/// Where a house of a given size sits in its picture, and how big the picture is.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct View {
     pub width: u8,
     pub depth: u8,
-    /// The far corner of the floor, where the two walls meet, on screen.
+    /// The far corner of the house's floor, on screen.
     pub origin: (f32, f32),
+    /// The picture's size, in pixels.
+    pub size: (u32, u32),
 }
 
 impl View {
-    /// A room centred in the scene, the wall tops and the floor's front edge both inside it.
+    /// A house centred in a picture just big enough for it, the wall tops and the floor's front
+    /// edge both inside.
     pub fn new(width: u8, depth: u8) -> Self {
         let (w, d) = (f32::from(width), f32::from(depth));
         let floor_height = (w + d) * HALF_H + SLAB as f32;
         let extent = floor_height + WALL_HEIGHT as f32;
-        let top = ((SCENE_HEIGHT as f32 - extent) / 2.0).floor() + WALL_HEIGHT as f32 + 2.0;
-        let centre = (SCENE_WIDTH as f32 / 2.0 - (w - d) * HALF_W / 2.0).floor();
+        let grow = (((w + d) * HALF_W + 2.0 * MARGIN.0) / SCENE_WIDTH as f32)
+            .max((extent + 2.0 * MARGIN.1) / SCENE_HEIGHT as f32)
+            .max(1.0);
+        let size = (
+            (SCENE_WIDTH as f32 * grow).ceil() as u32,
+            (SCENE_HEIGHT as f32 * grow).ceil() as u32,
+        );
+        let top = ((size.1 as f32 - extent) / 2.0).floor() + WALL_HEIGHT as f32 + 2.0;
+        let centre = (size.0 as f32 / 2.0 - (w - d) * HALF_W / 2.0).floor();
         Self {
             width,
             depth,
             origin: (centre, top),
+            size,
+        }
+    }
+
+    /// A house centred in a picture just big enough for its rooms: an L of rooms needs less
+    /// picture than the rectangle round it, and is drawn the bigger for it.
+    pub fn of(house: &crate::house::House) -> Self {
+        let (mut left, mut right, mut top, mut bottom) = (f32::MAX, f32::MIN, f32::MAX, f32::MIN);
+        for room in &house.rooms {
+            let (x, y) = (f32::from(room.x), f32::from(room.y));
+            let (w, d) = (f32::from(room.width), f32::from(room.depth));
+            for (fx, fy) in [(x, y), (x + w, y), (x + w, y + d), (x, y + d)] {
+                let (sx, sy) = ((fx - fy) * HALF_W, (fx + fy) * HALF_H);
+                left = left.min(sx);
+                right = right.max(sx);
+                top = top.min(sy - WALL_HEIGHT as f32);
+                bottom = bottom.max(sy + SLAB as f32);
+            }
+        }
+        if house.rooms.is_empty() {
+            return Self::new(house.width, house.depth);
+        }
+        let (wide, tall) = (right - left, bottom - top);
+        let grow = ((wide + 2.0 * MARGIN.0) / SCENE_WIDTH as f32)
+            .max((tall + 2.0 * MARGIN.1) / SCENE_HEIGHT as f32)
+            .max(1.0);
+        let size = (
+            (SCENE_WIDTH as f32 * grow).ceil() as u32,
+            (SCENE_HEIGHT as f32 * grow).ceil() as u32,
+        );
+        Self {
+            width: house.width,
+            depth: house.depth,
+            origin: (
+                ((size.0 as f32 - wide) / 2.0).floor() - left,
+                ((size.1 as f32 - tall) / 2.0).floor() - top + 2.0,
+            ),
+            size,
         }
     }
 
@@ -89,18 +142,10 @@ impl View {
         self.screen(f32::from(x) + 0.5, f32::from(y) + 0.5)
     }
 
-    /// Where something hung `at` tiles along a wall is centred, `height` pixels above the floor.
-    pub fn on_wall(
-        &self,
-        side: formiga_home_contract::WallSide,
-        at: u8,
-        height: i32,
-    ) -> (i32, i32) {
-        let along = f32::from(at) + 0.5;
-        let (sx, sy) = match side {
-            formiga_home_contract::WallSide::North => self.screen(along, 0.0),
-            formiga_home_contract::WallSide::West => self.screen(0.0, along),
-        };
+    /// Where something hung on a stretch of wall is centred, `height` pixels above the floor.
+    pub fn on_wall(&self, wall: &crate::house::Wall, height: i32) -> (i32, i32) {
+        let (x, y) = wall.middle();
+        let (sx, sy) = self.screen(x, y);
         (sx.round() as i32, (sy - height as f32).round() as i32)
     }
 }
@@ -123,18 +168,28 @@ mod tests {
     }
 
     #[test]
-    fn the_whole_room_and_its_walls_fit_the_scene() {
-        for (w, d) in [(8, 8), (6, 6), (10, 8), (4, 12)] {
+    fn the_whole_house_and_its_walls_fit_its_picture() {
+        for (w, d) in [(8, 8), (6, 6), (10, 8), (4, 12), (16, 12), (24, 20)] {
             let view = View::new(w, d);
             let corners = view.footprint(0, 0, w, d);
             for (sx, sy) in corners {
-                assert!(sx >= 0.0 && sx <= SCENE_WIDTH as f32, "{w}x{d}: {sx}");
-                assert!(sy <= (SCENE_HEIGHT as i32 - SLAB) as f32, "{w}x{d}: {sy}");
+                assert!(sx >= 0.0 && sx <= view.size.0 as f32, "{w}x{d}: {sx}");
+                assert!(sy <= (view.size.1 as i32 - SLAB) as f32, "{w}x{d}: {sy}");
             }
             assert!(
                 view.origin.1 - WALL_HEIGHT as f32 >= 0.0,
                 "{w}x{d}: walls cut off"
             );
+            // Always the one shape, so the window lays out the same however big the house.
+            let shape = view.size.0 as f32 / view.size.1 as f32;
+            assert!((shape - SCENE_WIDTH as f32 / SCENE_HEIGHT as f32).abs() < 0.01);
         }
+        // One room eight tiles a side is drawn where it always was.
+        let one = View::new(8, 8);
+        assert_eq!(one.size, (SCENE_WIDTH, SCENE_HEIGHT));
+        assert_eq!(one.origin, (160.0, 71.0));
+        let layout = crate::starter::room(&formiga_home_contract::sample::snapshot());
+        let house = crate::house::House::of(std::slice::from_ref(&layout));
+        assert_eq!(View::of(&house), one);
     }
 }
