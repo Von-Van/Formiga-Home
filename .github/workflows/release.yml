@@ -69,7 +69,7 @@ jobs:
           fi
           # This version's notes are its section of the changelog.
           awk -v want="## $version" '
-            /^## / { if (found) exit; if (index($0, want) == 1) { found = 1; next } }
+            /^## / { if (found) exit; if ($0 == want || index($0, want " ") == 1) { found = 1; next } }
             found { print }
           ' CHANGELOG.md > notes.md
           if [ ! -s notes.md ]; then
