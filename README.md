@@ -75,7 +75,8 @@ proves the same loop a real visit would.
 | Going next door, and friends staying over | Preview |
 | The household contract (`formiga-home-contract`) | Draft, kept here until Desktop adopts it |
 | Opening a house from Desktop's village | Not yet in Desktop |
-| Packaging for macOS and Windows | Not yet verified: the scripts build a bundle and an installer, but have not been run end to end |
+| Packaging for macOS | Run end to end: a universal, signed `Formiga Home.app` with Desktop's bundle id and contract version, a zip and a disk image, each with its checksum; the packaged app answers a visit from a session directory |
+| Packaging for Windows | Builds and passes its checks for Windows; the installer itself has not yet been run on Windows |
 
 ## A visit
 

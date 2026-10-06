@@ -570,6 +570,28 @@ impl HomeApp {
                 egui::ResizeDirection::East,
                 egui::CursorIcon::ResizeHorizontal,
             ),
+            // The corners last, so they are found before the sides they overlap.
+            (
+                egui::Rect::from_min_max(w.min, w.min + egui::vec2(grip * 2.0, grip * 2.0)),
+                egui::ResizeDirection::NorthWest,
+                egui::CursorIcon::ResizeNwSe,
+            ),
+            (
+                egui::Rect::from_min_max(
+                    egui::pos2(w.max.x - grip * 2.0, w.min.y),
+                    egui::pos2(w.max.x, w.min.y + grip * 2.0),
+                ),
+                egui::ResizeDirection::NorthEast,
+                egui::CursorIcon::ResizeNeSw,
+            ),
+            (
+                egui::Rect::from_min_max(
+                    egui::pos2(w.min.x, w.max.y - grip * 2.0),
+                    egui::pos2(w.min.x + grip * 2.0, w.max.y),
+                ),
+                egui::ResizeDirection::SouthWest,
+                egui::CursorIcon::ResizeNeSw,
+            ),
             (
                 egui::Rect::from_min_max(w.max - egui::vec2(grip * 2.0, grip * 2.0), w.max),
                 egui::ResizeDirection::SouthEast,

@@ -14,6 +14,8 @@ struct Harness {
     app: HomeApp,
     time: f64,
     output: Option<egui::FullOutput>,
+    /// Everything the window has asked of the system, frame by frame.
+    commands: Vec<egui::ViewportCommand>,
 }
 
 /// A scratch data folder of its own for each test.
@@ -42,6 +44,7 @@ impl Harness {
             app,
             time: 0.0,
             output: None,
+            commands: Vec::new(),
         };
         harness.wait(0.2);
         harness
@@ -58,6 +61,9 @@ impl Harness {
         let mut output = self.ctx.run_ui(input, |ui| app.frame(ui));
         // No renderer here to hand the textures to.
         output.textures_delta.clear();
+        for viewport in output.viewport_output.values() {
+            self.commands.extend(viewport.commands.iter().cloned());
+        }
         self.output = Some(output);
         self.time += 1.0 / 30.0;
     }
@@ -784,5 +790,32 @@ fn the_notebook_answers_to_its_keys() {
     assert_eq!(window.app.drawer, Drawer::Furniture);
     window.key(Key::L);
     assert_eq!(window.app.mode, Mode::Live);
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn dragging_the_leather_moves_the_window_and_a_double_click_opens_it_wide() {
+    let data = scratch("leather");
+    let mut window = Harness::open(&data);
+    // The cover's left edge, below its studs and clear of the page.
+    let on_leather = Pos2::new(8.0, 400.0);
+    window.drag(on_leather, on_leather + egui::vec2(80.0, 30.0));
+    assert!(
+        window
+            .commands
+            .iter()
+            .any(|command| matches!(command, egui::ViewportCommand::StartDrag)),
+        "{:?}",
+        window.commands
+    );
+    window.commands.clear();
+    window.click(on_leather);
+    window.click(on_leather);
+    assert!(
+        window
+            .commands
+            .iter()
+            .any(|command| matches!(command, egui::ViewportCommand::Maximized(true)))
+    );
     let _ = std::fs::remove_dir_all(&data);
 }

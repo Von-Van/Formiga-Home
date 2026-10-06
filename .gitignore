@@ -9,5 +9,6 @@
 # Worktrees Claude Code makes for parallel work
 .claude/worktrees/
 
-# Design documents are kept locally, never in git.
+# Design documents and proposals are kept locally, never in git.
 /docs/DESIGN.md
+/docs/DESKTOP_ADOPTION.md
