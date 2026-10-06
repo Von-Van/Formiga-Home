@@ -847,3 +847,134 @@ fn at_night_the_household_turns_in_and_sleeps_longer_than_by_day() {
         "asleep {night} s by night, {day} s by day"
     );
 }
+
+/// Every tick of `seconds` of life, with a pat, a lift or an errand now and then: whether anyone
+/// in the house moved without walking, and whether anyone walked without moving.
+fn glides_or_marks_time(household: &Household, layout: &House, seconds: f32) -> Vec<String> {
+    let mut life = Life::new(household, layout);
+    let mut faults = Vec::new();
+    let mut in_place = vec![0; life.actors.len()];
+    let mut dice = 12345u64;
+    let mut carried: Option<(Id, f32)> = None;
+    let dt = 1.0 / 30.0;
+    let mut now = 0.0;
+    for tick in 0..(seconds / dt) as u32 {
+        if tick % 97 == 0 && carried.is_none() {
+            dice = dice
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            let present = life.present();
+            let who = present[(dice >> 33) as usize % present.len()];
+            match (dice >> 20) % 4 {
+                0 => life.pet(household, who, now),
+                1 => {
+                    life.pick_up(who, now);
+                    carried = Some((who, now));
+                }
+                2 => {
+                    let (x, y) = (((dice >> 40) % 8) as u8, ((dice >> 44) % 8) as u8);
+                    life.ask(who, Act::GoTo(x, y), now);
+                }
+                _ => {}
+            }
+        }
+        if let Some((who, since)) = carried
+            && now - since > 1.0
+        {
+            life.put_down(layout, who, now);
+            carried = None;
+        }
+        let before: Vec<_> = life
+            .actors
+            .iter()
+            .map(|a| (a.pos, a.hidden, a.walking()))
+            .collect();
+        now += dt;
+        life.tick(household, layout, &household.snapshot, &[], now, dt);
+        for (index, actor) in life.actors.iter().enumerate() {
+            let (was, hidden, was_walking) = before[index];
+            if hidden || actor.hidden || carried.is_some_and(|(who, _)| who == actor.id) {
+                continue;
+            }
+            let moved = ((actor.pos.0 - was.0).powi(2) + (actor.pos.1 - was.1).powi(2)).sqrt();
+            let walks = actor.shows(now) == formiga_art::BodyClip::Action(ActionKind::Traverse);
+            if moved > 0.2 {
+                faults.push(format!("{} jumped {moved:.1} tiles at {now:.1}s", actor.id));
+            } else if moved > 1e-4 && !walks && !was_walking {
+                faults.push(format!("{} glided at {now:.1}s", actor.id));
+            }
+            // The tick a walk ends in may finish it with a step; the tick one begins in is spent
+            // setting off. Any longer on the spot is marking time.
+            in_place[index] = if walks && moved <= 1e-4 {
+                in_place[index] + 1
+            } else {
+                0
+            };
+            if in_place[index] == 3 {
+                faults.push(format!("{} walked on the spot at {now:.1}s", actor.id));
+            }
+        }
+    }
+    faults
+}
+
+#[test]
+fn nobody_glides_across_the_floor_or_is_lifted_onto_a_seat_from_across_the_room() {
+    let (household, layout) = home();
+    let faults = glides_or_marks_time(&household, &layout, 20.0 * 60.0);
+    assert!(faults.is_empty(), "{faults:#?}");
+    let (household, layout) = with_nook();
+    let faults = glides_or_marks_time(&household, &layout, 20.0 * 60.0);
+    assert!(faults.is_empty(), "{faults:#?}");
+}
+
+#[test]
+fn a_seat_is_climbed_onto_at_the_end_of_the_walk_and_walked_off_when_done() {
+    let (household, layout) = home();
+    let keeper = household.keeper().id;
+    let mut life = Life::new(&household, &layout);
+    let sofa = piece(&layout, "sofa");
+    life.ask(keeper, Act::Sit(sofa), 0.0);
+    let mut now = 0.0;
+    let mut climbing = false;
+    let mut sat = false;
+    while now < 30.0 && !sat {
+        now = run(&mut life, &household, &layout, now, 1.0 / 30.0);
+        let actor = life.actor(keeper).unwrap();
+        if actor.walking() && actor.on_piece == Some(sofa) && actor.lift > 0.0 {
+            climbing = true;
+        }
+        sat = !actor.walking() && actor.pose.clip == ActionKind::Perch.into();
+    }
+    assert!(climbing, "it was never seen stepping up onto the sofa");
+    assert!(sat, "it never sat");
+    let seat = life.actor(keeper).unwrap().pos;
+    // Left to finish sitting, and then to get on with things.
+    let mut stepped_down = false;
+    for _ in 0..(120 * 30) {
+        now = run(&mut life, &household, &layout, now, 1.0 / 30.0);
+        let actor = life.actor(keeper).unwrap();
+        let away = ((actor.pos.0 - seat.0).powi(2) + (actor.pos.1 - seat.1).powi(2)).sqrt();
+        if actor.walking() && actor.on_piece == Some(sofa) && away > 0.05 {
+            stepped_down = true;
+        }
+        if actor.on_piece.is_none() {
+            break;
+        }
+    }
+    assert!(stepped_down, "it never walked down off the sofa");
+}
+
+#[test]
+fn a_pat_stops_a_walk_so_the_pat_is_answered() {
+    let (household, layout) = home();
+    let keeper = household.keeper().id;
+    let mut life = Life::new(&household, &layout);
+    life.ask(keeper, Act::GoTo(7, 7), 0.0);
+    let now = run(&mut life, &household, &layout, 0.0, 0.3);
+    assert!(life.actor(keeper).unwrap().walking());
+    life.pet(&household, keeper, now);
+    let actor = life.actor(keeper).unwrap();
+    assert!(!actor.walking());
+    assert_eq!(actor.shows(now), ActionKind::PetReaction.into());
+}

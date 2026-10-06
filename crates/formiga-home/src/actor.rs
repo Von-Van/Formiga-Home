@@ -74,6 +74,19 @@ struct FrameKey {
     gaze: GazeDirection,
 }
 
+/// Getting up onto a piece over a walk's last leg, or down off one over its first: the piece, how
+/// high its seat is, and which way it sits on it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Climb {
+    piece: u16,
+    height: f32,
+    facing_right: bool,
+}
+
+/// How much of a leg onto or off a piece is spent stepping up or down: about from the middle of
+/// the tile beside it to its edge, so the rest is walked along the top.
+const CLIMB_STEP: f32 = 0.5;
+
 /// Frames are drawn on first use and kept; this many is a long visit's worth.
 const FRAME_CACHE_LIMIT: usize = 1200;
 const SPIN_TURN: f32 = 0.22;
@@ -97,6 +110,12 @@ pub struct Actor {
     /// When the current pose began.
     since: f32,
     path: VecDeque<(f32, f32)>,
+    /// Where the leg it is walking began, so a climb knows how far along it is.
+    leg_from: (f32, f32),
+    /// The piece it climbs down from over its walk's first leg, if it set off from one.
+    down: Option<Climb>,
+    /// The piece it climbs up onto over its walk's last leg, if it is going to sit or lie.
+    up: Option<Climb>,
     speed: f32,
     walk_face: ExpressionKind,
     frames: HashMap<FrameKey, Canvas>,
@@ -123,6 +142,9 @@ impl Actor {
             gaze: GazeDirection::default(),
             since: 0.0,
             path: VecDeque::new(),
+            leg_from: pos,
+            down: None,
+            up: None,
             speed: resident.character.walk_speed(),
             walk_face: resident.character.walk_face(),
             frames: HashMap::new(),
@@ -152,23 +174,64 @@ impl Actor {
         (now - self.since).max(0.0)
     }
 
-    /// Set off along `waypoints`, getting down from wherever it was first. With motion reduced a
-    /// walk is a cut: it is simply there, facing the way it went.
+    /// Set off along `waypoints`. Off a piece, the first leg is the way down from it, walked and
+    /// stepped down rather than dropped from. With motion reduced a walk is a cut: it is simply
+    /// there, facing the way it went.
     pub fn walk(&mut self, waypoints: impl IntoIterator<Item = (f32, f32)>) {
-        self.get_down();
         self.path.clear();
         self.path.extend(waypoints);
+        self.leg_from = self.pos;
+        self.up = None;
+        self.down = self.on_piece.map(|piece| Climb {
+            piece,
+            height: self.lift,
+            facing_right: self.facing_right,
+        });
+        if self.path.is_empty() {
+            self.down = None;
+            self.get_down();
+        }
         if self.reduce_motion
             && let Some(last) = self.path.back().copied()
         {
             self.face_towards(last);
             self.pos = last;
             self.path.clear();
+            self.down = None;
+            self.get_down();
         }
     }
 
+    /// Set off along `waypoints` to the floor beside a piece, then walk on up onto its seat at
+    /// `seat` and sit there facing the way the piece does. Nobody is lifted onto a seat from
+    /// across the room.
+    pub fn walk_onto(
+        &mut self,
+        waypoints: impl IntoIterator<Item = (f32, f32)>,
+        piece: u16,
+        seat: (f32, f32),
+        height: f32,
+        facing_right: bool,
+    ) {
+        self.walk(waypoints.into_iter().chain([seat]));
+        if self.walking() {
+            self.up = Some(Climb {
+                piece,
+                height,
+                facing_right,
+            });
+        } else {
+            self.settle_on(piece, seat, height, facing_right);
+        }
+    }
+
+    /// Stop where it is. Stopped part way up or down, it is put back on the floor rather than
+    /// left hanging at the piece's edge.
     pub fn stop(&mut self) {
         self.path.clear();
+        if self.up.take().is_some() | self.down.take().is_some() {
+            self.get_down();
+        }
     }
 
     pub fn walking(&self) -> bool {
@@ -181,8 +244,11 @@ impl Actor {
     }
 
     /// Sit or lie on a piece: on its seat, lifted to its height, facing the way the piece does.
+    /// Placed there at once, so only for where it already is, or for a picture.
     pub fn settle_on(&mut self, piece: u16, seat: (f32, f32), lift: f32, facing_right: bool) {
         self.path.clear();
+        self.up = None;
+        self.down = None;
         self.pos = seat;
         self.lift = lift;
         self.on_piece = Some(piece);
@@ -215,13 +281,48 @@ impl Actor {
                 self.pos = next;
                 budget -= distance / self.speed;
                 self.path.pop_front();
+                self.leg_from = next;
+                // Down off the piece it set off from, and on the floor.
+                if self.down.take().is_some() {
+                    self.get_down();
+                }
+                if self.path.is_empty()
+                    && let Some(up) = self.up.take()
+                {
+                    self.on_piece = Some(up.piece);
+                    self.lift = up.height;
+                    self.facing_right = up.facing_right;
+                }
             } else {
                 self.pos.0 += dx / distance * stride;
                 self.pos.1 += dy / distance * stride;
+                self.climb(next);
                 return false;
             }
         }
         true
+    }
+
+    /// Partway along a leg towards `next`: stepping down off a piece near the end of the first,
+    /// or up onto one near the start of the last, and drawn with that piece meanwhile.
+    fn climb(&mut self, next: (f32, f32)) {
+        let between =
+            |a: (f32, f32), b: (f32, f32)| ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
+        let length = between(self.leg_from, next);
+        let step = CLIMB_STEP.min(length).max(f32::EPSILON);
+        if let Some(down) = self.down {
+            self.on_piece = Some(down.piece);
+            self.lift = down.height * (between(self.pos, next) / step).min(1.0);
+        } else if let Some(up) = self.up.filter(|_| self.path.len() == 1) {
+            self.on_piece = Some(up.piece);
+            self.lift = up.height * (between(self.leg_from, self.pos) / step).min(1.0);
+        }
+    }
+
+    /// What its body is shown doing at `now`.
+    #[cfg(test)]
+    pub fn shows(&self, now: f32) -> BodyClip {
+        self.key(now).clip
     }
 
     fn key(&self, now: f32) -> FrameKey {
