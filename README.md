@@ -233,7 +233,8 @@ rehearsal it opens is its own.
   writes the registry values Desktop reads. The installer needs the WiX 4 command-line tool.
 
 Both scripts read the contract version from the built binary itself, so a package can never claim
-a version it does not support. Both sign when `FORMIGA_CODESIGN_IDENTITY` (and
+a version it does not support. Pushing a `v*` tag runs both on GitHub's own macOS and Windows
+machines and publishes a release with every package and its checksum. Both sign when `FORMIGA_CODESIGN_IDENTITY` (and
 `FORMIGA_NOTARY_PROFILE`) or `FORMIGA_SIGNTOOL_CERT_SHA1` is set, and otherwise ship unsigned.
 
 ### How the code is laid out

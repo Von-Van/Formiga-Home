@@ -1,0 +1,67 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  package-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - run: bash scripts/package-macos.sh
+        env:
+          FORMIGA_HOME_VERSION: ${{ github.ref_name }}
+          FORMIGA_HOME_BUILD_NUMBER: ${{ github.run_number }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: |
+            dist/Formiga-Home-*-macOS-universal.dmg
+            dist/Formiga-Home-*-macOS-universal.dmg.sha256
+            dist/Formiga-Home-*-macOS-universal.zip
+            dist/Formiga-Home-*-macOS-universal.zip.sha256
+
+  package-windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+      - run: dotnet tool install --global wix --version 4.0.5
+      - shell: pwsh
+        run: ./scripts/package-windows.ps1
+        env:
+          FORMIGA_HOME_VERSION: ${{ github.ref_name }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: |
+            dist/Formiga-Home-*-windows-x64.msi
+            dist/Formiga-Home-*-windows-x64.msi.sha256
+            dist/Formiga-Home-*-windows-x64.zip
+            dist/Formiga-Home-*-windows-x64.zip.sha256
+
+  publish:
+    needs: [package-macos, package-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          body: |
+            Unsigned build. A SHA-256 checksum file is included for every download.
+          files: release/*
