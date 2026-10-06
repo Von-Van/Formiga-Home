@@ -57,6 +57,7 @@ Usage: formiga-home [--sample | --formiga-home <VISIT DIRECTORY> | --from-save <
   --theme <THEME>          With --snap: the notebook light or dark, whatever the household's
                            own preference
   --zoom <STEPS>           With --snap: the house that many whole pixels closer than fits
+  --text <PERCENT>         With a rehearsal: the notebook's text that size, 100 to 150
   --hour <H> --month <M>   The house at that hour (0 to 24) and in that month (1 to 12): for a
                            picture, midday in June otherwise; for the window, the owner's clock
   --scale <N>              Pixels per scene pixel in a PNG (default 3)
@@ -93,6 +94,7 @@ struct Args {
     zoom: i32,
     hour: Option<f32>,
     month: Option<u8>,
+    text: Option<u8>,
 }
 
 impl Args {
@@ -130,6 +132,7 @@ fn parse_args(mut args: impl Iterator<Item = std::ffi::OsString>) -> Result<Opti
         zoom: 0,
         hour: None,
         month: None,
+        text: None,
     };
     let value = |args: &mut dyn Iterator<Item = std::ffi::OsString>, flag: &str| {
         args.next()
@@ -186,6 +189,14 @@ fn parse_args(mut args: impl Iterator<Item = std::ffi::OsString>) -> Result<Opti
             }
             Some("--page") => {
                 parsed.page = Some(value(&mut args, "--page")?.to_string_lossy().into());
+            }
+            Some("--text") => {
+                parsed.text = Some(
+                    value(&mut args, "--text")?
+                        .to_string_lossy()
+                        .parse()
+                        .context("--text is a percentage, 100 to 150")?,
+                );
             }
             Some("--hour") => {
                 parsed.hour = Some(
@@ -295,7 +306,11 @@ fn main() -> Result<()> {
                     "Rehearsing Desktop's sample colony".to_owned(),
                 ),
             };
-            let snapshot = colony.open(host::Which::Nth(args.house))?;
+            let mut snapshot = colony.open(host::Which::Nth(args.house))?;
+            if let Some(text) = args.text {
+                // For review: the notebook's text at another size than the colony's own.
+                snapshot.presentation.text_scale_percent = text.clamp(100, 150);
+            }
             let household =
                 Household::new(snapshot.clone()).context("could not draw the household")?;
             let mut homes = store::RehearsalHomes::new(data.as_deref(), &snapshot.colony_key);
@@ -315,10 +330,22 @@ fn main() -> Result<()> {
     };
     let open = open.and_then(Result::ok);
     let place = data.as_deref().and_then(store::WindowPlace::load);
+    let text_scale = f32::from(
+        household
+            .snapshot
+            .presentation
+            .text_scale_percent
+            .clamp(100, 150),
+    ) / 100.0;
     let mut viewport = app::frameless(eframe::egui::ViewportBuilder::default())
         .with_title(format!("Formiga Home \u{2014} {}", household.house_name()))
-        .with_inner_size(place.map_or([840.0, 620.0], |place| [place.width, place.height]))
-        .with_min_inner_size([640.0, 480.0])
+        .with_inner_size(
+            place.map_or([840.0 * text_scale, 620.0 * text_scale], |place| {
+                [place.width, place.height]
+            }),
+        )
+        // As much notebook at the smallest, whatever size its text: larger text, a larger window.
+        .with_min_inner_size([640.0 * text_scale, 480.0 * text_scale])
         .with_icon({
             let picture = icon::at(64);
             eframe::egui::IconData {

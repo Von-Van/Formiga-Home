@@ -759,3 +759,30 @@ fn a_close_friend_can_be_asked_to_stay_over_and_to_move_in_from_its_menu() {
     ));
     let _ = std::fs::remove_dir_all(&data);
 }
+
+#[test]
+fn the_notebook_answers_to_its_keys() {
+    let data = scratch("keys");
+    let mut window = Harness::open(&data);
+    window.app.selected = None;
+    window.key(Key::N);
+    let first = window.app.household.residents[0].id;
+    assert_eq!(window.app.selected, Some(first), "N chooses the first one");
+    window.key(Key::N);
+    assert_ne!(window.app.selected, Some(first), "and then the next");
+    window.key(Key::CloseBracket);
+    assert_eq!(window.app.live_page, Drawer::Journal);
+    window.key(Key::OpenBracket);
+    assert_eq!(window.app.live_page, Drawer::Household);
+    window.key(Key::H);
+    assert!(window.app.help);
+    window.key(Key::H);
+    assert!(!window.app.help);
+    window.key(Key::A);
+    assert_eq!(window.app.mode, Mode::Arrange);
+    window.key(Key::CloseBracket);
+    assert_eq!(window.app.drawer, Drawer::Furniture);
+    window.key(Key::L);
+    assert_eq!(window.app.mode, Mode::Live);
+    let _ = std::fs::remove_dir_all(&data);
+}

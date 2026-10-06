@@ -307,24 +307,36 @@ impl HomeApp {
             return;
         }
         let dark = ui.visuals().dark_mode;
+        let undo = if cfg!(target_os = "macos") {
+            "\u{2318}Z"
+        } else {
+            "Ctrl+Z"
+        };
         let text = match self.mode {
             Mode::Live => {
                 "Click someone to choose them, then click a seat, a toy, a find or someone else \
                  to see what they could do there. Click the floor to send them over.\n\n\
                  Drag someone to carry them, and right-click for a pat. Up to three things can \
-                 be asked at once; when nothing is, everyone does as they please.\n\n\
-                 P saves a picture of the house."
+                 be asked at once; when nothing is, everyone does as they please. A friend \
+                 visiting can be asked to stay over, or to move in.\n\n\
+                 N chooses the next one, [ and ] turn the pages, A arranges, P saves a picture, \
+                 + and \u{2212} come closer, and H puts this note away."
+                    .to_owned()
             }
             Mode::Arrange => {
-                "Drag something from these pages, or click it, to pick it up, and click again to \
+                format!(
+                    "Drag something from these pages, or click it, to pick it up, and click again to \
                  put it down. A doorway slides along its wall.\n\n\
-                 R or a right-click turns a piece, Delete puts it away, and \u{2318}Z undoes.\n\n\
+                 R or a right-click turns a piece, Delete puts it away, and {undo} undoes. \
+                 [ and ] turn the pages, L goes back to living in the house, and H puts this \
+                 note away.\n\n\
                  Everyone waits while the house is arranged."
+                )
             }
         };
         let width = notes.width().min(260.0);
         let galley = ui.painter().layout(
-            text.to_owned(),
+            text,
             egui::FontId::proportional(12.5),
             ink::page(dark),
             width - 24.0,

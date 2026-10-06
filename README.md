@@ -150,9 +150,15 @@ or a right-click turns a piece, and Delete returns it to the catalogue or drawer
 sold or used up. ⌘Z or Ctrl+Z undoes, and adding Shift redoes. Leaving Arrange Mode hands the new
 layout back to Desktop.
 
+The notebook answers to its keys as well as the mouse: L and A for living in the house and
+arranging it, [ and ] to turn the notes' pages, N (and Shift+N) to choose the next one in the
+house, P for a picture, + − and 0 to come closer and fit again, H for the help note, and Escape to
+put down or close whatever is open.
+
 Closing the window with its stud ends the visit. The window remembers its size and position, and
 Desktop's reduced motion, theme and text size carry over, so the notebook is cream by daylight and
-charcoal after dark.
+charcoal after dark. Larger text makes the window open, and stay, larger, so the notebook keeps
+its room.
 
 ### What Home keeps on your computer
 
@@ -206,7 +212,8 @@ cargo run -p formiga-home -- --render-room life.png --lived-in --at 45
 | `--render-poses` | Every resident in every pose Home uses |
 
 `--scale <N>` sets how many screen pixels make one pixel of the art (3 by default).
-`--hour <H>` and `--month <M>` show the house at that hour and in that month; a picture is
+`--text <PERCENT>` sets a rehearsal's text size, 100 to 150. `--hour <H>` and `--month <M>` show
+the house at that hour and in that month; a picture is
 otherwise drawn at midday in June, so it is the same every time, and the window follows the clock.
 
 The notebook itself can be pictured too. `--snap <PNG>` opens the window, waits `--at` seconds,

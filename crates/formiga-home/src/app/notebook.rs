@@ -158,7 +158,7 @@ pub(super) const LIVE_PAGES: [(Drawer, &str); 2] = [
 ];
 
 /// The pages of the notes in a mode.
-fn pages(mode: Mode) -> &'static [(Drawer, &'static str)] {
+pub(super) fn pages(mode: Mode) -> &'static [(Drawer, &'static str)] {
     match mode {
         Mode::Live => &LIVE_PAGES,
         Mode::Arrange => &PAGES,
@@ -254,7 +254,8 @@ pub(super) fn lay_out(ui: &egui::Ui, house: &str, mode: Mode) -> (Layout, Spread
     // The notes page's tabs stand up from its top edge, below the studs, so that neither
     // stands in the other's way.
     let mut page_tabs = Vec::new();
-    let mut along = right.0 + 6;
+    // Clear of the mode tabs, too, where the notebook is narrow for its text.
+    let mut along = (right.0 + 6).max(along + 4);
     for &(drawer, name) in pages(mode) {
         let wide = width_of(label_job(name, LABEL, ink::page(dark))) + 6;
         page_tabs.push((drawer, (along, top - 7, wide, 7)));
@@ -343,7 +344,7 @@ pub(super) fn page_id(drawer: Drawer) -> egui::Id {
 
 impl HomeApp {
     /// The notes page turned to, in the mode the house is in.
-    fn page(&self) -> Drawer {
+    pub(super) fn page(&self) -> Drawer {
         match self.mode {
             Mode::Live => self.live_page,
             Mode::Arrange => self.drawer,
