@@ -1356,6 +1356,27 @@ impl Life {
                 }
             }
         }
+        // Anyone stopped up on a piece with no seat to sit for, for a pat say, keeps the place
+        // nearest it until it walks down.
+        for (mind, actor) in self.minds.iter().zip(&self.actors) {
+            let Some(uid) = actor.on_piece.filter(|_| !actor.walking()) else {
+                continue;
+            };
+            if mind.plan.as_ref().is_some_and(|plan| plan.seat.is_some()) {
+                continue;
+            }
+            let distance =
+                |seat: &Seat| (seat.at.0 - actor.pos.0).powi(2) + (seat.at.1 - actor.pos.1).powi(2);
+            if let Some(nearest) = seats
+                .iter()
+                .enumerate()
+                .filter(|(_, seat)| seat.piece == uid)
+                .min_by(|(_, a), (_, b)| distance(a).total_cmp(&distance(b)))
+                .map(|(index, _)| index)
+            {
+                seats.remove(nearest);
+            }
+        }
         seats
     }
 
