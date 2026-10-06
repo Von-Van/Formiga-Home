@@ -318,6 +318,8 @@ pub enum Event {
     Left(Id, Option<MementoKind>),
     /// A little one has finished a drawing of someone.
     Drew(Id, Id),
+    /// A visitor is staying over.
+    StayingOver(Id),
     /// A resident has used something in its home once more: a piece, by its name in the house,
     /// or something shown.
     Used(Id, Used),
@@ -421,6 +423,8 @@ struct Mind {
     /// Has drawn something of its own accord since it came in: once is a keepsake, more would
     /// fill the house.
     drew: bool,
+    /// A visitor staying over: it stays as long as the house is open, and sleeps here.
+    staying: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -617,6 +621,55 @@ impl Life {
     /// What has happened since the window last asked.
     pub fn take_events(&mut self) -> Vec<Event> {
         std::mem::take(&mut self.events)
+    }
+
+    /// Whether a visitor is staying over.
+    pub fn staying(&self, id: Id) -> bool {
+        self.index(id)
+            .is_some_and(|index| self.minds[index].staying)
+    }
+
+    /// Everyone staying over.
+    pub fn guests(&self) -> Vec<Id> {
+        self.minds
+            .iter()
+            .filter(|mind| mind.staying)
+            .map(|mind| mind.id)
+            .collect()
+    }
+
+    /// Ask a visitor to stay over. Whether it will, as suits it and the friendship.
+    pub fn ask_to_stay(&mut self, household: &Household, id: Id) -> bool {
+        let Some(index) = self.index(id) else {
+            return false;
+        };
+        if self.minds[index].staying {
+            return true;
+        }
+        if !matches!(self.minds[index].presence, Presence::Visiting { .. }) {
+            return false;
+        }
+        let Some(visitor) = household.resident(id) else {
+            return false;
+        };
+        let warmth = household
+            .friend_of(id)
+            .map_or(0.0, |friend| band(household.bond(friend.id, id).warmth));
+        if !visitor.character.agrees_to_stay(warmth) {
+            return false;
+        }
+        self.stay_over(index);
+        true
+    }
+
+    /// A visitor stays as long as the house is open.
+    fn stay_over(&mut self, index: usize) {
+        let mind = &mut self.minds[index];
+        mind.staying = true;
+        mind.presence = Presence::Visiting {
+            until: f32::INFINITY,
+        };
+        self.events.push(Event::StayingOver(mind.id));
     }
 
     /// Who has spent time together since the house opened, how, and how often.
@@ -924,8 +977,19 @@ impl Life {
                         && self.minds[index].handled.is_none()
                         && !self.minds[index].plan.as_ref().is_some_and(|p| p.asked) =>
                 {
-                    self.go_home(house, &floor, index, now);
-                    continue;
+                    // A close friend may ask to stay over, if nobody else is.
+                    let id = self.minds[index].id;
+                    let warmth = household
+                        .friend_of(id)
+                        .map_or(0.0, |friend| band(household.bond(friend.id, id).warmth));
+                    let asks = resident.character.asks_to_stay(warmth);
+                    let nobody_yet = !self.minds.iter().any(|mind| mind.staying);
+                    if nobody_yet && self.minds[index].dice.next() < asks {
+                        self.stay_over(index);
+                    } else {
+                        self.go_home(house, &floor, index, now);
+                        continue;
+                    }
                 }
                 _ => {}
             }
@@ -1907,6 +1971,14 @@ impl Life {
                     options.push((Act::GrumbleAt(sitter), 1.6));
                 }
             }
+            let guest = visiting && self.minds[index].staying;
+            if piece.has(Use::Sleep) && free && guest && spare_bed(household, house, likings, uid) {
+                // A friend staying over sleeps in the guest bedroll if there is one, or in a bed
+                // nobody at home has made their own.
+                let bedroll = if piece.id == "bedroll" { 2.0 } else { 1.0 };
+                options.push((Act::Sleep(uid), 1.2 * bedroll));
+                options.push((Act::CurlUp(uid), 0.6 * bedroll * solitude));
+            }
             if piece.has(Use::Sleep) && free && !visiting {
                 let basket = piece.id == "basket";
                 let fits = if resident.is_little() == basket {
@@ -2217,6 +2289,7 @@ impl Mind {
             entered: 0.0,
             restless: 0.0,
             drew: false,
+            staying: false,
         }
     }
 }
@@ -2245,6 +2318,15 @@ fn door(house: &House, floor: &Floor) -> ((f32, f32), (i32, i32)) {
         f32::from(first.y + first.depth) + 0.9,
     );
     (outside, inside)
+}
+
+/// Whether a bed is free for a guest: nobody at home has made it their favourite.
+fn spare_bed(household: &Household, house: &House, likings: &[Liking], uid: u16) -> bool {
+    !household.residents.iter().any(|resident| {
+        favourites(likings, house, resident.id)
+            .iter()
+            .any(|(kind, liked)| *kind == Kind::Bed && house.of_liked(liked) == Some(uid))
+    })
 }
 
 /// Whom a little one draws: its own adult if it is home, or else whoever in the house it is
@@ -2412,12 +2494,13 @@ fn still_there(act: &Act, house: &House, snapshot: &HomeSnapshot) -> bool {
 }
 
 /// What someone can be asked to do with something in the room, for the owner's menu. `present`
-/// is everyone in the house just now.
+/// is everyone in the house just now, and `guests` whoever of them is staying over.
 pub fn choices(
     household: &Household,
     house: &House,
     snapshot: &HomeSnapshot,
     present: &[Id],
+    guests: &[Id],
     id: Id,
     target: &crate::scene::Target,
 ) -> Vec<Act> {
@@ -2457,6 +2540,9 @@ pub fn choices(
                         }
                     }
                 }
+            } else if piece.has(Use::Sleep) && guests.contains(&id) {
+                // A friend staying over may be shown to a bed.
+                acts.extend([Act::Sleep(*uid), Act::CurlUp(*uid)]);
             }
             if piece.family == Family::Tables {
                 acts.push(Act::SitAt(*uid));

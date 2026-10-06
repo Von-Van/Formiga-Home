@@ -178,6 +178,7 @@ pub fn project_household(
             HomeCapability::VisitRecord,
             HomeCapability::BondNudges,
             HomeCapability::JournalMoments,
+            HomeCapability::NextDoor,
         ],
         household: Household {
             keeper: TravelerId(keeper),

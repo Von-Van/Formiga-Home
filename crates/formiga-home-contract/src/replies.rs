@@ -216,6 +216,10 @@ pub enum HomeEffect {
     /// words. Offered by [`crate::HomeCapability::JournalMoments`]; at most
     /// [`crate::limits::MAX_MOMENTS`] a visit.
     Moment { moment: HomeMoment },
+    /// The owner went over to another house in the village, its keeper's: Desktop opens it
+    /// next, if it offers [`crate::HomeCapability::NextDoor`] and can, by its own rules. At most
+    /// once a visit. Since version 5.
+    NextDoor { household: TravelerId },
     /// Anything a newer Home sends that this build does not know.
     #[serde(other)]
     Unsupported,
@@ -244,6 +248,7 @@ impl HomeEffect {
             Self::HomeVisit { .. } => "home_visit",
             Self::Together { .. } => "together",
             Self::Moment { .. } => "moment",
+            Self::NextDoor { .. } => "next_door",
             Self::Unsupported => "unsupported",
         }
     }
@@ -287,6 +292,23 @@ impl HomeReceipt {
 
     pub fn answers(&self, seal: &SessionSeal) -> bool {
         seal.matches(&self.session_id, &self.snapshot_sha256, &self.state_sha256)
+    }
+
+    /// The house to open next, if the owner went over to one Desktop offered to open: another
+    /// house of the village the snapshot names, never the one just visited.
+    pub fn next_door(&self, snapshot: &HomeSnapshot) -> Option<TravelerId> {
+        if !snapshot.offers(crate::HomeCapability::NextDoor) {
+            return None;
+        }
+        self.effects.iter().find_map(|effect| match effect {
+            HomeEffect::NextDoor { household }
+                if *household != snapshot.household.keeper
+                    && snapshot.neighbour(*household).is_some() =>
+            {
+                Some(*household)
+            }
+            _ => None,
+        })
     }
 }
 
@@ -340,6 +362,14 @@ impl HomeDocument for HomeReceipt {
             .count();
         if moments > MAX_MOMENTS {
             return Err(invalid("a receipt with too many moments"));
+        }
+        let next = self
+            .effects
+            .iter()
+            .filter(|effect| matches!(effect, HomeEffect::NextDoor { .. }))
+            .count();
+        if next > 1 {
+            return Err(invalid("a receipt going to two houses at once"));
         }
         Ok(())
     }
@@ -514,5 +544,36 @@ mod tests {
         for receipt in [twice, alone, too_often, never, chatty] {
             assert!(receipt.validate().is_err(), "{receipt:?} was accepted");
         }
+    }
+
+    #[test]
+    fn the_owner_goes_next_door_once_and_only_to_a_house_desktop_offered() {
+        let snapshot = crate::sample::snapshot();
+        let neighbour = snapshot
+            .village
+            .iter()
+            .find(|house| house.keeper != snapshot.household.keeper)
+            .unwrap()
+            .keeper;
+        let going = |household| HomeEffect::NextDoor { household };
+        let mut receipt = HomeReceipt::new(
+            &seal(),
+            datetime!(2026-10-05 12:20 UTC),
+            "0.1.0",
+            vec![going(neighbour)],
+        );
+        assert!(receipt.validate().is_ok());
+        assert_eq!(receipt.next_door(&snapshot), Some(neighbour));
+        let mut declined = snapshot.clone();
+        declined
+            .capabilities
+            .retain(|capability| *capability != crate::HomeCapability::NextDoor);
+        assert_eq!(receipt.next_door(&declined), None, "not offered");
+        receipt.effects = vec![going(snapshot.household.keeper)];
+        assert_eq!(receipt.next_door(&snapshot), None, "the house just visited");
+        receipt.effects = vec![going(TravelerId(4040))];
+        assert_eq!(receipt.next_door(&snapshot), None, "no such house");
+        receipt.effects = vec![going(neighbour), going(neighbour)];
+        assert!(receipt.validate().is_err(), "two houses at once");
     }
 }

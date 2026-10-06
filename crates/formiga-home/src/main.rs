@@ -215,7 +215,9 @@ fn main() -> Result<()> {
     if let Some((render, path)) = &args.render {
         let snapshot = match &args.source {
             Source::Sample => formiga_home_contract::sample::snapshot(),
-            Source::Save(save) => from_save(save, args.house)?,
+            Source::Save(save) => {
+                host::Colony::Save(save.clone()).open(host::Which::Nth(args.house))?
+            }
             Source::Visit(_) => {
                 bail!("a visit from Desktop opens a window; draw the sample or a colony file")
             }
@@ -241,16 +243,17 @@ fn main() -> Result<()> {
             if busy {
                 bail!("Formiga Home is already open, with a house open in it");
             }
-            let (snapshot, label) = match source {
+            let (colony, label) = match source {
                 Source::Save(save) => (
-                    from_save(&save, args.house)?,
+                    host::Colony::Save(save),
                     "Rehearsing a colony file".to_owned(),
                 ),
                 _ => (
-                    formiga_home_contract::sample::snapshot(),
-                    "Rehearsing Desktop's sample household".to_owned(),
+                    host::Colony::Sample,
+                    "Rehearsing Desktop's sample colony".to_owned(),
                 ),
             };
+            let snapshot = colony.open(host::Which::Nth(args.house))?;
             let household =
                 Household::new(snapshot.clone()).context("could not draw the household")?;
             let mut homes = store::RehearsalHomes::new(data.as_deref(), &snapshot.colony_key);
@@ -263,7 +266,7 @@ fn main() -> Result<()> {
                 homes.grow(&snapshot, args.rooms);
             }
             (
-                host::Host::Rehearsal(host::Rehearsal::new(snapshot, homes, label)),
+                host::Host::Rehearsal(host::Rehearsal::new(snapshot, homes, label, colony)),
                 household,
             )
         }
@@ -377,27 +380,6 @@ fn render_to(render: &Render, household: &Household, args: &Args) -> Canvas {
             }
         }
     }
-}
-
-/// A house in a colony file, opened read-only and projected exactly as Desktop would open it.
-fn from_save(path: &Path, house: usize) -> Result<formiga_home_contract::HomeSnapshot> {
-    let save = formiga_core::SaveStore::read_snapshot(path)
-        .with_context(|| format!("could not read the colony file {}", path.display()))?;
-    let owners = formiga_core::house_owners(&save.creatures, &save.home.cottage_order);
-    let keeper = *owners
-        .as_slice()
-        .get(house)
-        .with_context(|| format!("the colony has {} houses", owners.as_slice().len()))?;
-    // The closest friends drop by, as Desktop would lend them if they were free.
-    let visitors = formiga_home_contract::likely_visitors(&save, keeper);
-    Ok(formiga_home_contract::project_household(
-        &save,
-        keeper,
-        &visitors,
-        formiga_home_contract::SessionId::generate().context("no randomness for a session id")?,
-        time::OffsetDateTime::now_utc(),
-        "a colony file",
-    )?)
 }
 
 /// A canvas as a PNG, each pixel `scale` pixels square.

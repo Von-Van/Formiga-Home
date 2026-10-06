@@ -255,7 +255,7 @@ pub fn front(turn: u8) -> (i32, i32) {
 
 const SEAT: [Use; 2] = [Use::Sit { seats: 1 }, Use::Nap];
 
-pub static PIECES: [Piece; 31] = [
+pub static PIECES: [Piece; 32] = [
     Piece {
         id: "cushion",
         name: "Floor cushion",
@@ -319,6 +319,19 @@ pub static PIECES: [Piece; 31] = [
         surfaces: &[],
         arrives: Arrival::Always,
         lift: 3,
+        set: Set::Home,
+    },
+    Piece {
+        id: "bedroll",
+        name: "Guest bedroll",
+        family: Family::Beds,
+        size: (1, 2),
+        height: 6,
+        flat: false,
+        uses: &[Use::Sleep, Use::Nap],
+        surfaces: &[],
+        arrives: Arrival::Always,
+        lift: 2,
         set: Set::Home,
     },
     Piece {

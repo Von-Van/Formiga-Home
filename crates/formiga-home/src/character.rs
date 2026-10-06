@@ -124,6 +124,29 @@ impl Character {
         (base * kind).clamp(0.0, 1.0)
     }
 
+    /// How likely, its visit up, it is to ask to stay over, `warmth` from nothing to 1 towards the
+    /// friend it came to see: the warm and the playful would rather not go, the shy and the
+    /// grumpy would.
+    pub fn asks_to_stay(&self, warmth: f32) -> f32 {
+        let kind = match self.kind {
+            TemperamentKind::Sweetheart => 0.2,
+            TemperamentKind::Troublemaker | TemperamentKind::Oddball => 0.1,
+            TemperamentKind::Wallflower | TemperamentKind::Grump => -0.15,
+            _ => 0.0,
+        };
+        (0.1 + warmth * 0.2 + self.axes.social * 0.1 + kind).clamp(0.0, 0.5)
+    }
+
+    /// Whether, asked to stay over, it would: anyone will for a close friend, and anyone but the
+    /// shy and the grumpy for less.
+    pub fn agrees_to_stay(&self, warmth: f32) -> bool {
+        let shy = matches!(
+            self.kind,
+            TemperamentKind::Wallflower | TemperamentKind::Grump
+        );
+        warmth >= 0.99 || (!shy && warmth > 0.3)
+    }
+
     /// Would rather sit apart from the others than among them.
     pub fn keeps_apart(&self) -> bool {
         matches!(

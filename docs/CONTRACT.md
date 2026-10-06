@@ -118,8 +118,9 @@ The snapshot is everything Home is allowed to know about the visit.
   owner of it.
 - **Days lived**, for the few pieces of furniture that arrive with time.
 - **Capabilities**: what Desktop is willing to take back from a visit. `visit_record` offers a
-  `HomeVisit`, and since version 4, `bond_nudges` offers time spent together and
-  `journal_moments` offers moments. Home sends nothing Desktop has not offered.
+  `HomeVisit`; since version 4, `bond_nudges` offers time spent together and
+  `journal_moments` offers moments; and since version 5, `next_door` offers to open another
+  house next. Home sends nothing Desktop has not offered.
 - **The colony key** is a one-way digest of the colony's seed under Home's own label. It is
   intentionally different from a trip's colony id, so the two apps' records cannot be matched up.
 
@@ -160,8 +161,9 @@ Since version 4 a home may also keep two things of its own, which Desktop stores
   one in the inventory, because Home makes them from the home itself.
 - **`journal`**: up to 40 entries `{ at_utc, moment }`, oldest first, with the oldest let go when
   it is full. A moment is structured rather than written out: a friend's `visit`, a `memento`
-  that came to the house, a resident's new `favourite` (a seat, a bed, a toy or a find), or a
-  `room` the house grew. Home words these on its Journal page, and nothing else reads them.
+  that came to the house, a resident's new `favourite` (a seat, a bed, a toy or a find), a
+  `room` the house grew, or, since version 5, a friend who `stayed_over`. Home words these on its
+  Journal page, and nothing else reads them.
 
 Pieces and finishes are named by Home's catalogue identifiers. Desktop only checks that each is
 written as a valid identifier, never what it names, which lets Home's catalogue grow without
@@ -182,8 +184,16 @@ receipt holds sixteen effects at most:
   kind, never with itself, the lesser id first, and `times` is 1 to 3. Desktop applies these by
   its own rules, and only as far as those rules allow.
 - `moment { moment }`, for `journal_moments`: at most three of the visit's journal entries, the
-  ones most worth a line (a keepsake first, then a new room, a new favourite, a friend coming
-  over), in the order they happened. Desktop words them in its own journal.
+  ones most worth a line (a keepsake first, then a friend staying over, a new room, a new
+  favourite, a friend coming over), in the order they happened. Desktop words them in its own
+  journal.
+- `next_door { household }`, for `next_door`, at most once: the owner went over to the house
+  `household` keeps. Desktop opens that house next, in a new session, if it can and will: it must
+  be another house of the village the snapshot named, and `HomeReceipt::next_door` returns it only
+  then. Home has already left this one; nothing else about the visit changes.
+
+If there are more effects than a receipt holds, the visit, the next door and the moments come
+first, and time together gives way.
 
 Home never sends prose, a change to a creature, or anything to patch into a save. One could argue
 the bond nudges come close to that line. The difference is that Home only reports what happened,
@@ -208,6 +218,7 @@ one wrote.
 | 2 | `visitors` in the snapshot; `likings` in each home. Both optional, so a version 1 reader still reads either |
 | 3 | `plan`, `kind` and `doors` in each room: a house of rooms, and its doorways. All optional, so an older reader still reads a house, as a set of rooms |
 | 4 | `mementos` and `journal` in each home; the receipt's `together` and `moment` effects, and the `bond_nudges` and `journal_moments` capabilities that offer them. All optional, so an older reader still reads every document |
+| 5 | The receipt's `next_door` effect and the `next_door` capability that offers it; a `stayed_over` moment. An older reader reads the effect as one it does not support and the moment as `unknown` |
 
 ## Finding Home
 

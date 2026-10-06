@@ -75,6 +75,7 @@ pub fn line(moment: &HomeMoment, snapshot: &HomeSnapshot) -> String {
             };
             format!("{} found a favourite {thing}.", who(resident))
         }
+        HomeMoment::StayedOver { visitor } => format!("{} stayed over.", who(visitor)),
         HomeMoment::Room { room } => {
             let name = catalog::room_name(Some(room), false).to_lowercase();
             format!("The house grew a {name}.")

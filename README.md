@@ -24,7 +24,10 @@ simply get on with their own lives.
   owns is ever left out.
 - **Friends drop by.** Desktop can lend a household one or two of its closest friends from other
   houses for the visit. They knock at the front door, look round at what is on show, and go home
-  again, sometimes leaving a small gift behind.
+  again, sometimes leaving a small gift behind. A close friend may ask to stay over, or be asked,
+  and then stays as long as the house is open and sleeps in a spare bed.
+- **Next door.** From one house you can go over to another in the village. Desktop opens it next,
+  if it will; nothing else about the colony changes.
 - **Keepsakes of its own.** Beyond the colony's finds, a house collects a few things that only
   happen at home: a gift from a visitor, a drawing by one of the little ones, or a framed copy of
   a photo you took.
@@ -60,12 +63,13 @@ proves the same loop a real visit would.
 
 | Part | Status |
 | --- | --- |
-| The house: up to three rooms, doorways and a front door, seven floors, seven walls, thirty-one pieces of furniture in three sets plus the house's own | Preview |
+| The house: up to three rooms, doorways and a front door, seven floors, seven walls, thirty-two pieces of furniture in three sets plus the house's own | Preview |
 | The notebook window: the leather cover as its frame, the house on one page and notes on the other | Preview |
 | Residents living on their own, and the short list of things you can ask of each | Preview |
 | Arranging, Found Things, and the card for anything without its own picture | Preview |
 | Visitors, favourites and photos | Preview |
 | Keepsakes, the Journal, and souvenirs each kept their own way | Preview |
+| Going next door, and friends staying over | Preview |
 | The household contract (`formiga-home-contract`) | Draft, kept here until Desktop adopts it |
 | Opening a house from Desktop's village | Not yet in Desktop |
 | Packaging for macOS and Windows | Not yet verified: the scripts build a bundle and an installer, but have not been run end to end |
@@ -100,6 +104,13 @@ The notebook opens in **Live Mode**, where the household is simply at home.
   comes from who they are: a sweetheart goes to the door, a wallflower finds the furthest seat, a
   show-off has something to show, and a grump may grumble. Visitors can be asked for things too,
   though never to sleep in someone else's bed.
+- **Staying over.** Click a visitor, or a visitor with someone chosen, and ask them to stay over.
+  A close friend agrees; a shy one only if it is very close. A friend whose visit is up may ask to
+  stay of its own accord. Someone staying over stays until you leave, and when tired sleeps in the
+  guest bedroll, or in a bed nobody at home has made their favourite.
+- **Next door.** The household page lists the village's other houses. Click one to go over:
+  Desktop closes this house and opens that one in the same place on screen. A rehearsal opens it
+  itself, in the same window.
 - **The Journal** tab in the notes shows what has happened in the house, newest first, grouped
   by day.
 - **Getting closer.** − / Fit / + in the corner of the house's page, the + and − keys, or a pinch
@@ -120,7 +131,8 @@ arrange, everyone waits off the furniture. Three tabs stand up from the notes:
   place at a time.
 - **Furniture** always has the starter pieces. More arrive as the colony lives and finds things,
   and they stay: a sofa, a long rug, a toy box, a glass case, a bell jar, a curio cabinet, a glass
-  counter, and three matching sets (seaside, woodland and starlit).
+  counter, and three matching sets (seaside, woodland and starlit). A guest bedroll is there from
+  the start, for whoever stays over.
 - **Rooms** sets each room's floor and walls. After two weeks a second room can be built, and
   after forty days a third. You choose its kind, preview the house with it in each place it could
   go, and build it where it looks right. Any room but the first can be taken away again, and its

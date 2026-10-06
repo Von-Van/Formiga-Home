@@ -184,6 +184,53 @@ impl HomeApp {
         }
     }
 
+    /// The other houses of the village, to go over to.
+    fn next_door_links(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        if !self.host.goes_next_door() {
+            return;
+        }
+        let here = self.household.snapshot.household.keeper;
+        let houses: Vec<(TravelerId, String)> = self
+            .household
+            .snapshot
+            .village
+            .iter()
+            .filter(|house| house.keeper != here)
+            .map(|house| (house.keeper, format!("{}'s house", house.name)))
+            .collect();
+        if houses.is_empty() {
+            return;
+        }
+        kicker(ui, "Next door");
+        let dark = ui.visuals().dark_mode;
+        let mut going = None;
+        ui.horizontal_wrapped(|ui| {
+            // A house's name moves to the next line whole rather than breaking.
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+            ui.spacing_mut().item_spacing.x = 10.0;
+            for (keeper, name) in &houses {
+                let link = ui
+                    .add(
+                        egui::Label::new(
+                            egui::RichText::new(name.as_str())
+                                .underline()
+                                .color(ink::forest(dark)),
+                        )
+                        .sense(egui::Sense::click()),
+                    )
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
+                    .on_hover_text(format!("Go over to {name}"));
+                if link.clicked() {
+                    going = Some(*keeper);
+                }
+            }
+        });
+        ui.add_space(8.0);
+        if let Some(keeper) = going {
+            self.go_next_door(ctx, keeper);
+        }
+    }
+
     fn household_page(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, unit: f32) {
         let dark = ui.visuals().dark_mode;
         let present = self.life.present();
@@ -209,6 +256,7 @@ impl HomeApp {
             }
             ui.add_space(8.0);
         }
+        self.next_door_links(ui, ctx);
         let hint = match self.selected {
             Some(_) => "Click something in the house to see what they could do.",
             None => "Choose someone, then something in the house.",
@@ -350,7 +398,9 @@ impl HomeApp {
         let name_width = galley.size().x;
         ui.painter()
             .galley(egui::pos2(text_left, y), galley, ink::page(dark));
-        let aside = if visitor {
+        let aside = if visitor && self.life.staying(id) {
+            Some("staying over".to_owned())
+        } else if visitor {
             self.household
                 .friend_of(id)
                 .map(|friend| format!("{}'s friend", friend.name))

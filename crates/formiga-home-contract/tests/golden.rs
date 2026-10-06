@@ -122,6 +122,11 @@ fn written_now() -> Vec<(String, Vec<u8>)> {
             of: Vec::new(),
         },
     );
+    // Since version 5: the friend stayed over.
+    home.note(
+        datetime!(2026-11-11 10:16 UTC),
+        HomeMoment::StayedOver { visitor: friend },
+    );
     arranged_state.set_household(home);
     let result = HomeResult::new(&seal, closed_at(), "0.1.0", arranged_state);
     let receipt = HomeReceipt::new(
@@ -148,6 +153,8 @@ fn written_now() -> Vec<(String, Vec<u8>)> {
                     of: Vec::new(),
                 },
             },
+            // Since version 5: and the owner went over to the friend's house.
+            HomeEffect::NextDoor { household: friend },
         ],
     );
     let recall = HomeRecall::new(session(), closed_at(), RecallReason::OwnerAsked);

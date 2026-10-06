@@ -260,6 +260,8 @@ pub enum HomeMoment {
     },
     /// The house grew a room, of a kind in Home's catalogue.
     Room { room: CatalogId },
+    /// A friend stayed over, the whole visit, and slept here. Since version 5.
+    StayedOver { visitor: TravelerId },
     /// A moment a newer Home records.
     #[serde(other)]
     Unknown,

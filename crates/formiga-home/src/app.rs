@@ -52,6 +52,8 @@ enum Entry {
     Ask(Act),
     Pet,
     Choose(Id),
+    /// Ask a visitor to stay over.
+    StayOver(Id),
 }
 
 /// How the house is shown on its page: as big as fits, or zoomed in by whole pixels and moved
@@ -163,6 +165,8 @@ pub struct HomeApp {
     left: bool,
     /// When the house was opened, to the second: the journal's lines since are this visit's.
     opened_at_utc: OffsetDateTime,
+    /// The house the owner is going over to, if they are going next door.
+    next_door: Option<TravelerId>,
     _open: Option<store::Open>,
     /// For review: a picture of the window itself to save, and when, after which it closes; and
     /// how many steps closer than fits to show the house in it.
@@ -241,6 +245,7 @@ impl HomeApp {
             data,
             left: false,
             opened_at_utc: now_utc(),
+            next_door: None,
             _open: open,
             snap: None,
             snap_zoom: 0,
@@ -795,6 +800,12 @@ impl HomeApp {
                         self.selected = None;
                     }
                 }
+                Event::StayingOver(id) => {
+                    self.say(format!("{} is staying over.", self.name(id)));
+                    self.note(HomeMoment::StayedOver {
+                        visitor: TravelerId(id),
+                    });
+                }
                 Event::Drew(by, of) => {
                     if self
                         .make_keepsake(MementoKind::Drawing, Some(by), vec![of])
@@ -862,10 +873,11 @@ impl HomeApp {
         let home = home_of(&self.state, self.keeper);
         let worth = |moment: &HomeMoment| match moment {
             HomeMoment::Memento { .. } => 0,
-            HomeMoment::Room { .. } => 1,
-            HomeMoment::Favourite { .. } => 2,
-            HomeMoment::Visit { .. } => 3,
-            HomeMoment::Unknown => 4,
+            HomeMoment::StayedOver { .. } => 1,
+            HomeMoment::Room { .. } => 2,
+            HomeMoment::Favourite { .. } => 3,
+            HomeMoment::Visit { .. } => 4,
+            HomeMoment::Unknown => 5,
         };
         let mut moments: Vec<_> = home
             .journal
@@ -895,6 +907,50 @@ impl HomeApp {
                 .into_iter()
                 .map(|entry| entry.moment.clone())
                 .collect(),
+            next_door: self.next_door,
+        }
+    }
+
+    /// Go over to the house `keeper` keeps. On a visit, the house is left and Desktop opens that
+    /// one next, if it will; a rehearsal opens it itself, in the same window.
+    fn go_next_door(&mut self, ctx: &egui::Context, keeper: TravelerId) {
+        let name = self.household.snapshot.neighbour(keeper).map_or_else(
+            || "the house next door".to_owned(),
+            |house| format!("{}'s house", house.name),
+        );
+        self.next_door = Some(keeper);
+        let (colony, label) = match &self.host {
+            Host::Visit(_) => {
+                self.say(format!("Off to {name}…"));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                return;
+            }
+            Host::Rehearsal(rehearsal) => (rehearsal.colony.clone(), rehearsal.label.clone()),
+        };
+        self.leave();
+        let opened = colony
+            .open(crate::host::Which::Kept(keeper))
+            .and_then(|snapshot| {
+                let household = Household::new(snapshot.clone())
+                    .map_err(|error| anyhow::anyhow!("could not draw the household: {error}"))?;
+                Ok((snapshot, household))
+            });
+        match opened {
+            Ok((snapshot, household)) => {
+                let homes = store::RehearsalHomes::new(self.data.as_deref(), &snapshot.colony_key);
+                let host =
+                    Host::Rehearsal(crate::host::Rehearsal::new(snapshot, homes, label, colony));
+                let open = self._open.take();
+                let data = self.data.clone();
+                *self = HomeApp::new(ctx, household, host, data, open);
+                self.say(format!("Over at {name}."));
+            }
+            Err(error) => {
+                eprintln!("formiga-home: {error:#}");
+                self.next_door = None;
+                self.left = false;
+                self.say(format!("{name} could not be opened."));
+            }
         }
     }
 
@@ -950,7 +1006,9 @@ impl HomeApp {
                 let actor = self.life.actors.iter_mut().find(|actor| actor.id == id)?;
                 let (l, t, r, _) = actor.bounds(&view, now);
                 let mut name = self.name(id);
-                if self.household.is_visitor(id) {
+                if self.life.staying(id) {
+                    name.push_str(", staying over");
+                } else if self.household.is_visitor(id) {
                     name.push_str(", visiting");
                 }
                 Some((name, ((l + r) as f32 / 2.0, t as f32 - 9.0)))
@@ -1086,6 +1144,19 @@ impl HomeApp {
         self.click_live(target, at);
     }
 
+    /// Asking a visitor to stay over, while it is visiting and not staying already.
+    fn stay_over_entry(&self, id: Id) -> Option<(Entry, String)> {
+        (self.household.is_visitor(id)
+            && self.life.present().contains(&id)
+            && !self.life.staying(id))
+        .then(|| {
+            (
+                Entry::StayOver(id),
+                format!("Ask {} to stay over", self.name(id)),
+            )
+        })
+    }
+
     fn click_live(&mut self, target: Target, at: egui::Pos2) {
         let now = self.now();
         let house = self.house.clone();
@@ -1095,7 +1166,11 @@ impl HomeApp {
                 self.menu = Some(Menu {
                     at,
                     title: self.name(id),
-                    entries: vec![(Entry::Pet, "Give a pat".to_owned())],
+                    entries: {
+                        let mut entries = vec![(Entry::Pet, "Give a pat".to_owned())];
+                        entries.extend(self.stay_over_entry(id));
+                        entries
+                    },
                     opened: now,
                 });
             }
@@ -1109,7 +1184,16 @@ impl HomeApp {
             }
             (target, Some(chosen)) => {
                 let present = self.life.present();
-                let acts = choices(&self.household, &house, snapshot, &present, chosen, &target);
+                let guests = self.life.guests();
+                let acts = choices(
+                    &self.household,
+                    &house,
+                    snapshot,
+                    &present,
+                    &guests,
+                    chosen,
+                    &target,
+                );
                 let mut entries: Vec<(Entry, String)> = acts
                     .into_iter()
                     .map(|act| {
@@ -1119,6 +1203,7 @@ impl HomeApp {
                     .collect();
                 let title = match &target {
                     Target::Resident(other) => {
+                        entries.extend(self.stay_over_entry(*other));
                         entries.push((
                             Entry::Choose(*other),
                             format!("Choose {} instead", self.name(*other)),
@@ -1427,6 +1512,14 @@ impl HomeApp {
                     self.life.pet(&self.household, chosen_id, now);
                 }
                 Entry::Choose(other) => self.selected = Some(other),
+                Entry::StayOver(visitor) => {
+                    if !self.life.ask_to_stay(&self.household, visitor) {
+                        self.say(format!(
+                            "{} would rather go home tonight.",
+                            self.name(visitor)
+                        ));
+                    }
+                }
             }
         } else if close || clicked_elsewhere {
             self.menu = None;

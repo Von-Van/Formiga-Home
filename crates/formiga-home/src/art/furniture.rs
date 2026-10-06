@@ -45,6 +45,7 @@ fn drawn(piece: &Piece, away: bool) -> (Sprite, Vec<Block>) {
         "moon_lamp" => moon_lamp(&mut easel),
         "telescope" => telescope(&mut easel, away),
         "basket" => basket(&mut easel),
+        "bedroll" => bedroll(&mut easel, flip, away),
         "side_table" => side_table(&mut easel),
         "low_table" => low_table(&mut easel),
         "shelf" => shelf(&mut easel),
@@ -307,6 +308,31 @@ fn bed(easel: &mut Easel, flip: impl Fn(Block) -> Block, away: bool, bedding: &B
             canvas.set(px, py, ramp.light);
         }
     });
+}
+
+/// A guest's bedroll: a quilted mat rolled out on the floor, a pillow at its head and the end of
+/// it still rolled up at its foot.
+fn bedroll(easel: &mut Easel, flip: impl Fn(Block) -> Block, away: bool) {
+    easel.shadow((0.1, 0.9), (0.08, 1.92), 50);
+    let blocks = vec![
+        Block::new((0.12, 0.88), (0.12, 1.66), (0.0, 2.0), CORNFLOWER),
+        Block::new((0.1, 0.9), (1.62, 1.92), (0.0, 6.0), CORNFLOWER),
+    ];
+    easel.blocks(blocks.into_iter().map(&flip).collect());
+    // The quilting: a stitched line across the mat every so often.
+    for along in [0.62, 0.92, 1.22] {
+        let y = if away { 1.92 - along + 0.04 } else { along };
+        let (a, b) = (easel.pixel(0.16, y, 2.0), easel.pixel(0.84, y, 2.0));
+        paint::line(&mut easel.canvas, a, b, CORNFLOWER.base);
+    }
+    // The rolled end's spiral, on its face towards the mat.
+    let roll = if away { 0.38 } else { 1.62 };
+    let (cx, cy) = easel.pixel(0.5, roll, 3.0);
+    paint::put(&mut easel.canvas, cx, cy, CORNFLOWER.shine);
+    paint::put(&mut easel.canvas, cx + 1, cy, CORNFLOWER.shadow);
+    let head = if away { 1.58 } else { 0.4 };
+    easel.disc((0.5, head), 7.0, 3.0, LINEN.light);
+    easel.disc((0.46, head - 0.03), 4.0, 4.0, LINEN.shine);
 }
 
 fn basket(easel: &mut Easel) {

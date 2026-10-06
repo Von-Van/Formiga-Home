@@ -29,7 +29,12 @@ impl Harness {
         let snapshot = sample::snapshot();
         let household = Household::new(snapshot.clone()).unwrap();
         let homes = RehearsalHomes::new(Some(data), &snapshot.colony_key);
-        let host = Host::Rehearsal(Rehearsal::new(snapshot, homes, "test".to_owned()));
+        let host = Host::Rehearsal(Rehearsal::new(
+            snapshot,
+            homes,
+            "test".to_owned(),
+            crate::host::Colony::Sample,
+        ));
         let ctx = egui::Context::default();
         let app = HomeApp::new(&ctx, household, host, Some(data.to_owned()), None);
         let mut harness = Self {
@@ -683,5 +688,55 @@ fn the_journal_page_says_who_came_over_today() {
     window.click_id(notebook::page_id(Drawer::Household));
     window.wait(0.1);
     assert!(window.text(&format!("{name} came over.")).is_none());
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn a_rehearsal_goes_next_door_in_the_same_window_and_back_again() {
+    let data = scratch("next-door");
+    let mut window = Harness::open(&data);
+    let here = window.app.keeper;
+    let village = window.app.household.snapshot.village.clone();
+    let name_of = |keeper| {
+        village
+            .iter()
+            .find(|house| house.keeper == keeper)
+            .map(|house| format!("{}'s house", house.name))
+            .unwrap()
+    };
+    let next = village
+        .iter()
+        .find(|house| house.keeper != here)
+        .unwrap()
+        .keeper;
+    window.click_text(&name_of(next));
+    window.wait(0.2);
+    assert_eq!(window.app.keeper, next);
+    assert_eq!(window.app.household.keeper().id, next.0);
+    assert!(
+        window.app.state.household(next).is_some(),
+        "its house is set up"
+    );
+    window.click_text(&name_of(here));
+    window.wait(0.2);
+    assert_eq!(window.app.keeper, here, "and back home again");
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn a_visitor_can_be_asked_to_stay_over_from_its_menu() {
+    let data = scratch("stay-over");
+    let mut window = Harness::open(&data);
+    let friend = window.app.household.visitors[0].id;
+    while !window.app.life.present().contains(&friend) {
+        window.wait(1.0);
+        assert!(window.app.now() < 90.0, "the friend never came");
+    }
+    window.app.selected = Some(friend);
+    let at = window.find(&Target::Resident(friend));
+    window.click(at);
+    let name = window.app.name(friend);
+    window.click_text(&format!("Ask {name} to stay over"));
+    assert!(window.app.life.staying(friend));
     let _ = std::fs::remove_dir_all(&data);
 }

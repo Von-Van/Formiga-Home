@@ -293,6 +293,7 @@ fn every_target_offers_something_and_a_find_can_always_be_looked_at() {
             &layout,
             snapshot,
             &present,
+            &[],
             keeper,
             &crate::scene::Target::Shown(shown.item.clone()),
         );
@@ -304,6 +305,7 @@ fn every_target_offers_something_and_a_find_can_always_be_looked_at() {
             &layout,
             snapshot,
             &present,
+            &[],
             keeper,
             &crate::scene::Target::Piece(placed.uid),
         );
@@ -315,6 +317,7 @@ fn every_target_offers_something_and_a_find_can_always_be_looked_at() {
         &layout,
         snapshot,
         &present,
+        &[],
         keeper,
         &crate::scene::Target::Resident(pip),
     );
@@ -332,6 +335,7 @@ fn a_visitor_is_offered_a_seat_but_never_a_bed() {
         &layout,
         &household.snapshot,
         &present,
+        &[],
         visitor,
         &crate::scene::Target::Piece(bed),
     );
@@ -346,6 +350,7 @@ fn a_visitor_is_offered_a_seat_but_never_a_bed() {
         &layout,
         &household.snapshot,
         &present,
+        &[],
         visitor,
         &crate::scene::Target::Piece(chair),
     );
@@ -673,6 +678,7 @@ fn a_little_one_asked_to_draw_draws_its_own_adult_and_says_so_when_done() {
         &layout,
         &household.snapshot,
         &present,
+        &[],
         pip,
         &crate::scene::Target::Piece(table),
     );
@@ -682,6 +688,7 @@ fn a_little_one_asked_to_draw_draws_its_own_adult_and_says_so_when_done() {
         &layout,
         &household.snapshot,
         &present,
+        &[],
         keeper,
         &crate::scene::Target::Piece(table),
     );
@@ -751,4 +758,67 @@ fn what_a_friend_leaves_suits_it_and_a_warm_friend_leaves_something_more_often()
     let sweet = gives(&character, 0.66);
     character.kind = TemperamentKind::Grump;
     assert!(gives(&character, 0.66) < sweet);
+}
+
+/// The lived-in house with a guest bedroll put down wherever it first fits.
+fn with_bedroll() -> (Household, House, u16) {
+    let household = Household::new(sample::snapshot()).unwrap();
+    let mut home = staging::lived_in(&household, "floor.boards", "wall.leafy");
+    let bedroll = catalog::PIECES.iter().find(|p| p.id == "bedroll").unwrap();
+    let (x, y) = (0..8)
+        .flat_map(|y| (0..8).map(move |x| (x, y)))
+        .find(|&(x, y)| room::can_place(&home.rooms[0], bedroll, x, y, 0, None))
+        .expect("somewhere for a bedroll");
+    let uid = room::add_piece(&mut home, 0, bedroll, x, y, 0);
+    (household, House::of(&home.rooms), uid)
+}
+
+#[test]
+fn a_friend_asked_to_stay_over_stays_the_visit_and_sleeps_in_the_guest_bedroll() {
+    let (household, layout, bedroll) = with_bedroll();
+    let friend = household.visitors[0].id;
+    let mut life = Life::new(&household, &layout);
+    let mut now = 0.0;
+    while !life.present().contains(&friend) {
+        now = run(&mut life, &household, &layout, now, 1.0);
+        assert!(now < 120.0, "the friend never came");
+    }
+    assert!(!life.staying(friend));
+    assert!(
+        life.ask_to_stay(&household, friend),
+        "a close friend agrees"
+    );
+    assert!(life.take_events().contains(&Event::StayingOver(friend)));
+    assert_eq!(life.guests(), vec![friend]);
+    let mut slept = false;
+    for _ in 0..(10 * 60) {
+        now = run(&mut life, &household, &layout, now, 1.0);
+        assert!(life.present().contains(&friend), "went home after all");
+        if let Some((Act::Sleep(uid) | Act::CurlUp(uid), _)) = life.current(friend) {
+            assert_eq!(uid, bedroll, "a guest sleeps only where it may");
+            slept = true;
+        }
+    }
+    assert!(slept, "the friend never turned in");
+    let offered = choices(
+        &household,
+        &layout,
+        &household.snapshot,
+        &life.present(),
+        &life.guests(),
+        friend,
+        &crate::scene::Target::Piece(bedroll),
+    );
+    assert!(offered.contains(&Act::Sleep(bedroll)), "{offered:?}");
+}
+
+#[test]
+fn only_a_close_friend_talks_a_shy_one_into_staying_over() {
+    let mut character = home().0.visitors[0].character.clone();
+    character.kind = TemperamentKind::Wallflower;
+    assert!(!character.agrees_to_stay(0.66));
+    assert!(character.agrees_to_stay(1.0));
+    character.kind = TemperamentKind::Sweetheart;
+    assert!(character.agrees_to_stay(0.66));
+    assert!(character.asks_to_stay(1.0) > character.asks_to_stay(0.0));
 }

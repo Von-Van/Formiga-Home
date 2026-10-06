@@ -21,25 +21,45 @@ use time::OffsetDateTime;
 pub const HOME_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// What the household did at home that Desktop may take in, if it offers to: how often each
-/// pair spent time together, and how, and the moments worth a line in its journal, most worth it
-/// first.
+/// pair spent time together, and how; the moments worth a line in its journal, most worth it
+/// first; and the house the owner went over to, if they went next door.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Lived {
     pub together: Vec<(TravelerId, TravelerId, Together, u8)>,
     pub moments: Vec<HomeMoment>,
+    pub next_door: Option<TravelerId>,
 }
 
 impl Lived {
-    /// As effects, for a Desktop offering `capabilities`: time together only if it nudges
-    /// bonds, moments only if it keeps a journal, each within the contract's bounds.
-    fn effects(&self, offers: impl Fn(HomeCapability) -> bool) -> Vec<HomeEffect> {
-        let mut effects = Vec::new();
+    /// As effects, after `first`, for a Desktop that sent `snapshot`: each only if it offers to
+    /// take it in, and all within the contract's bounds. Where there are more than a receipt
+    /// holds, time together gives way to the rest.
+    fn effects(&self, snapshot: &HomeSnapshot, first: Vec<HomeEffect>) -> Vec<HomeEffect> {
+        let offers = |capability| snapshot.offers(capability);
+        let mut effects = first;
+        if offers(HomeCapability::NextDoor)
+            && let Some(household) = self.next_door
+            && household != snapshot.household.keeper
+            && snapshot.neighbour(household).is_some()
+        {
+            effects.push(HomeEffect::NextDoor { household });
+        }
+        if offers(HomeCapability::JournalMoments) {
+            effects.extend(self.moments.iter().take(limits::MAX_MOMENTS).map(|moment| {
+                HomeEffect::Moment {
+                    moment: moment.clone(),
+                }
+            }));
+        }
         if offers(HomeCapability::BondNudges) {
             let mut counted = std::collections::BTreeSet::new();
             for &(a, b, together, times) in &self.together {
                 let pair = (a.min(b), a.max(b), together);
                 if a == b || times == 0 || together == Together::Unknown || !counted.insert(pair) {
                     continue;
+                }
+                if effects.len() >= limits::MAX_EFFECTS {
+                    break;
                 }
                 effects.push(HomeEffect::Together {
                     a: pair.0,
@@ -48,13 +68,6 @@ impl Lived {
                     times: times.min(limits::MAX_TOGETHER),
                 });
             }
-        }
-        if offers(HomeCapability::JournalMoments) {
-            effects.extend(self.moments.iter().take(limits::MAX_MOMENTS).map(|moment| {
-                HomeEffect::Moment {
-                    moment: moment.clone(),
-                }
-            }));
         }
         effects
     }
@@ -186,7 +199,7 @@ impl Visit {
         self.keep(state)?;
         self.left = true;
         let now = OffsetDateTime::now_utc();
-        let mut effects = if self.records_visits {
+        let visited = if self.records_visits {
             vec![HomeEffect::HomeVisit {
                 household: self.snapshot.household.keeper,
                 arrived_at_utc: self
@@ -198,8 +211,7 @@ impl Visit {
         } else {
             Vec::new()
         };
-        effects.extend(lived.effects(|capability| self.snapshot.offers(capability)));
-        effects.truncate(limits::MAX_EFFECTS);
+        let effects = lived.effects(&self.snapshot, visited);
         let receipt = HomeReceipt::new(&self.seal, now, HOME_VERSION, effects);
         write_document(&self.dir.join(RECEIPT_FILE), &receipt)
             .context("could not write the receipt")?;
@@ -380,6 +392,7 @@ mod tests {
                 (keeper, friend, Together::Care, 1),
             ],
             moments: vec![HomeMoment::Visit { visitor: friend }; 5],
+            next_door: Some(friend),
         };
         let effects_for = |capabilities: Vec<HomeCapability>, name: &str| {
             let mut offered = snapshot.clone();
@@ -398,6 +411,7 @@ mod tests {
                 HomeCapability::VisitRecord,
                 HomeCapability::BondNudges,
                 HomeCapability::JournalMoments,
+                HomeCapability::NextDoor,
             ],
             "lived-all",
         );
@@ -406,11 +420,12 @@ mod tests {
             kinds,
             [
                 "home_visit",
-                "together",
-                "together",
+                "next_door",
                 "moment",
                 "moment",
-                "moment"
+                "moment",
+                "together",
+                "together"
             ]
         );
         assert!(all.contains(&HomeEffect::Together {

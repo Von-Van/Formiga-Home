@@ -29,8 +29,10 @@ it.
   whenever arranging changes it, and writes one receipt on leaving, all through `session.rs`. A
   recall, or the snapshot disappearing, ends the visit with nothing more written.
 - A result changes only the visited household's home, plus taking down elsewhere whatever it now
-  shows. A receipt carries only `HomeVisit`, and only when offered. Home never sends prose,
-  creature changes or save patches.
+  shows. A receipt carries only what the snapshot offers to take, each bounded: the visit, time
+  spent together, a few journal moments, and the house to open next. Home never sends prose,
+  creature changes or save patches; anything that changes who lives where, or which house opens,
+  is a request Desktop decides on.
 - Rehearsals (`--sample`, `--from-save`) stand in for Desktop through the contract's own
   `accept_result`, so a rehearsal proves the same loop a real visit does.
 

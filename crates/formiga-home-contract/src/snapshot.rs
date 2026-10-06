@@ -31,6 +31,9 @@ pub enum HomeCapability {
     /// [`crate::HomeEffect::Moment`]: a few lines for Desktop's journal, in its own words.
     /// Since version 4.
     JournalMoments,
+    /// [`crate::HomeEffect::NextDoor`]: Desktop opens the house the owner went over to, next,
+    /// if it can. Since version 5.
+    NextDoor,
     /// Anything a newer Desktop offers that this build does not know.
     #[serde(other)]
     Unknown,
