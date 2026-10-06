@@ -779,8 +779,10 @@ impl Life {
             Some(TemperamentKind::Wallflower) => ExpressionKind::Content,
             _ => ExpressionKind::Joy,
         };
+        // Patted where it is, up on a piece or not, and stopped for it: whatever it was walking
+        // to can wait, and the pat is answered rather than walked through.
         let actor = &mut self.actors[index];
-        actor.get_down();
+        actor.stop();
         actor.strike(
             Pose::new(ActionKind::PetReaction, expression).with_cue(Cue::Heart),
             now,
@@ -795,6 +797,7 @@ impl Life {
         let Some(index) = self.index(id) else { return };
         self.drop_everything(index, now);
         let actor = &mut self.actors[index];
+        actor.stop();
         actor.get_down();
         actor.lift = 14.0;
         actor.strike(
@@ -819,15 +822,17 @@ impl Life {
             .map(|mind| mind.id)
     }
 
-    /// Set down on the open tile nearest where it was let go.
+    /// Set down where it was let go, or, over furniture, on the open tile nearest it.
     pub fn put_down(&mut self, house: &House, id: Id, now: f32) {
         let Some(index) = self.index(id) else { return };
         let floor = Floor::of(house);
-        let tile = floor
-            .nearest_open(Floor::tile_of(self.actors[index].pos))
-            .unwrap_or((0, 0));
+        let at = Floor::tile_of(self.actors[index].pos);
         let actor = &mut self.actors[index];
-        actor.pos = (tile.0 as f32 + 0.5, tile.1 as f32 + 0.5);
+        if !floor.open(at.0, at.1) {
+            let tile = floor.nearest_open(at).unwrap_or((0, 0));
+            actor.pos = (tile.0 as f32 + 0.5, tile.1 as f32 + 0.5);
+        }
+        actor.stop();
         actor.lift = 0.0;
         actor.strike(Pose::new(ActionKind::Landing, ExpressionKind::Neutral), now);
         self.minds[index].handled = Some(Handled::Landing { until: now + 0.6 });
@@ -1038,11 +1043,16 @@ impl Life {
                 .map_or(0.5, |resident| resident.character.roams());
             let palls = ROOM_RESTLESS.0 + (ROOM_RESTLESS.1 - ROOM_RESTLESS.0) * roams;
             mind.restless = ((now - mind.entered) / palls).clamp(0.0, 1.0);
+            // Nobody stands about on the furniture, or stays up on a piece once done with it: the
+            // open floor is a step away, and it gets down and walks there.
+            let seated = self.minds[index]
+                .plan
+                .as_ref()
+                .is_some_and(|plan| plan.seat.is_some());
             let actor = &mut self.actors[index];
-            // Nobody stands about on the furniture: off a piece, the open floor is a step away.
             let tile = Floor::tile_of(actor.pos);
             let inside = house.room_of_point(actor.pos).is_some();
-            if actor.on_piece.is_none()
+            if !seated
                 && !actor.walking()
                 && inside
                 && !floor.open(tile.0, tile.1)
@@ -1125,7 +1135,7 @@ impl Life {
         self.end(index, now, false);
         let (outside, inside) = door(house, floor);
         let actor = &mut self.actors[index];
-        let mut route = floor.route(actor.pos, inside).unwrap_or_default();
+        let mut route = way(floor, actor, inside);
         route.push(outside);
         actor.walk(route);
         self.minds[index].presence = Presence::Leaving;
@@ -1200,6 +1210,10 @@ impl Life {
                 }
             }
             Stage::Waiting { since } => {
+                // Told to stop waiting while still on its way, it gets there first.
+                if self.actors[index].walking() {
+                    return;
+                }
                 let partner = plan.act.partner().and_then(|other| self.index(other));
                 let ready = partner.is_none_or(|o| !self.actors[o].walking());
                 if ready || now - since > 6.0 {
@@ -1271,10 +1285,11 @@ impl Life {
             return;
         };
         let actor = &mut self.actors[index];
-        let route = floor
-            .route(actor.pos, tile)
-            .unwrap_or_else(|| vec![(tile.0 as f32 + 0.5, tile.1 as f32 + 0.5)]);
-        actor.walk(route);
+        let route = way(floor, actor, tile);
+        match seat {
+            Some(seat) => actor.walk_onto(route, seat.piece, seat.at, seat.lift, seat.facing_right),
+            None => actor.walk(route),
+        }
         self.minds[index].plan = Some(Plan {
             act: act.clone(),
             part: Part::Leads,
@@ -1298,10 +1313,13 @@ impl Life {
             let joined = self.join_spot(house, floor, &act, tile, seat, &free);
             let (their_tile, their_seat) = joined.unwrap_or((tile, None));
             let other = &mut self.actors[o];
-            let route = floor
-                .route(other.pos, their_tile)
-                .unwrap_or_else(|| vec![(their_tile.0 as f32 + 0.5, their_tile.1 as f32 + 0.5)]);
-            other.walk(route);
+            let route = way(floor, other, their_tile);
+            match their_seat {
+                Some(seat) => {
+                    other.walk_onto(route, seat.piece, seat.at, seat.lift, seat.facing_right);
+                }
+                None => other.walk(route),
+            }
             self.minds[o].plan = Some(Plan {
                 act: act.clone(),
                 part: Part::Joins(id),
@@ -1561,7 +1579,10 @@ impl Life {
         {
             let actor = &mut self.actors[o];
             if let Some(seat) = theirs.seat {
-                actor.settle_on(seat.piece, seat.at, seat.lift, seat.facing_right);
+                // Still on the way, it walks the rest and climbs up when it gets there.
+                if !actor.walking() {
+                    actor.settle_on(seat.piece, seat.at, seat.lift, seat.facing_right);
+                }
             } else {
                 let leader = self.actors[index].pos;
                 self.actors[o].face_towards(leader);
@@ -1872,11 +1893,10 @@ impl Life {
             self.worn.retain(|(worn, by)| !(worn == item && *by == id));
             self.actors[index].wear(None);
         }
+        // Done with a piece, it gets down by walking off it, as the next tick finds it still up
+        // there with nothing to sit for.
         let actor = &mut self.actors[index];
         actor.stop();
-        if actor.on_piece.is_some() {
-            actor.get_down();
-        }
         actor.strike(Pose::idle(ExpressionKind::Content), now);
         if plan.part == Part::Leads
             && let Some(o) = plan.act.partner().and_then(|other| self.index(other))
@@ -2311,6 +2331,22 @@ impl Mind {
             staying: false,
         }
     }
+}
+
+/// The way from where someone is to `tile`. Up on a piece, it first gets down to the open floor
+/// nearest, so nobody walks off through the rest of the piece.
+fn way(floor: &Floor, actor: &Actor, tile: (i32, i32)) -> Vec<(f32, f32)> {
+    let centre = |(x, y): (i32, i32)| (x as f32 + 0.5, y as f32 + 0.5);
+    let mut route = floor
+        .route(actor.pos, tile)
+        .unwrap_or_else(|| vec![centre(tile)]);
+    if actor.on_piece.is_some()
+        && let Some(start) = floor.nearest_open(Floor::tile_of(actor.pos)).map(centre)
+        && route.first() != Some(&start)
+    {
+        route.insert(0, start);
+    }
+    route
 }
 
 /// The way in: a point in the front door's doorway, and the open tile inside it. A house with no
