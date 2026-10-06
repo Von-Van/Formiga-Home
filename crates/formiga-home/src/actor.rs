@@ -225,11 +225,15 @@ impl Actor {
         }
     }
 
-    /// Stop where it is. Stopped part way up or down, it is put back on the floor rather than
-    /// left hanging at the piece's edge.
+    /// Stop where it is. Stopped up on top of a piece it stays up there, drawn with it, until it
+    /// walks down; stopped mid-step, which is over the open floor beside it, it is put down there
+    /// rather than left hanging at the piece's edge.
     pub fn stop(&mut self) {
         self.path.clear();
-        if self.up.take().is_some() | self.down.take().is_some() {
+        let (up, down) = (self.up.take(), self.down.take());
+        if let Some(climb) = up.or(down)
+            && self.lift < climb.height
+        {
             self.get_down();
         }
     }
@@ -509,6 +513,30 @@ mod tests {
             !actor.facing_right,
             "down the room's depth is to the left on screen"
         );
+    }
+
+    #[test]
+    fn stopped_on_top_of_a_piece_it_stays_up_there_and_stopped_mid_step_it_is_on_the_floor() {
+        let mut actor = actor(false);
+        actor.walk_onto([(2.5, 1.5)], 7, (4.5, 1.5), 10.0, true);
+        while actor.lift < 10.0 {
+            actor.advance(0.02);
+        }
+        assert!(
+            actor.walking() && actor.pos.0 < 4.5,
+            "still walking along the top"
+        );
+        actor.stop();
+        assert_eq!((actor.on_piece, actor.lift), (Some(7), 10.0));
+
+        let mut actor = self::actor(false);
+        actor.walk_onto([(2.5, 1.5)], 7, (4.5, 1.5), 10.0, true);
+        while actor.lift == 0.0 {
+            actor.advance(0.02);
+        }
+        assert!(actor.lift < 10.0, "partway up the step");
+        actor.stop();
+        assert_eq!((actor.on_piece, actor.lift), (None, 0.0));
     }
 
     #[test]
