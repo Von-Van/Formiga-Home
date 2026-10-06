@@ -369,7 +369,7 @@ fn a_visitor_knocks_comes_in_looks_round_and_goes_home() {
         for event in life.take_events() {
             match event {
                 Event::Arrived(id) if id == visitor => arrived = true,
-                Event::Left(id) if id == visitor => left = true,
+                Event::Left(id, _) if id == visitor => left = true,
                 Event::Used(id, _) => assert!(
                     !household.is_visitor(id),
                     "a visitor never comes to like things here"
@@ -627,4 +627,128 @@ fn in_a_house_of_rooms_everyone_gets_about_it() {
         }
     }
     assert_eq!(visited.len(), 3, "only ever in {visited:?}");
+}
+
+#[test]
+fn residents_spend_a_while_in_every_room_not_only_the_one_with_most_in_it() {
+    let household = Household::new(sample::snapshot()).unwrap();
+    let home = staging::grown(
+        staging::lived_in(&household, "floor.boards", "wall.leafy"),
+        3,
+        &household.snapshot,
+    );
+    let house = House::of(&home.rooms);
+    let mut life = Life::new(&household, &house);
+    let mut seconds = std::collections::BTreeMap::new();
+    let mut now = 0.0;
+    for _ in 0..(20 * 60) {
+        now = run(&mut life, &household, &house, now, 1.0);
+        for resident in &household.residents {
+            let actor = life.actor(resident.id).unwrap();
+            if let Some(room) = house.room_of_point(actor.pos).filter(|_| !actor.hidden) {
+                *seconds.entry((resident.id, room)).or_insert(0) += 1;
+            }
+        }
+    }
+    for resident in &household.residents {
+        for room in 0..house.rooms.len() as u8 {
+            let there = seconds.get(&(resident.id, room)).copied().unwrap_or(0);
+            assert!(
+                there >= 2 * 60,
+                "{} spent {there} s of 20 minutes in room {room}",
+                resident.name
+            );
+        }
+    }
+}
+
+#[test]
+fn a_little_one_asked_to_draw_draws_its_own_adult_and_says_so_when_done() {
+    let (household, layout) = home();
+    let (keeper, pip) = (household.keeper().id, household.residents[1].id);
+    let table = piece(&layout, "low_table");
+    let present = [keeper, pip];
+    let offered = choices(
+        &household,
+        &layout,
+        &household.snapshot,
+        &present,
+        pip,
+        &crate::scene::Target::Piece(table),
+    );
+    assert!(offered.contains(&Act::Draw(table, keeper)), "{offered:?}");
+    let grown_up = choices(
+        &household,
+        &layout,
+        &household.snapshot,
+        &present,
+        keeper,
+        &crate::scene::Target::Piece(table),
+    );
+    assert!(
+        !grown_up.iter().any(|act| matches!(act, Act::Draw(..))),
+        "drawing is for little ones"
+    );
+    let mut life = Life::new(&household, &layout);
+    life.ask(pip, Act::Draw(table, keeper), 0.0);
+    let mut now = 0.0;
+    let mut drew = false;
+    for _ in 0..(60 * 2) {
+        now = run(&mut life, &household, &layout, now, 0.5);
+        if life.take_events().contains(&Event::Drew(pip, keeper)) {
+            drew = true;
+            break;
+        }
+    }
+    assert!(drew, "the drawing was never finished");
+}
+
+#[test]
+fn left_to_itself_a_little_one_draws_once_a_visit_at_most() {
+    let (household, layout) = home();
+    let pip = household.residents[1].id;
+    let mut life = Life::new(&household, &layout);
+    let mut drawings = 0;
+    let mut now = 0.0;
+    for _ in 0..(30 * 60) {
+        now = run(&mut life, &household, &layout, now, 1.0);
+        drawings += life
+            .take_events()
+            .iter()
+            .filter(|event| matches!(event, Event::Drew(by, _) if *by == pip))
+            .count();
+    }
+    assert!(drawings <= 1, "drew {drawings} of its own accord");
+}
+
+#[test]
+fn friends_who_drop_by_spend_time_with_the_household_and_it_is_counted_within_bounds() {
+    let (household, layout) = home();
+    let mut life = Life::new(&household, &layout);
+    let mut now = 0.0;
+    for _ in 0..(12 * 60) {
+        now = run(&mut life, &household, &layout, now, 1.0);
+    }
+    let together = life.together();
+    assert!(!together.is_empty(), "nobody spent any time together");
+    for (a, b, _, times) in together {
+        assert!(a < b, "each pair once, the lesser first");
+        assert!((1..=formiga_home_contract::limits::MAX_TOGETHER).contains(&times));
+    }
+}
+
+#[test]
+fn what_a_friend_leaves_suits_it_and_a_warm_friend_leaves_something_more_often() {
+    use crate::keepsakes::{gift, gives};
+    let mut character = home().0.visitors[0].character.clone();
+    character.kind = TemperamentKind::Explorer;
+    assert_eq!(gift(&character), MementoKind::Postcard);
+    character.kind = TemperamentKind::Showoff;
+    assert_eq!(gift(&character), MementoKind::Rosette);
+    character.kind = TemperamentKind::Sweetheart;
+    assert_eq!(gift(&character), MementoKind::JamJar);
+    assert!(gives(&character, 1.0) > gives(&character, 0.0));
+    let sweet = gives(&character, 0.66);
+    character.kind = TemperamentKind::Grump;
+    assert!(gives(&character, 0.66) < sweet);
 }

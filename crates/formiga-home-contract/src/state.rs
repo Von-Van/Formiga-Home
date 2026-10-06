@@ -7,11 +7,13 @@
 
 use crate::document::{HomeDocument, HomeError, header_ok, is_lower_hex};
 use crate::ids::{CatalogId, DisplayId};
+use crate::inventory::Ink;
 use crate::limits::*;
 use crate::{HOME_FORMAT_VERSION, STATE_FORMAT};
 use formiga_travel::TravelerId;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
+use time::OffsetDateTime;
 
 /// One of the two walls a room shows: the far ones, which a cutaway leaves standing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -186,6 +188,118 @@ pub struct HouseholdHome {
     /// What the household's residents have come to like in it, since version 2.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub likings: Vec<Liking>,
+    /// What the household has been given or made at home, since version 4: Home's own
+    /// keepsakes, shown like anything the colony has, in this house only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mementos: Vec<Memento>,
+    /// What has happened at home worth remembering, oldest first, since version 4. Every entry
+    /// is structured; Home words it, and it is read by nothing else.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub journal: Vec<JournalEntry>,
+}
+
+/// What a keepsake made at home is: a fixed catalogue, so whoever reads one can name it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MementoKind {
+    /// Left by a visitor.
+    Postcard,
+    JamJar,
+    PressedFlower,
+    Rosette,
+    Pebble,
+    /// Drawn by a little one.
+    Drawing,
+    /// A photo the owner took and framed, of whoever was in it.
+    Photo,
+    /// A kind a newer Home makes. Shown on its card.
+    #[serde(other)]
+    Unknown,
+}
+
+/// A keepsake the household came by at home.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Memento {
+    /// Its number in the household: it is shown as [`DisplayId::memento`] of the keeper and
+    /// this.
+    pub serial: u16,
+    pub kind: MementoKind,
+    /// Who it came from: the visitor who left it, the little one who drew it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<TravelerId>,
+    /// Who is in it: whom a drawing is of, who was in a photo.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub of: Vec<TravelerId>,
+    /// The colours of each of `of`, in turn, as they were when it was made: a photo keeps its
+    /// likeness when whoever is in it is not at home.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inks: Vec<Ink>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub made_at_utc: OffsetDateTime,
+}
+
+/// Something that happened at home worth a line: in the household's journal, and, a few at a
+/// time, in Desktop's, each in its reader's own words.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum HomeMoment {
+    /// A friend from another house came over.
+    Visit { visitor: TravelerId },
+    /// A keepsake came to the house: left by someone, drawn by someone, or a photo framed.
+    Memento {
+        memento: MementoKind,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by: Option<TravelerId>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        of: Vec<TravelerId>,
+    },
+    /// A resident took to something of a kind: a seat, a bed, a toy or a find.
+    Favourite {
+        resident: TravelerId,
+        thing: FavouriteKind,
+    },
+    /// The house grew a room, of a kind in Home's catalogue.
+    Room { room: CatalogId },
+    /// A moment a newer Home records.
+    #[serde(other)]
+    Unknown,
+}
+
+/// What a favourite is a favourite of.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FavouriteKind {
+    Seat,
+    Bed,
+    Toy,
+    Find,
+    #[serde(other)]
+    Unknown,
+}
+
+/// A moment in the household's journal, and when.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JournalEntry {
+    #[serde(with = "time::serde::rfc3339")]
+    pub at_utc: OffsetDateTime,
+    pub moment: HomeMoment,
+}
+
+impl HomeMoment {
+    /// Everyone it names, for checking it is bounded.
+    fn names(&self) -> usize {
+        match self {
+            Self::Memento { of, .. } => of.len(),
+            _ => 0,
+        }
+    }
+}
+
+impl Memento {
+    /// How it is shown, in the house of `keeper`.
+    pub fn id(&self, keeper: TravelerId) -> DisplayId {
+        DisplayId::memento(keeper, self.serial)
+    }
 }
 
 /// Something in a home a resident can come to like.
@@ -222,6 +336,30 @@ impl HouseholdHome {
         self.rooms
             .iter()
             .flat_map(|room| room.displays.iter().map(|shown| &shown.item))
+    }
+
+    /// The keepsake shown as `id`, if it is one of this household's.
+    pub fn memento(&self, id: &DisplayId) -> Option<&Memento> {
+        self.mementos
+            .iter()
+            .find(|memento| &memento.id(self.keeper) == id)
+    }
+
+    /// The next number free for a keepsake.
+    pub fn next_memento(&self) -> u16 {
+        self.mementos
+            .iter()
+            .map(|memento| memento.serial)
+            .max()
+            .map_or(1, |serial| serial.saturating_add(1))
+    }
+
+    /// Note a moment in the journal, the oldest let go when it is full.
+    pub fn note(&mut self, at_utc: OffsetDateTime, moment: HomeMoment) {
+        self.journal.push(JournalEntry { at_utc, moment });
+        while self.journal.len() > MAX_JOURNAL {
+            self.journal.remove(0);
+        }
     }
 
     /// Forget likings for anything no longer in the house: a piece taken away, a room gone.
@@ -321,6 +459,36 @@ impl HouseholdHome {
         }
         if self.likings.len() > MAX_LIKINGS {
             return Err(HomeError::invalid("a home with too many likings"));
+        }
+        if self.mementos.len() > MAX_MEMENTOS || self.journal.len() > MAX_JOURNAL {
+            return Err(HomeError::invalid("a home with too much remembered in it"));
+        }
+        let mut serials = BTreeSet::new();
+        for memento in &self.mementos {
+            if !serials.insert(memento.serial)
+                || memento.of.len() > MAX_IN_A_MEMENTO
+                || memento.inks.len() > memento.of.len()
+            {
+                return Err(HomeError::invalid("a keepsake that does not add up"));
+            }
+        }
+        if self
+            .journal
+            .iter()
+            .any(|entry| entry.moment.names() > MAX_IN_A_MEMENTO)
+        {
+            return Err(HomeError::invalid("a journal entry that does not add up"));
+        }
+        // A keepsake is shown only in its own house.
+        for room in &self.rooms {
+            for shown in &room.displays {
+                if shown.item.source() == DisplayId::MEMENTO && self.memento(&shown.item).is_none()
+                {
+                    return Err(HomeError::invalid(
+                        "a keepsake shown in a house it is not from",
+                    ));
+                }
+            }
         }
         let mut seen = BTreeSet::new();
         for liking in &self.likings {
@@ -472,6 +640,8 @@ mod tests {
             keeper: TravelerId(7),
             rooms: vec![room()],
             likings: Vec::new(),
+            mementos: Vec::new(),
+            journal: Vec::new(),
         });
         state
     }
@@ -491,6 +661,8 @@ mod tests {
             keeper: TravelerId(8),
             rooms: vec![room()],
             likings: Vec::new(),
+            mementos: Vec::new(),
+            journal: Vec::new(),
         });
         assert!(twice.validate().is_err());
         twice.households[1].take_down(&DisplayId::find(3));
@@ -624,5 +796,65 @@ mod tests {
         value["households"][0]["rooms"][0]["pieces"][0]["piece"] = "../../colony.json".into();
         let bytes = serde_json::to_vec(&value).unwrap();
         assert!(decode::<HomeState>(&bytes).is_err());
+    }
+
+    fn ink() -> Ink {
+        Ink {
+            outline: [60, 40, 30],
+            deep: [120, 90, 70],
+            body: [200, 170, 140],
+            light: [230, 210, 190],
+            accent: [180, 60, 80],
+        }
+    }
+
+    #[test]
+    fn a_household_s_keepsakes_and_journal_are_its_own_and_bounded() {
+        let mut house = state();
+        let keeper = house.households[0].keeper;
+        let home = &mut house.households[0];
+        home.mementos.push(Memento {
+            serial: 1,
+            kind: MementoKind::Photo,
+            by: None,
+            of: vec![keeper, TravelerId(8)],
+            inks: Vec::new(),
+            made_at_utc: time::macros::datetime!(2026-10-05 12:00 UTC),
+        });
+        home.rooms[0].displays.push(PlacedDisplay {
+            item: DisplayId::memento(keeper, 1),
+            spot: Spot::Floor { x: 4, y: 4 },
+        });
+        for day in 0..(MAX_JOURNAL + 5) {
+            home.note(
+                time::macros::datetime!(2026-10-05 12:00 UTC) + time::Duration::days(day as i64),
+                HomeMoment::Visit {
+                    visitor: TravelerId(8),
+                },
+            );
+        }
+        assert_eq!(home.journal.len(), MAX_JOURNAL, "the oldest are let go");
+        assert_eq!(home.next_memento(), 2);
+        house.validate().unwrap();
+        let bytes = encode(&house).unwrap();
+        assert_eq!(decode::<HomeState>(&bytes).unwrap(), house);
+
+        let mut from_elsewhere = house.clone();
+        from_elsewhere.households[0].rooms[0]
+            .displays
+            .push(PlacedDisplay {
+                item: DisplayId::memento(TravelerId(99), 1),
+                spot: Spot::Floor { x: 5, y: 5 },
+            });
+        let mut doubled = house.clone();
+        let copy = doubled.households[0].mementos[0].clone();
+        doubled.households[0].mementos.push(copy);
+        let mut crowded = house.clone();
+        crowded.households[0].mementos[0].of = vec![keeper; MAX_IN_A_MEMENTO + 1];
+        let mut overdrawn = house.clone();
+        overdrawn.households[0].mementos[0].inks = vec![ink(); 3];
+        for state in [from_elsewhere, doubled, crowded, overdrawn] {
+            assert!(state.validate().is_err(), "{state:?} was accepted");
+        }
     }
 }

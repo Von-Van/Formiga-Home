@@ -57,6 +57,8 @@ pub fn arranged(snapshot: &HomeSnapshot) -> HouseholdHome {
             doors: Vec::new(),
         }],
         likings: Vec::new(),
+        mementos: Vec::new(),
+        journal: Vec::new(),
     }
 }
 
@@ -91,6 +93,8 @@ pub fn neighbours_home(keeper: TravelerId) -> HouseholdHome {
             doors: Vec::new(),
         }],
         likings: Vec::new(),
+        mementos: Vec::new(),
+        journal: Vec::new(),
     }
 }
 

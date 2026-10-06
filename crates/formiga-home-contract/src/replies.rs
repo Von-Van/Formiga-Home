@@ -7,6 +7,7 @@
 
 use crate::document::{HomeDocument, HomeError, header_ok, is_sha256_hex};
 use crate::limits::*;
+use crate::state::HomeMoment;
 use crate::state::HomeState;
 use crate::{
     ACK_FORMAT, HOME_FORMAT_VERSION, HomeSnapshot, RECALL_FORMAT, RECEIPT_FORMAT, RESULT_FORMAT,
@@ -202,9 +203,38 @@ pub enum HomeEffect {
         #[serde(with = "time::serde::rfc3339")]
         left_at_utc: OffsetDateTime,
     },
+    /// Two companions spent time together at home, of one kind, `times` times and at most
+    /// [`crate::limits::MAX_TOGETHER`] a visit. Applied by a Desktop that offers
+    /// [`crate::HomeCapability::BondNudges`], by its own rules, and only as far as they let it.
+    Together {
+        a: TravelerId,
+        b: TravelerId,
+        together: Together,
+        times: u8,
+    },
+    /// Something that happened at home worth a line in Desktop's journal, in Desktop's own
+    /// words. Offered by [`crate::HomeCapability::JournalMoments`]; at most
+    /// [`crate::limits::MAX_MOMENTS`] a visit.
+    Moment { moment: HomeMoment },
     /// Anything a newer Home sends that this build does not know.
     #[serde(other)]
     Unsupported,
+}
+
+/// A kind of time spent together.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Together {
+    /// Played together, or with a toy between them.
+    Play,
+    /// Sat together, shared a snack, turned in together.
+    Cozy,
+    /// One comforted or hugged the other.
+    Care,
+    /// One teased or grumbled at the other.
+    Squabble,
+    #[serde(other)]
+    Unknown,
 }
 
 impl HomeEffect {
@@ -212,6 +242,8 @@ impl HomeEffect {
     pub const fn kind(&self) -> &'static str {
         match self {
             Self::HomeVisit { .. } => "home_visit",
+            Self::Together { .. } => "together",
+            Self::Moment { .. } => "moment",
             Self::Unsupported => "unsupported",
         }
     }
@@ -284,6 +316,30 @@ impl HomeDocument for HomeReceipt {
         });
         if backwards {
             return Err(invalid("a visit that ended before it began"));
+        }
+        // Each pair counted once for each kind of time, within bounds, and never with itself.
+        let mut pairs = std::collections::BTreeSet::new();
+        for effect in &self.effects {
+            if let HomeEffect::Together {
+                a,
+                b,
+                together,
+                times,
+            } = effect
+            {
+                let pair = (a.min(b), a.max(b), *together);
+                if a == b || !(1..=MAX_TOGETHER).contains(times) || !pairs.insert(pair) {
+                    return Err(invalid("time together that does not add up"));
+                }
+            }
+        }
+        let moments = self
+            .effects
+            .iter()
+            .filter(|effect| matches!(effect, HomeEffect::Moment { .. }))
+            .count();
+        if moments > MAX_MOMENTS {
+            return Err(invalid("a receipt with too many moments"));
         }
         Ok(())
     }
@@ -417,5 +473,46 @@ mod tests {
         let mut muddled = HomeAck::accepted(&seal(), "0.1.0");
         muddled.refusal = Some(AckRefusal::Invalid);
         assert!(muddled.validate().is_err());
+    }
+
+    #[test]
+    fn time_together_is_counted_once_a_pair_and_kind_within_bounds_and_moments_are_few() {
+        let base = HomeReceipt::new(&seal(), datetime!(2026-10-05 12:20 UTC), "0.1.0", vec![]);
+        let together = |a: u64, b: u64, together: Together, times: u8| HomeEffect::Together {
+            a: TravelerId(a),
+            b: TravelerId(b),
+            together,
+            times,
+        };
+        let mut fine = base.clone();
+        fine.effects = vec![
+            together(7, 8, Together::Play, 3),
+            together(7, 8, Together::Care, 1),
+            together(9, 7, Together::Play, 1),
+        ];
+        assert!(fine.validate().is_ok());
+        let mut twice = base.clone();
+        twice.effects = vec![
+            together(7, 8, Together::Play, 1),
+            together(8, 7, Together::Play, 2),
+        ];
+        let mut alone = base.clone();
+        alone.effects = vec![together(7, 7, Together::Cozy, 1)];
+        let mut too_often = base.clone();
+        too_often.effects = vec![together(7, 8, Together::Squabble, MAX_TOGETHER + 1)];
+        let mut never = base.clone();
+        never.effects = vec![together(7, 8, Together::Squabble, 0)];
+        let mut chatty = base;
+        chatty.effects = vec![
+            HomeEffect::Moment {
+                moment: HomeMoment::Visit {
+                    visitor: TravelerId(8)
+                }
+            };
+            MAX_MOMENTS + 1
+        ];
+        for receipt in [twice, alone, too_often, never, chatty] {
+            assert!(receipt.validate().is_err(), "{receipt:?} was accepted");
+        }
     }
 }

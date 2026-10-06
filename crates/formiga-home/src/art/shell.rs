@@ -528,7 +528,8 @@ fn cap(canvas: &mut Canvas, view: &View, house: &House, wall: &Wall, room: &Room
 }
 
 /// The cut end of a stretch of wall where it stops: its thickness, seen in section. At the
-/// house's near edge the section runs on down through the floor's thickness.
+/// house's near edge the floor's own section runs on under it, so the floor's edge is unbroken
+/// and only the wall's thickness shows, never a post.
 fn cut_end(canvas: &mut Canvas, view: &View, house: &House, wall: &Wall, room: &Room, rise: i32) {
     let (ramp, _) = wall_ramp(room.wall.as_str());
     let (_, b) = wall.foot();
@@ -547,8 +548,8 @@ fn cut_end(canvas: &mut Canvas, view: &View, house: &House, wall: &Wall, room: &
     let outer = view.screen(b.0 + tx, b.1 + ty);
     let top = rise as f32;
     let section = [
-        (inner.0, inner.1 + drop),
-        (outer.0, outer.1 + drop),
+        inner,
+        outer,
         (outer.0, outer.1 - top),
         (inner.0, inner.1 - top),
     ];
@@ -562,7 +563,34 @@ fn cut_end(canvas: &mut Canvas, view: &View, house: &House, wall: &Wall, room: &
         canvas.set(px, py, tone);
     });
     let (ix, iy) = (inner.0.round() as i32, inner.1.round() as i32);
-    paint::vline(canvas, ix, iy - rise, rise + drop as i32, ramp.edge);
+    paint::vline(canvas, ix, iy - rise, rise, ramp.edge);
+    if drop > 0.0 {
+        // The floor's section under it, in the tone of the face of the floor it turns into.
+        let under = [
+            inner,
+            outer,
+            (outer.0, outer.1 + drop),
+            (inner.0, inner.1 + drop),
+        ];
+        let tone = match wall.side {
+            WallSide::North => JOISTS.shadow,
+            WallSide::West => JOISTS.base,
+        };
+        paint::fill_polygon(&under, |px, py| {
+            let fleck = paint::chance(px, py, 107, 24);
+            canvas.set(
+                px,
+                py,
+                if fleck {
+                    paint::mix(tone, JOISTS.edge, 0.3)
+                } else {
+                    tone
+                },
+            );
+        });
+        let px = |p: (f32, f32), dy: i32| (p.0.round() as i32, p.1.round() as i32 + dy);
+        paint::line(canvas, px(inner, SLAB), px(outer, SLAB), JOISTS.edge);
+    }
 }
 
 /// A wall cut down low, a tile of it, drawn in turn with the furniture: in front of whatever is
@@ -793,10 +821,13 @@ pub fn wall_swatch(finish: &'static str) -> Canvas {
     canvas
 }
 
+/// The wood of the floor's section, under every room's finish.
+const JOISTS: Ramp = Ramp::new(0x5a3520, 0x7c4c30, 0x9a6440, 0xb47e56, 0xd09c72);
+
 /// The floor's near edges in section: the dollhouse's floorboards and the joists under them,
 /// wherever a room's front has no room in front of it.
 fn slab(canvas: &mut Canvas, view: &View, house: &House) {
-    let wood = Ramp::new(0x5a3520, 0x7c4c30, 0x9a6440, 0xb47e56, 0xd09c72);
+    let wood = JOISTS;
     let drop = SLAB as f32;
     let edges = house.cut_edges();
     for &(x, y, left) in &edges {

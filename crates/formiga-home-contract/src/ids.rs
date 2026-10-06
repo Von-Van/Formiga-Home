@@ -78,6 +78,12 @@ impl DisplayId {
         Self(format!("{}.{variant}", Self::FIND))
     }
 
+    /// One of a household's own keepsakes: the keeper of its house, and its number there, so no
+    /// two houses' keepsakes are ever taken for one another.
+    pub fn memento(keeper: formiga_travel::TravelerId, serial: u16) -> Self {
+        Self(format!("{}.{}-{serial}", Self::MEMENTO, keeper.0))
+    }
+
     /// One of Formiga Hill's souvenirs, by Hill's own identifier for it.
     pub fn souvenir(id: &str) -> Option<Self> {
         Self::parse(&format!("{}.{id}", Self::SOUVENIR))

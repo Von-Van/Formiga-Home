@@ -21,21 +21,28 @@ use crate::catalog::{self, Family, Use};
 use crate::character::Drive;
 use crate::house::{At, House};
 use crate::household::{Household, Id};
+use crate::keepsakes;
 use crate::path::Floor;
 use crate::room;
 use formiga_art::{AccessoryArt, ExpressionKind};
 use formiga_core::{Accessory, ActionKind, Gesture, Habit, TemperamentKind};
+use formiga_home_contract::limits::MAX_TOGETHER;
 use formiga_home_contract::{
-    DisplayId, DisplayItem, DisplayMode, DisplaySource, HomeSnapshot, Liked, Liking, TravelerId,
+    DisplayId, DisplayItem, DisplayMode, DisplaySource, HomeSnapshot, Liked, Liking, MementoKind,
+    Together, TravelerId,
 };
 use formiga_travel::{Band, Trait};
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 
 /// How many things the owner can ask of one resident at once, the one under way included.
 pub const QUEUE_LIMIT: usize = 3;
 
-/// How long in one room before every other room appeals as much as it does, in seconds.
-const ROOM_RESTLESS: f32 = 150.0;
+/// How long in one room before another calls, in seconds: for a homebody, and for one who gets
+/// about the house most.
+const ROOM_RESTLESS: (f32, f32) = (220.0, 70.0);
+
+/// How likely, once a room has palled, the next thing it thinks of doing is somewhere else.
+const LEAVE_ROOM: f32 = 0.65;
 
 /// How many times something must be chosen before it is a favourite.
 pub const FAVOURITE_AFTER: u16 = 3;
@@ -53,6 +60,8 @@ pub enum Act {
     InviteLittle(u16, Id),
     /// Sit on the floor at a table.
     SitAt(u16),
+    /// A little one's: sit at a table and draw someone.
+    Draw(u16, Id),
     /// Bounce on a bed, which is not what beds are for.
     Bounce(u16),
     /// Stretch out on a rug.
@@ -114,6 +123,7 @@ impl Act {
             | Self::CurlUp(uid)
             | Self::InviteLittle(uid, _)
             | Self::SitAt(uid)
+            | Self::Draw(uid, _)
             | Self::Bounce(uid)
             | Self::Sprawl(uid)
             | Self::SwitchLamp(uid)
@@ -136,6 +146,19 @@ impl Act {
             | Self::FussWith(item)
             | Self::PlayWithFind(item)
             | Self::TryOn(item) => Some(item),
+            _ => None,
+        }
+    }
+
+    /// How it is time spent together, as Desktop counts it, if it is.
+    fn together(&self) -> Option<Together> {
+        match self {
+            Self::PlayTogether(_) | Self::PlayWith(..) => Some(Together::Play),
+            Self::SitTogether(_) | Self::Share(..) | Self::Hug(_) | Self::InviteLittle(..) => {
+                Some(Together::Cozy)
+            }
+            Self::Comfort(_) => Some(Together::Care),
+            Self::Tease(_) => Some(Together::Squabble),
             _ => None,
         }
     }
@@ -174,6 +197,7 @@ impl Act {
             | Self::Tease(_)
             | Self::FussWith(_)
             | Self::TryOn(_)
+            | Self::Draw(..)
             | Self::Bounce(_) => Drive::Play,
             Self::Inspect(_)
             | Self::Browse(_)
@@ -217,6 +241,7 @@ impl Act {
             Self::CurlUp(uid) => format!("Curl up in the {}", piece(uid)),
             Self::InviteLittle(_, little) => format!("Turn in with {}", who(little)),
             Self::SitAt(uid) => format!("Sit at the {}", piece(uid)),
+            Self::Draw(uid, of) => format!("Draw {} at the {}", who(of), piece(uid)),
             Self::Bounce(uid) => format!("Bounce on the {}", piece(uid)),
             Self::Sprawl(uid) => format!("Stretch out on the {}", piece(uid)),
             Self::SwitchLamp(uid) => format!("Switch the {}", piece(uid)),
@@ -261,6 +286,7 @@ impl Act {
             "Curl" => "curling",
             "Turn" => "turning",
             "Bounce" => "bouncing",
+            "Draw" => "drawing",
             "Stretch" => "stretching",
             "Switch" => "switching",
             "Tend" => "tending",
@@ -288,8 +314,10 @@ impl Act {
 pub enum Event {
     /// A visitor has come in.
     Arrived(Id),
-    /// A visitor has gone home.
-    Left(Id),
+    /// A visitor has gone home, leaving a keepsake of this kind, if it left one.
+    Left(Id, Option<MementoKind>),
+    /// A little one has finished a drawing of someone.
+    Drew(Id, Id),
     /// A resident has used something in its home once more: a piece, by its name in the house,
     /// or something shown.
     Used(Id, Used),
@@ -390,6 +418,9 @@ struct Mind {
     room: Option<u8>,
     entered: f32,
     restless: f32,
+    /// Has drawn something of its own accord since it came in: once is a keepsake, more would
+    /// fill the house.
+    drew: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -511,6 +542,9 @@ pub struct Life {
     /// out.
     known: Vec<DisplayId>,
     novel: Vec<DisplayId>,
+    /// How often each pair has spent time together, and how, since the house opened: two
+    /// residents in turn, the lesser id first, each count no more than the contract keeps.
+    together: BTreeMap<(Id, Id, Together), u8>,
 }
 
 impl Life {
@@ -567,6 +601,7 @@ impl Life {
             worn: Vec::new(),
             known,
             novel: Vec::new(),
+            together: BTreeMap::new(),
         }
     }
 
@@ -582,6 +617,14 @@ impl Life {
     /// What has happened since the window last asked.
     pub fn take_events(&mut self) -> Vec<Event> {
         std::mem::take(&mut self.events)
+    }
+
+    /// Who has spent time together since the house opened, how, and how often.
+    pub fn together(&self) -> Vec<(Id, Id, Together, u8)> {
+        self.together
+            .iter()
+            .map(|(&(a, b, how), &times)| (a, b, how, times))
+            .collect()
     }
 
     /// Everyone in the house now, residents and visitors.
@@ -862,7 +905,17 @@ impl Life {
                     if !self.actors[index].walking() {
                         self.actors[index].hidden = true;
                         self.minds[index].presence = Presence::Gone;
-                        self.events.push(Event::Left(self.minds[index].id));
+                        let id = self.minds[index].id;
+                        // Something to remember the visit by, as suits the friend and the
+                        // friendship.
+                        let warmth = household
+                            .friend_of(id)
+                            .map_or(0.0, |friend| band(household.bond(friend.id, id).warmth));
+                        let character = &resident.character;
+                        let gives = keepsakes::gives(character, warmth);
+                        let gift = (self.minds[index].dice.next() < gives)
+                            .then(|| keepsakes::gift(character));
+                        self.events.push(Event::Left(id, gift));
                     }
                     continue;
                 }
@@ -902,7 +955,11 @@ impl Life {
                 mind.room = room;
                 mind.entered = now;
             }
-            mind.restless = ((now - mind.entered) / ROOM_RESTLESS).clamp(0.0, 1.0);
+            let roams = household
+                .resident(mind.id)
+                .map_or(0.5, |resident| resident.character.roams());
+            let palls = ROOM_RESTLESS.0 + (ROOM_RESTLESS.1 - ROOM_RESTLESS.0) * roams;
+            mind.restless = ((now - mind.entered) / palls).clamp(0.0, 1.0);
             let actor = &mut self.actors[index];
             // Nobody stands about on the furniture: off a piece, the open floor is a step away.
             let tile = Floor::tile_of(actor.pos);
@@ -1545,6 +1602,10 @@ impl Life {
                     Pose::new(ActionKind::Perch, settled),
                     dice.between(8.0, 12.0),
                 ),
+                Act::Draw(..) => (
+                    Pose::new(ActionKind::Perch, ExpressionKind::Focused).with_cue(Cue::Thought),
+                    dice.between(10.0, 14.0),
+                ),
                 Act::Nap(_) | Act::CurlUp(_) => {
                     let long = if character.kind == TemperamentKind::Lazybones {
                         1.5
@@ -1695,6 +1756,20 @@ impl Life {
             if !plan.asked {
                 mind.last = Some(plan.act.clone());
             }
+            if let Act::Draw(_, of) = plan.act {
+                if !plan.asked {
+                    mind.drew = true;
+                }
+                self.events.push(Event::Drew(id, of));
+            }
+            if plan.part == Part::Leads
+                && let Some((how, other)) = plan.act.together().zip(plan.act.partner())
+            {
+                let key = (id.min(other), id.max(other), how);
+                let times = self.together.entry(key).or_insert(0);
+                *times = (*times + 1).min(MAX_TOGETHER);
+            }
+            let mind = &mut self.minds[index];
             if mind.presence == Presence::Home && plan.part == Part::Leads {
                 let liked = match (&plan.act, plan.act.piece(), plan.act.item()) {
                     (Act::SwitchLamp(_) | Act::Browse(_), _, _) => None,
@@ -1852,6 +1927,10 @@ impl Life {
             }
             if piece.family == Family::Tables && !visiting {
                 options.push((Act::SitAt(uid), 0.5 * solitude));
+                if resident.is_little() && !self.minds[index].drew {
+                    let of = subject(household, id, &others);
+                    options.push((Act::Draw(uid, of), 0.5 + character.axes.curiosity * 0.4));
+                }
             }
             if piece.family == Family::Plants && !visiting {
                 options.push((Act::Tend(uid), 0.25 + character.axes.affection * 0.3));
@@ -2018,41 +2097,65 @@ impl Life {
             }
         }
         let floor = Floor::of(house);
+        let rooms_now: Vec<(Id, Option<u8>)> = self
+            .minds
+            .iter()
+            .zip(&self.actors)
+            .map(|(mind, actor)| (mind.id, house.room_of_point(actor.pos)))
+            .collect();
         let mind = &mut self.minds[index];
-        // Somewhere in one of the rooms, each as likely as the next however big.
-        let room =
-            ((mind.dice.next() * house.rooms.len() as f32) as usize).min(house.rooms.len() - 1);
-        let area = &house.rooms[room];
+        // Which room to be in: the one it is in, until that palls, and then, more often than
+        // not, one of the others, however little there is to do there.
+        let here = house.room_of_point(me);
+        let elsewhere: Vec<u8> = (0..house.rooms.len() as u8)
+            .filter(|room| Some(*room) != here)
+            .collect();
+        let leaving = !elsewhere.is_empty() && mind.dice.next() < mind.restless * LEAVE_ROOM;
+        let room = if leaving {
+            let pick = (mind.dice.next() * elsewhere.len() as f32) as usize;
+            elsewhere[pick.min(elsewhere.len() - 1)]
+        } else {
+            here.unwrap_or(0)
+        };
+        // A look round somewhere in it.
+        let area = &house.rooms[usize::from(room)];
         let wander = (
             i32::from(area.x) + (mind.dice.next() * f32::from(area.width)) as i32,
             i32::from(area.y) + (mind.dice.next() * f32::from(area.depth)) as i32,
         );
-        let here = house.room_of_point(me);
-        let restless = mind.restless;
-        if let Some(tile) = floor.nearest_open_in(wander, room as u8) {
+        if let Some(tile) = floor.nearest_open_in(wander, room) {
             let far = ((tile.0 as f32 + 0.5 - me.0).powi(2) + (tile.1 as f32 + 0.5 - me.1).powi(2))
                 .sqrt();
-            // A look round another room appeals the longer it has been in this one.
-            let elsewhere = if Some(room as u8) == here {
-                1.0
-            } else {
-                1.0 + restless * 2.0
-            };
             if far > 1.5 {
-                options.push((Act::Wander(tile.0 as u8, tile.1 as u8), 0.5 * elsewhere));
+                let weight = if leaving { 1.2 } else { 0.5 };
+                options.push((Act::Wander(tile.0 as u8, tile.1 as u8), weight));
             }
         }
-        // What is in the room it is in comes to mind first, until it has been there a while.
-        for (act, weight) in &mut options {
+        // Only what is in that room comes to mind, and the others, wherever they are.
+        let in_room = |act: &Act| {
             let there = match (act.piece(), act.item()) {
                 (Some(uid), _) => house
                     .piece(uid)
                     .and_then(|placed| house.room_of_point(room::footprint(placed).centre())),
                 (_, Some(item)) => item_room(house, item),
-                _ => here,
+                (None, None) => return true,
             };
-            if there != here {
-                *weight *= 0.8 + restless * 0.7;
+            there == Some(room)
+        };
+        if options.iter().any(|(act, _)| in_room(act)) {
+            options.retain(|(act, _)| in_room(act));
+        }
+        // Someone in another room can wait a while, for one only just come into this one.
+        let settling = 0.35 + mind.restless * 0.65;
+        for (act, weight) in &mut options {
+            if let Some(other) = act.partner()
+                && rooms_now
+                    .iter()
+                    .find(|(id, _)| *id == other)
+                    .and_then(|(_, at)| *at)
+                    != Some(room)
+            {
+                *weight *= settling;
             }
         }
         let whimsy = character.whimsy();
@@ -2113,6 +2216,7 @@ impl Mind {
             room: None,
             entered: 0.0,
             restless: 0.0,
+            drew: false,
         }
     }
 }
@@ -2143,6 +2247,23 @@ fn door(house: &House, floor: &Floor) -> ((f32, f32), (i32, i32)) {
     (outside, inside)
 }
 
+/// Whom a little one draws: its own adult if it is home, or else whoever in the house it is
+/// warmest towards, or else itself.
+fn subject(household: &Household, little: Id, present: &[Id]) -> Id {
+    let parent = household.resident(little).and_then(|r| r.parent());
+    if let Some(parent) = parent.filter(|parent| present.contains(parent)) {
+        return parent;
+    }
+    present
+        .iter()
+        .copied()
+        .max_by_key(|other| {
+            let bond = household.bond(little, *other);
+            (bond.warmth, bond.familiarity, std::cmp::Reverse(*other))
+        })
+        .unwrap_or(little)
+}
+
 fn band(band: Band) -> f32 {
     match band {
         Band::None => 0.0,
@@ -2165,6 +2286,7 @@ fn toy_like(item: &DisplayItem) -> bool {
     match &item.source {
         DisplaySource::DesktopFind { variant } => TOYS.contains(variant),
         DisplaySource::HillSouvenir { id } => id == "chest_marble",
+        DisplaySource::HomeMemento { memento } => *memento == MementoKind::Pebble,
         DisplaySource::Unknown => false,
     }
 }
@@ -2338,6 +2460,9 @@ pub fn choices(
             }
             if piece.family == Family::Tables {
                 acts.push(Act::SitAt(*uid));
+                if resident.is_little() && !visiting {
+                    acts.push(Act::Draw(*uid, subject(household, id, &others)));
+                }
             }
             if piece.family == Family::Lights {
                 acts.push(Act::SwitchLamp(*uid));

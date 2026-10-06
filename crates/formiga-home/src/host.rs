@@ -3,7 +3,7 @@
 //! in for Desktop itself, keeping each arrangement only as Desktop would keep it, through the
 //! contract's own [`accept_result`], so a rehearsal proves the same loop a visit does.
 
-use crate::session::{HOME_VERSION, Visit};
+use crate::session::{HOME_VERSION, Lived, Visit};
 use crate::store::RehearsalHomes;
 use anyhow::Result;
 use formiga_home_contract::{
@@ -80,10 +80,11 @@ impl Host {
         }
     }
 
-    /// The owner is leaving the house.
-    pub fn leave(&mut self, state: &HomeState) -> Result<()> {
+    /// The owner is leaving the house, and this is what was lived there. A rehearsal keeps the
+    /// homes; what was lived is for Desktop alone.
+    pub fn leave(&mut self, state: &HomeState, lived: &Lived) -> Result<()> {
         match self {
-            Self::Visit(visit) => visit.leave(state),
+            Self::Visit(visit) => visit.leave(state, lived),
             Self::Rehearsal(_) => self.keep(state),
         }
     }
@@ -130,7 +131,7 @@ mod tests {
         let mut arranged = first.state().clone();
         let home = crate::staging::lived_in(&household, "floor.rose", "wall.plaster");
         arranged.set_household(home.clone());
-        first.leave(&arranged).unwrap();
+        first.leave(&arranged, &Lived::default()).unwrap();
         let second = open();
         assert_eq!(second.state().household(home.keeper), Some(&home));
         let _ = std::fs::remove_dir_all(&data);

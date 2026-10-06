@@ -109,6 +109,21 @@ impl Character {
         }
     }
 
+    /// How soon a room palls and another calls, from 0 (a homebody, happy where it is) to 1:
+    /// the curious, the lively and the bold get about the house, the idle and the shy less so.
+    pub fn roams(&self) -> f32 {
+        let a = &self.axes;
+        let base = 0.15 + a.curiosity * 0.35 + a.energy * 0.3 + a.boldness * 0.2;
+        let kind = match self.kind {
+            TemperamentKind::Explorer => 1.4,
+            TemperamentKind::Oddball | TemperamentKind::Troublemaker => 1.15,
+            TemperamentKind::Lazybones => 0.6,
+            TemperamentKind::Wallflower | TemperamentKind::Grump => 0.8,
+            _ => 1.0,
+        };
+        (base * kind).clamp(0.0, 1.0)
+    }
+
     /// Would rather sit apart from the others than among them.
     pub fn keeps_apart(&self) -> bool {
         matches!(

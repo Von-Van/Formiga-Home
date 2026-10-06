@@ -174,7 +174,11 @@ pub fn project_household(
         desktop_version: travel.desktop_version.clone(),
         travel_version: travel.version,
         travel_min_reader_version: travel.min_reader_version,
-        capabilities: vec![HomeCapability::VisitRecord],
+        capabilities: vec![
+            HomeCapability::VisitRecord,
+            HomeCapability::BondNudges,
+            HomeCapability::JournalMoments,
+        ],
         household: Household {
             keeper: TravelerId(keeper),
             slot: slot as u8,

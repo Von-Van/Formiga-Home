@@ -11,8 +11,10 @@
 pub mod cues;
 pub mod displays;
 pub mod furniture;
+pub mod mementos;
 pub mod notebook;
 pub mod shell;
+pub mod souvenirs;
 
 use crate::catalog::Piece;
 use crate::iso::{TILE_H, TILE_W};
@@ -28,6 +30,10 @@ pub struct Sprite {
     /// What of it stands in front of whatever is shown on it or using it: a shelf's front post,
     /// a case's glass. Drawn after them, at the same anchor.
     pub over: Option<Canvas>,
+    /// For each of its surfaces with a board or a roof over it, the part of the drawing that is
+    /// that board and those above, drawn again after what the surface shows: from the front, a
+    /// board hides the top of what stands on the shelf beneath it.
+    pub lids: Vec<Option<Canvas>>,
 }
 
 impl Sprite {
@@ -47,6 +53,7 @@ impl Sprite {
             canvas: flip(&self.canvas),
             anchor: (self.canvas.width() as i32 - self.anchor.0, self.anchor.1),
             over: self.over.as_ref().map(flip),
+            lids: self.lids.iter().map(|lid| lid.as_ref().map(flip)).collect(),
         }
     }
 
@@ -92,6 +99,9 @@ pub struct Easel {
     pub canvas: Canvas,
     pub anchor: (i32, i32),
     pub salt: u32,
+    /// The boards and roofs over a piece's shelves, already drawn, kept so that what stands on
+    /// a shelf can be put behind them.
+    pub boards: Vec<Block>,
 }
 
 /// How much room a piece's canvas leaves round it, for its shadow and its edge.
@@ -108,6 +118,7 @@ impl Easel {
             canvas: Canvas::new(width as u32, full as u32),
             anchor: (d * TILE_W / 2 + MARGIN, tall),
             salt,
+            boards: Vec::new(),
         }
     }
 

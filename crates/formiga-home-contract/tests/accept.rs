@@ -276,3 +276,46 @@ fn a_liking_for_a_piece_taken_away_is_forgotten_with_it() {
     home.forget_what_is_gone();
     assert!(home.likings.is_empty());
 }
+
+#[test]
+fn a_household_keeps_its_own_keepsakes_on_show_but_none_can_move_house() {
+    let visit = visit();
+    let keeper = visit.snapshot.household.keeper;
+    let mut home = arranged(&visit.snapshot);
+    home.mementos.push(Memento {
+        serial: 1,
+        kind: MementoKind::Drawing,
+        by: Some(visit.snapshot.residents[1].id),
+        of: vec![keeper],
+        inks: Vec::new(),
+        made_at_utc: closed_at(),
+    });
+    home.rooms[0].displays.push(PlacedDisplay {
+        item: DisplayId::memento(keeper, 1),
+        spot: Spot::Wall {
+            side: WallSide::West,
+            at: 3,
+        },
+    });
+    home.likings.push(Liking {
+        resident: keeper,
+        thing: Liked::Shown {
+            item: DisplayId::memento(keeper, 1),
+        },
+        uses: 4,
+    });
+    let accepted = accept_result(
+        &visit.seal,
+        &visit.snapshot,
+        &visit.previous,
+        &proposing(&visit, home.clone()),
+    );
+    assert_eq!(accepted.set_aside, Vec::<&str>::new());
+    assert_eq!(accepted.state.household(keeper), Some(&home));
+    // Shown next door, a keepsake from this house does not check out.
+    let mut stray = home.clone();
+    stray.mementos.clear();
+    let mut state = visit.previous.clone();
+    state.set_household(stray);
+    assert!(state.validate().is_err());
+}

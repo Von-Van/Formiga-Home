@@ -68,17 +68,87 @@ fn written_now() -> Vec<(String, Vec<u8>)> {
         kind: Some(CatalogId::known("room.nook")),
         doors: Vec::new(),
     });
+    // Since version 4: a postcard a friend left, pinned up in the nook, and the journal of it.
+    let keeper = snapshot.household.keeper;
+    let friend = snapshot.visitors[0].id;
+    home.mementos.push(Memento {
+        serial: 1,
+        kind: MementoKind::Postcard,
+        by: Some(friend),
+        of: Vec::new(),
+        inks: Vec::new(),
+        made_at_utc: datetime!(2026-11-11 10:12 UTC),
+    });
+    // And a photo of the keeper and the friend, keeping how each looked.
+    home.mementos.push(Memento {
+        serial: 2,
+        kind: MementoKind::Photo,
+        by: None,
+        of: vec![keeper, friend],
+        inks: vec![
+            Ink {
+                outline: [74, 58, 52],
+                deep: [150, 118, 104],
+                body: [222, 196, 178],
+                light: [244, 230, 218],
+                accent: [214, 120, 132],
+            },
+            Ink {
+                outline: [52, 66, 58],
+                deep: [104, 140, 118],
+                body: [170, 206, 182],
+                light: [214, 236, 220],
+                accent: [236, 196, 96],
+            },
+        ],
+        made_at_utc: datetime!(2026-11-11 10:15 UTC),
+    });
+    home.rooms[1].displays.push(PlacedDisplay {
+        item: DisplayId::memento(keeper, 1),
+        spot: Spot::Wall {
+            side: WallSide::North,
+            at: 2,
+        },
+    });
+    home.note(
+        datetime!(2026-11-11 9:58 UTC),
+        HomeMoment::Visit { visitor: friend },
+    );
+    home.note(
+        datetime!(2026-11-11 10:12 UTC),
+        HomeMoment::Memento {
+            memento: MementoKind::Postcard,
+            by: Some(friend),
+            of: Vec::new(),
+        },
+    );
     arranged_state.set_household(home);
     let result = HomeResult::new(&seal, closed_at(), "0.1.0", arranged_state);
     let receipt = HomeReceipt::new(
         &seal,
         closed_at(),
         "0.1.0",
-        vec![HomeEffect::HomeVisit {
-            household: snapshot.household.keeper,
-            arrived_at_utc: datetime!(2026-11-11 9:31 UTC),
-            left_at_utc: datetime!(2026-11-11 10:19 UTC),
-        }],
+        vec![
+            HomeEffect::HomeVisit {
+                household: snapshot.household.keeper,
+                arrived_at_utc: datetime!(2026-11-11 9:31 UTC),
+                left_at_utc: datetime!(2026-11-11 10:19 UTC),
+            },
+            // Since version 4.
+            HomeEffect::Together {
+                a: keeper,
+                b: friend,
+                together: Together::Play,
+                times: 2,
+            },
+            HomeEffect::Moment {
+                moment: HomeMoment::Memento {
+                    memento: MementoKind::Postcard,
+                    by: Some(friend),
+                    of: Vec::new(),
+                },
+            },
+        ],
     );
     let recall = HomeRecall::new(session(), closed_at(), RecallReason::OwnerAsked);
     let name = |kind: &str| format!("{kind}-v{HOME_FORMAT_VERSION}.json");

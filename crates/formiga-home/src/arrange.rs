@@ -12,8 +12,8 @@ use crate::iso::{View, WALL_HEIGHT};
 use crate::room::{self, Footprint, Showing};
 use formiga_home_contract::limits::MAX_PLAN_REACH;
 use formiga_home_contract::{
-    CatalogId, DisplayId, Door, HomeSnapshot, HomeState, HouseholdHome, Liked, PlacedDisplay,
-    PlacedPiece, PlanPoint, RoomLayout, Spot, TravelerId, WallSide,
+    CatalogId, DisplayId, Door, HomeSnapshot, HomeState, HouseholdHome, Liked, Memento,
+    PlacedDisplay, PlacedPiece, PlanPoint, RoomLayout, Spot, TravelerId, WallSide,
 };
 
 /// How many changes can be undone.
@@ -52,6 +52,19 @@ pub struct Arranging {
     redo: Vec<HomeState>,
 }
 
+/// Taking an arrangement back takes back the arrangement only: what the household has lived
+/// since, its likings and its journal, stays as it is now.
+fn lived_since(now: &HomeState, restored: &mut HomeState) {
+    for home in &mut restored.households {
+        let Some(current) = now.household(home.keeper) else {
+            continue;
+        };
+        home.likings.clone_from(&current.likings);
+        home.journal.clone_from(&current.journal);
+        home.forget_what_is_gone();
+    }
+}
+
 impl Arranging {
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
@@ -70,19 +83,32 @@ impl Arranging {
         self.redo.clear();
     }
 
+    /// A keepsake has come to the house: it is there whatever is taken back or done again.
+    pub fn came(&mut self, keeper: TravelerId, memento: &Memento) {
+        for state in self.undo.iter_mut().chain(&mut self.redo) {
+            if let Some(home) = state.household_mut(keeper)
+                && !home.mementos.iter().any(|had| had.serial == memento.serial)
+            {
+                home.mementos.push(memento.clone());
+            }
+        }
+    }
+
     pub fn undo(&mut self, state: &mut HomeState) -> bool {
-        let Some(before) = self.undo.pop() else {
+        let Some(mut before) = self.undo.pop() else {
             return false;
         };
+        lived_since(state, &mut before);
         self.redo.push(std::mem::replace(state, before));
         self.carrying = None;
         true
     }
 
     pub fn redo(&mut self, state: &mut HomeState) -> bool {
-        let Some(after) = self.redo.pop() else {
+        let Some(mut after) = self.redo.pop() else {
             return false;
         };
+        lived_since(state, &mut after);
         self.undo.push(std::mem::replace(state, after));
         self.carrying = None;
         true
@@ -787,8 +813,8 @@ pub fn room_places(
             if !inside || overlaps {
                 continue;
             }
-            let arrived =
-                |piece: &Piece| piece.available(snapshot.days_lived, snapshot.inventory.len());
+            let finds = crate::keepsakes::colony_things(snapshot).count();
+            let arrived = |piece: &Piece| piece.available(snapshot.days_lived, finds);
             if let Some(grown) = grow(
                 home,
                 template,
@@ -913,6 +939,50 @@ mod tests {
 
     fn home(state: &HomeState, snapshot: &HomeSnapshot) -> HouseholdHome {
         state.household(snapshot.household.keeper).unwrap().clone()
+    }
+
+    #[test]
+    fn taking_back_an_arrangement_keeps_what_was_lived_since_and_a_keepsake_let_go_comes_back() {
+        use crate::keepsakes;
+        use formiga_home_contract::{HomeMoment, MementoKind};
+        let (snapshot, mut state, _, _) = setup();
+        let keeper = snapshot.household.keeper;
+        let friend = snapshot.visitors[0].id;
+        let mut arranging = Arranging::default();
+        // A change to take back.
+        arranging.remember(&state);
+        state.household_mut(keeper).unwrap().rooms[0].wall = CatalogId::known("wall.stripes");
+        // Then a friend leaves something, and the journal says so.
+        let home = state.household_mut(keeper).unwrap();
+        let gift = keepsakes::make(
+            home,
+            MementoKind::Pebble,
+            Some(friend),
+            Vec::new(),
+            snapshot.created_at_utc,
+        )
+        .unwrap();
+        arranging.came(keeper, home.memento(&gift).unwrap());
+        home.note(
+            snapshot.created_at_utc,
+            HomeMoment::Visit { visitor: friend },
+        );
+        assert!(arranging.undo(&mut state));
+        let home = state.household(keeper).unwrap();
+        assert_ne!(home.rooms[0].wall.as_str(), "wall.stripes", "taken back");
+        assert!(home.memento(&gift).is_some(), "the gift is still here");
+        assert_eq!(home.journal.len(), 2, "and the journal still says so");
+        assert!(arranging.redo(&mut state));
+        assert!(state.household(keeper).unwrap().memento(&gift).is_some());
+
+        // Letting it go is taken back like any arrangement, and done again.
+        arranging.remember(&state);
+        keepsakes::let_go(state.household_mut(keeper).unwrap(), &gift);
+        assert!(arranging.undo(&mut state));
+        assert!(state.household(keeper).unwrap().memento(&gift).is_some());
+        assert!(arranging.redo(&mut state));
+        assert!(state.household(keeper).unwrap().memento(&gift).is_none());
+        state.validate().unwrap();
     }
 
     #[test]

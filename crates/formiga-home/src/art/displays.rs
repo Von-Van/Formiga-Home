@@ -6,6 +6,7 @@
 
 use super::Sprite;
 use super::ramps::{BRASS, LINEN, OAK, VELVET};
+use super::souvenirs;
 use crate::paint::{self, rgb, rgba};
 use crate::room::{Place, Showing};
 use formiga_art::{Canvas, TRINKET_CELL, draw_souvenir, draw_trinket};
@@ -35,13 +36,19 @@ pub fn icon(item: &DisplayItem) -> Canvas {
             }
             None => unknown_icon(),
         },
+        (DisplaySource::HomeMemento { memento }, _) => {
+            super::mementos::plain(*memento).unwrap_or_else(unknown_icon)
+        }
         _ => unknown_icon(),
     }
 }
 
-/// Whether the thing is one of Formiga Hill's souvenirs, which sit on velvet as they do there.
-fn is_souvenir(item: &DisplayItem) -> bool {
-    matches!(&item.source, DisplaySource::HillSouvenir { id } if Souvenir::from_id(id).is_some())
+/// Which of Formiga Hill's souvenirs the thing is, if it is one: each is kept its own way.
+fn souvenir_of(item: &DisplayItem) -> Option<Souvenir> {
+    match &item.source {
+        DisplaySource::HillSouvenir { id } => Souvenir::from_id(id),
+        _ => None,
+    }
 }
 
 fn crop(canvas: &Canvas) -> Canvas {
@@ -80,16 +87,41 @@ fn unknown_icon() -> Canvas {
 /// The thing as it is shown in a place of this kind. Its anchor is where it sits: the middle of
 /// its foot on a surface or the floor, and its middle on a wall.
 pub fn sprite(item: &DisplayItem, place: Place, showing: Showing) -> Sprite {
-    let icon = icon(item);
-    match (place, showing) {
-        (Place::Wall, Showing::Itself) if is_souvenir(item) => framed(&icon, true),
-        (Place::Wall, Showing::Itself) => pinned(&icon),
-        (Place::Wall, Showing::Card) => framed(&icon, false),
-        (_, Showing::Card) => card(&icon, is_souvenir(item)),
-        (_, Showing::Itself) if is_souvenir(item) => on_velvet(&icon),
-        (Place::Floor, Showing::Itself) => standing(&icon, true),
-        (_, Showing::Itself) => standing(&icon, false),
+    dress(icon(item), item, place, showing)
+}
+
+/// The thing, from its own picture, as it is shown in a place of this kind.
+pub fn dress(icon: Canvas, item: &DisplayItem, place: Place, showing: Showing) -> Sprite {
+    let souvenir = souvenir_of(item);
+    match (place, showing, souvenir) {
+        (Place::Wall, Showing::Itself, Some(souvenir)) => souvenirs::hung(souvenir, &icon),
+        (Place::Wall, Showing::Itself, None) => pinned(&icon),
+        (Place::Wall, Showing::Card, _) => framed(&icon, souvenir.is_some()),
+        (_, Showing::Card, _) => card(&icon, souvenir.is_some()),
+        (_, Showing::Itself, Some(souvenir)) => souvenirs::set_down(souvenir, &icon),
+        (Place::Floor, Showing::Itself, None) => standing(&icon, true),
+        (_, Showing::Itself, None) => standing(&icon, false),
     }
+}
+
+/// The thing's picture for its tile in the drawer: a souvenir as the house keeps it, so a pale
+/// one still shows; anything else as itself.
+pub fn tile_picture(icon: Canvas, item: &DisplayItem) -> Canvas {
+    match souvenir_of(item) {
+        Some(souvenir) => souvenirs::set_down(souvenir, &icon).canvas,
+        None => icon,
+    }
+}
+
+/// How far the thing stands above where it sits, shown in a place of this kind: what a shelf
+/// must clear for it.
+pub fn rise(item: &DisplayItem, place: Place, showing: Showing) -> i32 {
+    let sprite = sprite(item, place, showing);
+    let canvas = &sprite.canvas;
+    let top = (0..canvas.height() as i32)
+        .find(|&y| (0..canvas.width() as i32).any(|x| canvas.get(x, y).a > 0))
+        .unwrap_or(sprite.anchor.1);
+    sprite.anchor.1 - top
 }
 
 /// As itself, standing on a surface or the floor, with a little shadow under it.
@@ -115,11 +147,12 @@ fn standing(icon: &Canvas, on_floor: bool) -> Sprite {
         canvas,
         anchor: foot,
         over: None,
+        lids: Vec::new(),
     }
 }
 
 /// As itself, pinned flat to a wall, a pin at its top and its shadow on the wallpaper behind.
-fn pinned(icon: &Canvas) -> Sprite {
+pub(super) fn pinned(icon: &Canvas) -> Sprite {
     let (w, h) = (icon.width() as i32, icon.height() as i32);
     let mut canvas = Canvas::new((w + 4) as u32, (h + 5) as u32);
     for y in 0..h {
@@ -138,6 +171,7 @@ fn pinned(icon: &Canvas) -> Sprite {
         canvas,
         anchor: (w / 2 + 1, h / 2 + 2),
         over: None,
+        lids: Vec::new(),
     }
 }
 
@@ -168,6 +202,7 @@ fn framed(icon: &Canvas, velvet: bool) -> Sprite {
         canvas,
         anchor: (fw / 2, fh / 2),
         over: None,
+        lids: Vec::new(),
     }
 }
 
@@ -203,40 +238,12 @@ fn card(icon: &Canvas, velvet: bool) -> Sprite {
         canvas,
         anchor: (cw / 2 + 2, ch + 2),
         over: None,
-    }
-}
-
-/// A souvenir sat on a little velvet cushion, the way Formiga Hill keeps it in its case.
-fn on_velvet(icon: &Canvas) -> Sprite {
-    let (w, h) = (icon.width() as i32, icon.height() as i32);
-    let mut canvas = Canvas::new((w + 8) as u32, (h + 7) as u32);
-    let centre = (w / 2 + 4, h + 3);
-    paint::ellipse(
-        &mut canvas,
-        centre.0,
-        centre.1 + 1,
-        w / 2 + 3,
-        2,
-        rgba(0x2a1a14, 60),
-    );
-    paint::ellipse(&mut canvas, centre.0, centre.1, w / 2 + 3, 2, VELVET.base);
-    paint::hline(
-        &mut canvas,
-        centre.0 - w / 2 - 1,
-        centre.1 - 1,
-        w + 2,
-        VELVET.light,
-    );
-    paint::blit(&mut canvas, icon, 4, 1);
-    Sprite {
-        canvas,
-        anchor: (centre.0, centre.1 + 1),
-        over: None,
+        lids: Vec::new(),
     }
 }
 
 /// Every thing the sample colony has, shown every way it can be, for review: `--render-finds`.
-pub fn sheet(items: &[DisplayItem]) -> Canvas {
+pub fn sheet(items: &[DisplayItem], icon: impl Fn(&DisplayItem) -> Canvas) -> Canvas {
     let cell = (36, 36);
     let places = [Place::Top, Place::Shelf, Place::Wall, Place::Floor];
     let columns = places.len() as i32 + 1;
@@ -254,14 +261,14 @@ pub fn sheet(items: &[DisplayItem]) -> Canvas {
             };
             paint::rect(&mut sheet, column * cell.0, top, cell.0, cell.1, rgb(tone));
         }
-        let card = sprite(item, Place::Top, Showing::Card);
+        let card = dress(icon(item), item, Place::Top, Showing::Card);
         let (ox, oy) = card.origin((cell.0 / 2, top + cell.1 - 6));
         paint::blit(&mut sheet, &card.canvas, ox, oy);
         for (index, place) in places.into_iter().enumerate() {
             let Some(showing) = crate::room::showing(item, place) else {
                 continue;
             };
-            let drawn = sprite(item, place, showing);
+            let drawn = dress(icon(item), item, place, showing);
             let column = index as i32 + 1;
             let at = if place == Place::Wall {
                 (column * cell.0 + cell.0 / 2, top + cell.1 / 2)

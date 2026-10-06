@@ -25,6 +25,12 @@ pub enum HomeCapability {
     /// A [`crate::HomeEffect::HomeVisit`]: Desktop notes, in its own words, that the household
     /// had company.
     VisitRecord,
+    /// [`crate::HomeEffect::Together`]: small nudges to how companions get on, from time they
+    /// spent together at home. Since version 4.
+    BondNudges,
+    /// [`crate::HomeEffect::Moment`]: a few lines for Desktop's journal, in its own words.
+    /// Since version 4.
+    JournalMoments,
     /// Anything a newer Desktop offers that this build does not know.
     #[serde(other)]
     Unknown,

@@ -190,6 +190,8 @@ pub struct Scene {
     shell: Canvas,
     pieces: PieceCache,
     things: HashMap<(DisplayId, PlaceKey, Showing), Sprite>,
+    /// The household's keepsakes' pictures, by id: whoever is in each, in their own colours.
+    pictures: HashMap<DisplayId, Canvas>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -220,14 +222,35 @@ impl Scene {
             shell: Canvas::new(view.size.0, view.size.1),
             pieces: PieceCache::default(),
             things: HashMap::new(),
+            pictures: HashMap::new(),
         }
+    }
+
+    /// The household's keepsakes as they now are. A keepsake let go can leave its number to the
+    /// next, so whatever was drawn of any keepsake is drawn again.
+    pub fn set_pictures(&mut self, pictures: HashMap<DisplayId, Canvas>) {
+        self.things
+            .retain(|(id, _, _), _| id.source() != DisplayId::MEMENTO);
+        self.shell_key = None;
+        self.pictures = pictures;
+    }
+
+    /// A thing's own picture: a keepsake's with whoever is in it.
+    pub fn icon(&self, item: &DisplayItem) -> Canvas {
+        self.pictures
+            .get(&item.id)
+            .cloned()
+            .unwrap_or_else(|| displays::icon(item))
     }
 
     /// A thing's picture as it is shown in a place of this kind.
     pub fn thing(&mut self, item: &DisplayItem, place: Place, showing: Showing) -> &Sprite {
-        self.things
-            .entry((item.id.clone(), place.into(), showing))
-            .or_insert_with(|| displays::sprite(item, place, showing))
+        let key = (item.id.clone(), place.into(), showing);
+        if !self.things.contains_key(&key) {
+            let sprite = displays::dress(self.icon(item), item, place, showing);
+            self.things.insert(key.clone(), sprite);
+        }
+        &self.things[&key]
     }
 
     pub fn piece_sprite(&mut self, piece: &'static catalog::Piece, turn: u8) -> &Sprite {
@@ -574,12 +597,25 @@ impl Scene {
             let Some(showing) = room::showing(item, place) else {
                 continue;
             };
-            let (sx, sy) = view.screen(surface.at.0, surface.at.1);
-            let point = (sx.round() as i32, sy.round() as i32 - surface.height);
-            let sprite = self.thing(item, place, showing);
-            let (ix, iy) = sprite.origin(point);
-            let picture = sprite.canvas.clone();
-            paint::blit(canvas, &picture, ix, iy);
+            let point = surface_anchor(&view, surface);
+            let thing = self.thing(item, place, showing);
+            let (ix, iy) = thing.origin(point);
+            let picture = thing.canvas.clone();
+            // Anything taller than its shelf's room, shown there before shelves were measured,
+            // is trimmed at what is over it rather than drawn through it.
+            let top = surface
+                .clearance()
+                .map_or(i32::MIN, |clearance| point.1 - clearance);
+            paint::blit_through(
+                canvas,
+                &picture,
+                ix,
+                iy,
+                |_, y| if y < top { 0 } else { 255 },
+            );
+            if let Some(Some(lid)) = sprite.lids.get(usize::from(slot)) {
+                paint::blit_through(canvas, lid, ox, oy, see_through);
+            }
         }
         if let Some(over) = &sprite.over {
             for &sitter in &sitters {
@@ -670,8 +706,7 @@ impl Scene {
                 let surface = room::surfaces(house.piece(piece)?)
                     .into_iter()
                     .nth(usize::from(slot))?;
-                let (sx, sy) = view.screen(surface.at.0, surface.at.1);
-                (sx.round() as i32, sy.round() as i32 - surface.height)
+                surface_anchor(&view, &surface)
             }
         })
     }
@@ -757,6 +792,24 @@ static UNKNOWN: catalog::Piece = catalog::Piece {
     lift: 0,
     set: catalog::Set::Home,
 };
+
+/// How far in front of a shelf's middle, in pixels down the picture, a thing stands when there is
+/// a board over it: at the board's front, where the board hides as little of it as it can. In the
+/// picture rather than on the floor, so it is the same at every turn.
+const SHELF_FRONT: i32 = 3;
+
+/// Where a thing shown on a surface has its anchor on the scene.
+fn surface_anchor(view: &View, surface: &room::SurfaceAt) -> (i32, i32) {
+    let (sx, sy) = view.screen(surface.at.0, surface.at.1);
+    let front = match surface.cover {
+        Some(catalog::Cover::Board(_)) => SHELF_FRONT,
+        _ => 0,
+    };
+    (
+        sx.round() as i32,
+        sy.round() as i32 - surface.height + front,
+    )
+}
 
 /// Where a thing standing on a floor tile has its foot.
 pub fn floor_anchor(view: &View, x: u8, y: u8) -> (i32, i32) {

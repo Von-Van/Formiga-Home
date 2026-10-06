@@ -122,6 +122,7 @@ fn everything_the_colony_has_can_be_shown_and_nothing_else() {
                 assert!(item.ink.is_none(), "a souvenir has its own colours");
                 assert!(formiga_core::Souvenir::from_id(id).is_some());
             }
+            DisplaySource::HomeMemento { .. } => panic!("Desktop never sends a keepsake"),
             DisplaySource::Unknown => panic!("Desktop wrote a source it does not know"),
         }
     }

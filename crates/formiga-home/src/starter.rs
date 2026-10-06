@@ -66,6 +66,8 @@ pub fn home(snapshot: &HomeSnapshot) -> HouseholdHome {
         keeper: snapshot.household.keeper,
         rooms: vec![room(snapshot)],
         likings: Vec::new(),
+        mementos: Vec::new(),
+        journal: Vec::new(),
     }
 }
 

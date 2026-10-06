@@ -151,6 +151,20 @@ pub(super) const PAGES: [(Drawer, &str); 3] = [
     (Drawer::Room, "Rooms"),
 ];
 
+/// The pages of the notes when living in the house.
+pub(super) const LIVE_PAGES: [(Drawer, &str); 2] = [
+    (Drawer::Household, "Household"),
+    (Drawer::Journal, "Journal"),
+];
+
+/// The pages of the notes in a mode.
+fn pages(mode: Mode) -> &'static [(Drawer, &'static str)] {
+    match mode {
+        Mode::Live => &LIVE_PAGES,
+        Mode::Arrange => &PAGES,
+    }
+}
+
 /// The window's own studs on the cover, at the end of the strip the system would put them.
 fn studs() -> Vec<Glyph> {
     if cfg!(target_os = "macos") {
@@ -237,16 +251,14 @@ pub(super) fn lay_out(ui: &egui::Ui, house: &str, mode: Mode) -> (Layout, Spread
             (which, at)
         })
         .collect();
-    // The notes page's tabs stand up from its top edge, when arranging.
+    // The notes page's tabs stand up from its top edge, below the studs, so that neither
+    // stands in the other's way.
     let mut page_tabs = Vec::new();
-    if mode == Mode::Arrange {
-        // Below the studs, so that neither stands in the other's way.
-        let mut along = right.0 + 6;
-        for (drawer, name) in PAGES {
-            let wide = width_of(label_job(name, LABEL, ink::page(dark))) + 6;
-            page_tabs.push((drawer, (along, top - 7, wide, 7)));
-            along += wide + 1;
-        }
+    let mut along = right.0 + 6;
+    for &(drawer, name) in pages(mode) {
+        let wide = width_of(label_job(name, LABEL, ink::page(dark))) + 6;
+        page_tabs.push((drawer, (along, top - 7, wide, 7)));
+        along += wide + 1;
     }
     let spread = Spread {
         size: (w + 1, h + 1),
@@ -330,6 +342,14 @@ pub(super) fn page_id(drawer: Drawer) -> egui::Id {
 }
 
 impl HomeApp {
+    /// The notes page turned to, in the mode the house is in.
+    fn page(&self) -> Drawer {
+        match self.mode {
+            Mode::Live => self.live_page,
+            Mode::Arrange => self.drawer,
+        }
+    }
+
     /// The cover, the pages, and everything on the cover: painted, lettered, and answering.
     pub(super) fn notebook(&mut self, ui: &mut egui::Ui) -> Layout {
         let ctx = ui.ctx().clone();
@@ -343,8 +363,9 @@ impl HomeApp {
         for (tab, (mode, _)) in spread.modes.iter_mut().zip(&layout.modes) {
             tab.hot = hot == Some(mode_id(*mode));
         }
+        let page = self.page();
         for (tab, (drawer, _)) in spread.page_tabs.iter_mut().zip(&layout.page_tabs) {
-            tab.open = *drawer == self.drawer;
+            tab.open = *drawer == page;
             tab.hot = hot == Some(page_id(*drawer));
         }
         if self.chrome.spread.as_ref() != Some(&spread) {
@@ -488,11 +509,11 @@ impl HomeApp {
                 hot = Some(id);
                 ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
             }
-            let name = PAGES
+            let name = pages(self.mode)
                 .iter()
                 .find(|(which, _)| *which == drawer)
                 .map_or("", |(_, name)| name);
-            let open = drawer == self.drawer;
+            let open = drawer == self.page();
             let colour = if open {
                 ink::forest(dark)
             } else {
@@ -505,8 +526,13 @@ impl HomeApp {
                 colour,
             );
             if response.clicked() {
-                self.drawer = drawer;
-                self.placing = None;
+                match self.mode {
+                    Mode::Live => self.live_page = drawer,
+                    Mode::Arrange => {
+                        self.drawer = drawer;
+                        self.placing = None;
+                    }
+                }
             }
         }
         self.chrome.hot = hot;

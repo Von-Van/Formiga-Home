@@ -2,7 +2,7 @@
 //! piece takes the tiles under it, a rug lies under anything, a thing shown on the floor takes a
 //! tile of its own, and every surface and stretch of wall holds one thing at a time.
 
-use crate::catalog::{self, Holds, Piece};
+use crate::catalog::{self, Cover, Holds, Piece};
 use formiga_home_contract::limits::MAX_PLACED_PER_HOUSEHOLD;
 use formiga_home_contract::{
     DisplayId, DisplayItem, DisplayMode, HouseholdHome, PlacedDisplay, PlacedPiece, RoomLayout,
@@ -103,6 +103,15 @@ pub struct SurfaceAt {
     pub at: (f32, f32),
     pub height: i32,
     pub holds: Holds,
+    /// What is over it, if anything.
+    pub cover: Option<Cover>,
+}
+
+impl SurfaceAt {
+    /// How tall a thing may stand there, if anything is over it.
+    pub fn clearance(&self) -> Option<i32> {
+        self.cover.map(Cover::clearance)
+    }
 }
 
 /// Every surface a placed piece has, where it stands.
@@ -121,6 +130,7 @@ pub fn surfaces(placed: &PlacedPiece) -> Vec<SurfaceAt> {
                 at: (f32::from(placed.x) + x, f32::from(placed.y) + y),
                 height: surface.height,
                 holds: surface.holds,
+                cover: surface.cover,
             }
         })
         .collect()
@@ -204,20 +214,34 @@ pub fn can_place(
 }
 
 /// How `item` would be shown at `spot`, if it can go there now: the room has the spot, nothing
-/// else is shown there, and it is a way the item may be shown. A floor spot must also be clear.
+/// else is shown there, and it is a way the item may be shown. A floor spot must also be clear,
+/// and a shelf must have room for it under the board above.
 pub fn can_show(layout: &RoomLayout, item: &DisplayItem, spot: Spot) -> Option<Showing> {
     let place = place_of(layout, spot)?;
     if shown_at(layout, spot).is_some_and(|there| there != &item.id) {
         return None;
     }
-    if let Spot::Floor { x, y } = spot {
-        let piece_there = layout
-            .pieces
-            .iter()
-            .any(|placed| !is_flat(placed) && footprint(placed).contains(x, y));
-        if piece_there {
-            return None;
+    match spot {
+        Spot::Floor { x, y } => {
+            let piece_there = layout
+                .pieces
+                .iter()
+                .any(|placed| !is_flat(placed) && footprint(placed).contains(x, y));
+            if piece_there {
+                return None;
+            }
         }
+        Spot::On { piece, slot } => {
+            let showing = showing(item, place)?;
+            let surface = surfaces(layout.piece(piece)?)
+                .into_iter()
+                .nth(usize::from(slot))?;
+            let fits = surface.clearance().is_none_or(|clearance| {
+                crate::art::displays::rise(item, place, showing) <= clearance
+            });
+            return fits.then_some(showing);
+        }
+        Spot::Wall { .. } => {}
     }
     showing(item, place)
 }
@@ -292,6 +316,42 @@ mod tests {
 
     fn item(id: DisplayId) -> DisplayItem {
         sample::snapshot().item(&id).unwrap().clone()
+    }
+
+    #[test]
+    fn every_find_fits_under_the_board_or_glass_over_any_shelf() {
+        let snapshot = sample::snapshot();
+        for piece in catalog::PIECES
+            .iter()
+            .filter(|piece| piece.surfaces.iter().any(|surface| surface.cover.is_some()))
+        {
+            let mut layout = starter::room(&snapshot);
+            layout.pieces = vec![PlacedPiece {
+                uid: 1,
+                piece: piece.catalog_id(),
+                x: 1,
+                y: 1,
+                turn: 0,
+            }];
+            layout.displays.clear();
+            for (slot, surface) in piece.surfaces.iter().enumerate() {
+                let Some(cover) = surface.cover else {
+                    continue;
+                };
+                let spot = Spot::On {
+                    piece: 1,
+                    slot: slot as u8,
+                };
+                for item in &snapshot.inventory {
+                    let Some(showing) = showing(item, Place::Shelf) else {
+                        continue;
+                    };
+                    let rise = crate::art::displays::rise(item, Place::Shelf, showing);
+                    assert!(rise <= cover.clearance(), "{} on {}", item.name, piece.id);
+                    assert_eq!(can_show(&layout, item, spot), Some(showing));
+                }
+            }
+        }
     }
 
     #[test]

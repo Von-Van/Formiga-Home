@@ -50,6 +50,7 @@
 //! | 1 | Everything |
 //! | 2 | `visitors`: friends Desktop lends for the visit; `likings`: what each resident has come to like in its home |
 //! | 3 | A room's `plan`, `kind` and `doors`: where each room stands in its house, what kind of room it is, and its doorways |
+//! | 4 | A home's `mementos` and `journal`; the receipt's `together` and `moment` effects, and the capabilities that offer them |
 //!
 //! The golden fixtures under `tests/fixtures` are every version as it was first written, and must
 //! keep reading.
@@ -80,16 +81,17 @@ pub use ids::{CatalogId, DisplayId};
 pub use inventory::{DisplayItem, DisplayMode, DisplaySource, Ink, find_modes, souvenir_modes};
 pub use projection::{ProjectionError, colony_key, likely_visitors, project_household};
 pub use replies::{
-    AckRefusal, HomeAck, HomeEffect, HomeRecall, HomeReceipt, HomeResult, RecallReason, SessionSeal,
+    AckRefusal, HomeAck, HomeEffect, HomeRecall, HomeReceipt, HomeResult, RecallReason,
+    SessionSeal, Together,
 };
 pub use snapshot::{HomeCapability, HomeSnapshot, HouseStyle, Household, Neighbour};
 pub use state::{
-    Door, HomeState, HouseholdHome, Liked, Liking, PlacedDisplay, PlacedPiece, PlanPoint,
-    RoomLayout, Spot, WallSide,
+    Door, FavouriteKind, HomeMoment, HomeState, HouseholdHome, JournalEntry, Liked, Liking,
+    Memento, MementoKind, PlacedDisplay, PlacedPiece, PlanPoint, RoomLayout, Spot, WallSide,
 };
 
 /// The version of every Home document this build writes, and the newest it reads.
-pub const HOME_FORMAT_VERSION: u32 = 3;
+pub const HOME_FORMAT_VERSION: u32 = 4;
 
 /// The `format` of each document.
 pub const SNAPSHOT_FORMAT: &str = "formiga.home.snapshot";
@@ -148,6 +150,15 @@ pub mod limits {
     pub const MAX_VISITORS: usize = 4;
     /// What a household's residents have come to like, across every room.
     pub const MAX_LIKINGS: usize = 48;
+    /// Keepsakes one household keeps, and moments in its journal.
+    pub const MAX_MEMENTOS: usize = 24;
+    pub const MAX_JOURNAL: usize = 40;
+    /// Companions in one keepsake or one moment: who is in a photo.
+    pub const MAX_IN_A_MEMENTO: usize = 6;
+    /// Moments one visit names for Desktop's journal, and how many times a visit may count for
+    /// one pair and one kind of time together.
+    pub const MAX_MOMENTS: usize = 3;
+    pub const MAX_TOGETHER: u8 = 3;
     pub const MAX_RELATIONSHIPS: usize = MAX_RESIDENTS * (MAX_RESIDENTS - 1) / 2;
     /// Twice the six houses a village has.
     pub const MAX_HOUSEHOLDS: usize = 12;

@@ -106,7 +106,6 @@ impl Household {
         self.visitors.iter().any(|visitor| visitor.id == id)
     }
 
-    /// Whose house a visitor comes from: "Biscuit's house".
     /// Whom in the house a visitor came to see: the resident it is closest to.
     pub fn friend_of(&self, visitor: Id) -> Option<&Resident> {
         self.residents.iter().max_by_key(|resident| {

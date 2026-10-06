@@ -4,12 +4,17 @@
 
 use super::ramps::*;
 use super::{Block, Easel, Sprite};
-use crate::catalog::Piece;
+use crate::catalog::{Cover, Piece};
 use crate::paint::{self, Ramp, rgb, rgba};
 use formiga_art::Canvas;
 
 /// A piece's drawing, from the front or from behind.
 pub fn draw(piece: &Piece, away: bool) -> Sprite {
+    drawn(piece, away).0
+}
+
+/// A piece's drawing, and the boards and roofs over its shelves.
+fn drawn(piece: &Piece, away: bool) -> (Sprite, Vec<Block>) {
     let (w, d) = piece.size;
     let mut easel = Easel::new(w, d, piece.height.max(8) + 4, salt(piece.id));
     let mut over: Option<Easel> = None;
@@ -53,12 +58,51 @@ pub fn draw(piece: &Piece, away: bool) -> Sprite {
         "snack_bowl" => snack_bowl(&mut easel),
         _ => unknown(&mut easel),
     }
+    let boards = std::mem::take(&mut easel.boards);
     let (canvas, anchor) = easel.finish();
-    Sprite {
+    let lids = lids(piece, &canvas, &boards);
+    let sprite = Sprite {
         canvas,
         anchor,
         over: over.map(|easel| easel.finish().0),
-    }
+        lids,
+    };
+    (sprite, boards)
+}
+
+/// For each surface of a piece with a board over it, its drawing kept only where that board and
+/// any above it are, so that what is shown on the surface can be drawn again behind them.
+fn lids(piece: &Piece, canvas: &Canvas, boards: &[Block]) -> Vec<Option<Canvas>> {
+    piece
+        .surfaces
+        .iter()
+        .map(|surface| {
+            if !matches!(surface.cover, Some(Cover::Board(_))) {
+                return None;
+            }
+            let above: Vec<Block> = boards
+                .iter()
+                .filter(|board| board.z.0 >= surface.height as f32)
+                .copied()
+                .collect();
+            if above.is_empty() {
+                return None;
+            }
+            let mut mask = Easel::new(piece.size.0, piece.size.1, piece.height.max(8) + 4, 0);
+            for board in above {
+                mask.block(board);
+            }
+            let mut lid = Canvas::new(canvas.width(), canvas.height());
+            for y in 0..canvas.height() as i32 {
+                for x in 0..canvas.width() as i32 {
+                    if mask.canvas.get(x, y).a > 0 {
+                        lid.set(x, y, canvas.get(x, y));
+                    }
+                }
+            }
+            Some(lid)
+        })
+        .collect()
 }
 
 fn salt(id: &str) -> u32 {
@@ -307,41 +351,49 @@ fn low_table(easel: &mut Easel) {
     easel.blocks(blocks);
 }
 
-/// An open shelf: posts at its three far corners and four boards between them, open at the near
-/// corner so nothing on it is ever cut in two.
+/// An open shelf: posts at its three far corners and three boards between them, open at the near
+/// corner so nothing on it is ever cut in two, and far enough apart that what stands on one
+/// clears the next.
 fn shelf(easel: &mut Easel) {
     easel.shadow((0.1, 0.9), (0.1, 0.9), 60);
     let post = |x: f32, y: f32| Block::new((x, x + 0.11), (y, y + 0.11), (0.0, 44.0), OAK);
     let board = |z: f32| Block::new((0.12, 0.88), (0.12, 0.88), (z - 2.0, z), OAK);
     let mut blocks = vec![post(0.12, 0.12), post(0.77, 0.12), post(0.12, 0.77)];
-    blocks.extend([board(4.0), board(18.0), board(32.0), board(44.0)]);
+    let boards = [board(4.0), board(24.0), board(44.0)];
+    blocks.extend(boards);
     easel.blocks(blocks);
+    easel.boards.extend(boards);
 }
 
 /// A glass case on a plinth, lined in velvet like Formiga Hill's own. Its glass is drawn in front
 /// of what is shown in it.
 fn case(easel: &mut Easel, piece: &Piece) -> Easel {
     easel.shadow((0.08, 0.92), (0.08, 0.92), 60);
-    easel.block(Block::new((0.1, 0.9), (0.1, 0.9), (0.0, 6.0), WALNUT));
+    easel.block(Block::new((0.1, 0.9), (0.1, 0.9), (0.0, 5.0), WALNUT));
     // The velvet lining the two far sides, seen through the glass.
     let back_x = [
-        easel.at(0.12, 0.12, 33.0),
-        easel.at(0.12, 0.88, 33.0),
+        easel.at(0.12, 0.12, 41.0),
+        easel.at(0.12, 0.88, 41.0),
         easel.at(0.12, 0.88, 6.0),
         easel.at(0.12, 0.12, 6.0),
     ];
     let back_y = [
-        easel.at(0.12, 0.12, 33.0),
-        easel.at(0.88, 0.12, 33.0),
+        easel.at(0.12, 0.12, 41.0),
+        easel.at(0.88, 0.12, 41.0),
         easel.at(0.88, 0.12, 6.0),
         easel.at(0.12, 0.12, 6.0),
     ];
     paint::polygon(&mut easel.canvas, &back_x, VELVET.shadow);
     paint::polygon(&mut easel.canvas, &back_y, VELVET.base);
-    for z in [12.0, 25.0] {
-        easel.block(Block::new((0.13, 0.87), (0.13, 0.87), (z - 1.0, z), LINEN));
+    let boards = [
+        Block::new((0.13, 0.87), (0.13, 0.87), (5.0, 6.0), LINEN),
+        Block::new((0.13, 0.87), (0.13, 0.87), (23.0, 24.0), LINEN),
+        Block::new((0.1, 0.9), (0.1, 0.9), (41.0, 44.0), WALNUT),
+    ];
+    for board in boards {
+        easel.block(board);
     }
-    easel.block(Block::new((0.1, 0.9), (0.1, 0.9), (33.0, 36.0), WALNUT));
+    easel.boards.extend(boards);
     let mut glass = Easel::new(
         piece.size.0,
         piece.size.1,
@@ -350,14 +402,14 @@ fn case(easel: &mut Easel, piece: &Piece) -> Easel {
     );
     let pane = rgba(0xd8f0f2, 70);
     let front_left = [
-        glass.at(0.1, 0.9, 33.0),
-        glass.at(0.9, 0.9, 33.0),
+        glass.at(0.1, 0.9, 41.0),
+        glass.at(0.9, 0.9, 41.0),
         glass.at(0.9, 0.9, 6.0),
         glass.at(0.1, 0.9, 6.0),
     ];
     let front_right = [
-        glass.at(0.9, 0.1, 33.0),
-        glass.at(0.9, 0.9, 33.0),
+        glass.at(0.9, 0.1, 41.0),
+        glass.at(0.9, 0.9, 41.0),
         glass.at(0.9, 0.9, 6.0),
         glass.at(0.9, 0.1, 6.0),
     ];
@@ -365,11 +417,11 @@ fn case(easel: &mut Easel, piece: &Piece) -> Easel {
     paint::polygon(&mut glass.canvas, &front_right, rgba(0xc4e2e6, 80));
     // The panes' meeting edge, a bright line rather than a post, so it never hides what is
     // shown; and a glint across each pane.
-    let (top, bottom) = (glass.pixel(0.9, 0.9, 32.0), glass.pixel(0.9, 0.9, 7.0));
+    let (top, bottom) = (glass.pixel(0.9, 0.9, 40.0), glass.pixel(0.9, 0.9, 7.0));
     paint::line(&mut glass.canvas, top, bottom, rgba(0xf4fcfc, 120));
     for (from, to) in [
-        (glass.pixel(0.25, 0.9, 28.0), glass.pixel(0.45, 0.9, 12.0)),
-        (glass.pixel(0.9, 0.3, 29.0), glass.pixel(0.9, 0.42, 20.0)),
+        (glass.pixel(0.25, 0.9, 36.0), glass.pixel(0.45, 0.9, 15.0)),
+        (glass.pixel(0.9, 0.3, 37.0), glass.pixel(0.9, 0.42, 26.0)),
     ] {
         paint::line(&mut glass.canvas, from, to, rgba(0xffffff, 150));
     }
@@ -381,33 +433,39 @@ fn case(easel: &mut Easel, piece: &Piece) -> Easel {
 /// line rather than a post, and go in front of whatever is shown in it.
 fn cabinet(easel: &mut Easel, piece: &Piece) -> Easel {
     easel.shadow((0.08, 0.92), (0.08, 0.92), 65);
-    easel.block(Block::new((0.1, 0.9), (0.1, 0.9), (0.0, 5.0), WALNUT));
+    easel.block(Block::new((0.1, 0.9), (0.1, 0.9), (0.0, 3.0), WALNUT));
     let back_x = [
-        easel.at(0.12, 0.12, 48.0),
-        easel.at(0.12, 0.88, 48.0),
-        easel.at(0.12, 0.88, 5.0),
-        easel.at(0.12, 0.12, 5.0),
+        easel.at(0.12, 0.12, 51.0),
+        easel.at(0.12, 0.88, 51.0),
+        easel.at(0.12, 0.88, 3.0),
+        easel.at(0.12, 0.12, 3.0),
     ];
     let back_y = [
-        easel.at(0.12, 0.12, 48.0),
-        easel.at(0.88, 0.12, 48.0),
-        easel.at(0.88, 0.12, 5.0),
-        easel.at(0.12, 0.12, 5.0),
+        easel.at(0.12, 0.12, 51.0),
+        easel.at(0.88, 0.12, 51.0),
+        easel.at(0.88, 0.12, 3.0),
+        easel.at(0.12, 0.12, 3.0),
     ];
     paint::polygon(&mut easel.canvas, &back_x, VELVET.shadow);
     paint::polygon(&mut easel.canvas, &back_y, VELVET.base);
     for (x, y) in [(0.1, 0.1), (0.8, 0.1), (0.1, 0.8)] {
-        easel.block(Block::new((x, x + 0.1), (y, y + 0.1), (5.0, 48.0), WALNUT));
+        easel.block(Block::new((x, x + 0.1), (y, y + 0.1), (3.0, 51.0), WALNUT));
     }
-    for z in [8.0, 22.0, 36.0] {
-        easel.block(Block::new((0.13, 0.87), (0.13, 0.87), (z - 1.0, z), LINEN));
+    let boards = [
+        Block::new((0.13, 0.87), (0.13, 0.87), (3.0, 4.0), LINEN),
+        Block::new((0.13, 0.87), (0.13, 0.87), (19.0, 20.0), LINEN),
+        Block::new((0.13, 0.87), (0.13, 0.87), (35.0, 36.0), LINEN),
+        Block::new((0.08, 0.92), (0.08, 0.92), (51.0, 53.0), WALNUT),
+        Block::new((0.05, 0.95), (0.05, 0.95), (53.0, 55.0), WALNUT),
+    ];
+    for board in boards {
+        easel.block(board);
     }
-    easel.block(Block::new((0.08, 0.92), (0.08, 0.92), (48.0, 51.0), WALNUT));
-    easel.block(Block::new((0.05, 0.95), (0.05, 0.95), (51.0, 53.0), WALNUT));
-    let (fx, fy) = easel.pixel(0.5, 0.5, 54.0);
+    easel.boards.extend(boards);
+    let (fx, fy) = easel.pixel(0.5, 0.5, 56.0);
     paint::put(&mut easel.canvas, fx, fy, BRASS.light);
     paint::put(&mut easel.canvas, fx, fy - 1, BRASS.shine);
-    glass_front(piece, easel.salt, (0.1, 0.9), (0.1, 0.9), (5.0, 48.0))
+    glass_front(piece, easel.salt, (0.1, 0.9), (0.1, 0.9), (3.0, 51.0))
 }
 
 /// The panes of a glass-fronted piece: its two near faces, meeting in a bright line, with a glint
@@ -507,29 +565,29 @@ fn counter(easel: &mut Easel, piece: &Piece) -> Easel {
     paint::polygon(&mut easel.canvas, &floor, VELVET.base);
     // The far panes, faint, and the oak frame along the top at the back.
     let back = [
-        easel.at(0.08, 0.12, 19.0),
-        easel.at(1.92, 0.12, 19.0),
+        easel.at(0.08, 0.12, 25.0),
+        easel.at(1.92, 0.12, 25.0),
         easel.at(1.92, 0.12, 9.0),
         easel.at(0.08, 0.12, 9.0),
     ];
     paint::polygon(&mut easel.canvas, &back, rgba(0xc4e2e6, 40));
-    let (a, b) = (easel.pixel(0.08, 0.12, 19.0), easel.pixel(1.92, 0.12, 19.0));
+    let (a, b) = (easel.pixel(0.08, 0.12, 25.0), easel.pixel(1.92, 0.12, 25.0));
     paint::line(&mut easel.canvas, a, b, OAK.base);
-    let mut glass = glass_front(piece, easel.salt, (0.08, 1.92), (0.12, 0.88), (9.0, 19.0));
+    let mut glass = glass_front(piece, easel.salt, (0.08, 1.92), (0.12, 0.88), (9.0, 25.0));
     // The glass top, and a brass edge round it.
     let top = [
-        glass.at(0.08, 0.12, 19.0),
-        glass.at(1.92, 0.12, 19.0),
-        glass.at(1.92, 0.88, 19.0),
-        glass.at(0.08, 0.88, 19.0),
+        glass.at(0.08, 0.12, 25.0),
+        glass.at(1.92, 0.12, 25.0),
+        glass.at(1.92, 0.88, 25.0),
+        glass.at(0.08, 0.88, 25.0),
     ];
     paint::polygon(&mut glass.canvas, &top, rgba(0xe8f6f8, 70));
     // A brass frame round the glass: along its top edges and up its corners.
     for (from, to) in [
-        ((0.08, 0.88, 19.0), (1.92, 0.88, 19.0)),
-        ((1.92, 0.88, 19.0), (1.92, 0.12, 19.0)),
-        ((0.08, 0.88, 19.0), (0.08, 0.88, 9.0)),
-        ((1.92, 0.12, 19.0), (1.92, 0.12, 9.0)),
+        ((0.08, 0.88, 25.0), (1.92, 0.88, 25.0)),
+        ((1.92, 0.88, 25.0), (1.92, 0.12, 25.0)),
+        ((0.08, 0.88, 25.0), (0.08, 0.88, 9.0)),
+        ((1.92, 0.12, 25.0), (1.92, 0.12, 9.0)),
     ] {
         let (a, b) = (
             glass.pixel(from.0, from.1, from.2),
@@ -1153,6 +1211,31 @@ pub fn sheet() -> Canvas {
 mod tests {
     use super::*;
     use crate::catalog::PIECES;
+
+    #[test]
+    fn every_shelf_under_a_board_has_the_room_the_catalogue_gives_it_and_is_drawn_behind_it() {
+        for piece in &PIECES {
+            let (sprite, boards) = drawn(piece, false);
+            for (slot, surface) in piece.surfaces.iter().enumerate() {
+                let Some(Cover::Board(room)) = surface.cover else {
+                    assert!(sprite.lids[slot].is_none(), "{} {slot}", piece.id);
+                    continue;
+                };
+                let lowest_above = boards
+                    .iter()
+                    .map(|board| board.z.0)
+                    .filter(|&bottom| bottom >= surface.height as f32)
+                    .min_by(f32::total_cmp);
+                assert_eq!(
+                    lowest_above,
+                    Some((surface.height + room) as f32),
+                    "{} {slot}",
+                    piece.id
+                );
+                assert!(sprite.lids[slot].is_some(), "{} {slot}", piece.id);
+            }
+        }
+    }
 
     #[test]
     fn every_piece_has_a_drawing_of_its_own_from_the_front_and_from_behind() {

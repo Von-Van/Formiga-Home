@@ -626,3 +626,62 @@ fn the_house_comes_closer_moves_about_under_a_drag_and_fits_again() {
     assert_eq!(window.app.room_rect.unwrap(), fitted);
     let _ = std::fs::remove_dir_all(&data);
 }
+
+#[test]
+fn a_keepsake_left_by_a_friend_is_kept_apart_from_the_finds_and_can_be_let_go() {
+    let data = scratch("keepsake");
+    let mut window = Harness::open(&data);
+    let friend = window.app.household.visitors[0].id;
+    let gift = window
+        .app
+        .make_keepsake(MementoKind::Postcard, Some(friend), Vec::new())
+        .unwrap();
+    window.arrange();
+    window.turn_to(Drawer::Finds);
+    window.wait(0.1);
+    assert!(
+        window
+            .text("Left by friends, drawn, or framed, and kept here")
+            .is_some(),
+        "no page of keepsakes"
+    );
+    let tile = window.at_id(egui::Id::new(("find", gift.as_str())));
+    window.click_with(tile, PointerButton::Secondary);
+    window.click_text("Let it go");
+    let home = |window: &Harness| {
+        window
+            .app
+            .state
+            .household(window.app.keeper)
+            .unwrap()
+            .clone()
+    };
+    assert!(home(&window).memento(&gift).is_none());
+    assert!(window.app.household.snapshot.item(&gift).is_none());
+    window.click_text("Undo");
+    assert!(
+        home(&window).memento(&gift).is_some(),
+        "letting go is undone"
+    );
+    assert!(window.app.household.snapshot.item(&gift).is_some());
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn the_journal_page_says_who_came_over_today() {
+    let data = scratch("journal");
+    let mut window = Harness::open(&data);
+    let friend = &window.app.household.visitors[0];
+    let (id, name) = (friend.id, friend.name.clone());
+    window.app.note(HomeMoment::Visit {
+        visitor: TravelerId(id),
+    });
+    window.click_id(notebook::page_id(Drawer::Journal));
+    window.wait(0.1);
+    assert!(window.text("Today").is_some());
+    assert!(window.text(&format!("{name} came over.")).is_some());
+    window.click_id(notebook::page_id(Drawer::Household));
+    window.wait(0.1);
+    assert!(window.text(&format!("{name} came over.")).is_none());
+    let _ = std::fs::remove_dir_all(&data);
+}

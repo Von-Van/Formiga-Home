@@ -11,14 +11,54 @@ use crate::household::Household;
 use anyhow::{Context, Result, bail};
 use formiga_home_contract::{
     ACK_FILE, AckRefusal, HOME_FORMAT_VERSION, HomeAck, HomeCapability, HomeEffect, HomeError,
-    HomeReceipt, HomeResult, HomeSnapshot, HomeState, RECALL_FILE, RECEIPT_FILE, RESULT_FILE,
-    SNAPSHOT_FILE, STATE_FILE, SessionId, SessionSeal, decode, limits, read_bounded, sha256_hex,
-    write_document,
+    HomeMoment, HomeReceipt, HomeResult, HomeSnapshot, HomeState, RECALL_FILE, RECEIPT_FILE,
+    RESULT_FILE, SNAPSHOT_FILE, STATE_FILE, SessionId, SessionSeal, Together, TravelerId, decode,
+    limits, read_bounded, sha256_hex, write_document,
 };
 use std::path::{Path, PathBuf};
 use time::OffsetDateTime;
 
 pub const HOME_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// What the household did at home that Desktop may take in, if it offers to: how often each
+/// pair spent time together, and how, and the moments worth a line in its journal, most worth it
+/// first.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Lived {
+    pub together: Vec<(TravelerId, TravelerId, Together, u8)>,
+    pub moments: Vec<HomeMoment>,
+}
+
+impl Lived {
+    /// As effects, for a Desktop offering `capabilities`: time together only if it nudges
+    /// bonds, moments only if it keeps a journal, each within the contract's bounds.
+    fn effects(&self, offers: impl Fn(HomeCapability) -> bool) -> Vec<HomeEffect> {
+        let mut effects = Vec::new();
+        if offers(HomeCapability::BondNudges) {
+            let mut counted = std::collections::BTreeSet::new();
+            for &(a, b, together, times) in &self.together {
+                let pair = (a.min(b), a.max(b), together);
+                if a == b || times == 0 || together == Together::Unknown || !counted.insert(pair) {
+                    continue;
+                }
+                effects.push(HomeEffect::Together {
+                    a: pair.0,
+                    b: pair.1,
+                    together,
+                    times: times.min(limits::MAX_TOGETHER),
+                });
+            }
+        }
+        if offers(HomeCapability::JournalMoments) {
+            effects.extend(self.moments.iter().take(limits::MAX_MOMENTS).map(|moment| {
+                HomeEffect::Moment {
+                    moment: moment.clone(),
+                }
+            }));
+        }
+        effects
+    }
+}
 
 /// A visit from Desktop in progress.
 pub struct Visit {
@@ -137,8 +177,8 @@ impl Visit {
     }
 
     /// The owner is leaving: the homes once more, then the receipt, with the visit noted if
-    /// Desktop records visits. Only once.
-    pub fn leave(&mut self, state: &HomeState) -> Result<()> {
+    /// Desktop records visits and what was lived there if it takes that in. Only once.
+    pub fn leave(&mut self, state: &HomeState, lived: &Lived) -> Result<()> {
         if self.left || self.recalled() {
             self.left = true;
             return Ok(());
@@ -146,7 +186,7 @@ impl Visit {
         self.keep(state)?;
         self.left = true;
         let now = OffsetDateTime::now_utc();
-        let effects = if self.records_visits {
+        let mut effects = if self.records_visits {
             vec![HomeEffect::HomeVisit {
                 household: self.snapshot.household.keeper,
                 arrived_at_utc: self
@@ -158,6 +198,8 @@ impl Visit {
         } else {
             Vec::new()
         };
+        effects.extend(lived.effects(|capability| self.snapshot.offers(capability)));
+        effects.truncate(limits::MAX_EFFECTS);
         let receipt = HomeReceipt::new(&self.seal, now, HOME_VERSION, effects);
         write_document(&self.dir.join(RECEIPT_FILE), &receipt)
             .context("could not write the receipt")?;
@@ -203,7 +245,7 @@ mod tests {
             "wall.stripes",
         ));
         visit.keep(&arranged).unwrap();
-        visit.leave(&arranged).unwrap();
+        visit.leave(&arranged, &Lived::default()).unwrap();
         let seal = SessionSeal::of(
             &snapshot,
             &encode(&snapshot).unwrap(),
@@ -266,7 +308,7 @@ mod tests {
         };
         let house = crate::house::House::of(&state.household(keeper).unwrap().rooms);
         assert!(arranging.put(&mut state, keeper, &snapshot, &house, landing));
-        visit.leave(&state).unwrap();
+        visit.leave(&state, &Lived::default()).unwrap();
         let kept = desktop_closes(&dir, &snapshot, &sent);
         let _ = std::fs::remove_dir_all(dir.parent().unwrap());
 
@@ -324,6 +366,64 @@ mod tests {
         .unwrap();
         assert_eq!(desktop_closes(&dir, &snapshot, &sent), sent);
         let _ = std::fs::remove_dir_all(dir.parent().unwrap());
+    }
+
+    #[test]
+    fn what_was_lived_goes_to_desktop_only_as_far_as_it_offers_and_within_bounds() {
+        let snapshot = sample::snapshot();
+        let (keeper, friend) = (snapshot.residents[0].id, snapshot.visitors[0].id);
+        let lived = Lived {
+            together: vec![
+                (friend, keeper, Together::Play, 9),
+                (keeper, friend, Together::Play, 1),
+                (keeper, keeper, Together::Cozy, 2),
+                (keeper, friend, Together::Care, 1),
+            ],
+            moments: vec![HomeMoment::Visit { visitor: friend }; 5],
+        };
+        let effects_for = |capabilities: Vec<HomeCapability>, name: &str| {
+            let mut offered = snapshot.clone();
+            offered.capabilities = capabilities;
+            let dir = visit_dir(name, &offered, &sample::state());
+            let (mut visit, _) = arrive(&dir, false).unwrap();
+            visit.leave(&visit.state.clone(), &lived).unwrap();
+            let receipt = read_document::<HomeReceipt>(&dir.join(RECEIPT_FILE))
+                .unwrap()
+                .0;
+            let _ = std::fs::remove_dir_all(dir.parent().unwrap());
+            receipt.effects
+        };
+        let all = effects_for(
+            vec![
+                HomeCapability::VisitRecord,
+                HomeCapability::BondNudges,
+                HomeCapability::JournalMoments,
+            ],
+            "lived-all",
+        );
+        let kinds: Vec<&str> = all.iter().map(HomeEffect::kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                "home_visit",
+                "together",
+                "together",
+                "moment",
+                "moment",
+                "moment"
+            ]
+        );
+        assert!(all.contains(&HomeEffect::Together {
+            a: keeper.min(friend),
+            b: keeper.max(friend),
+            together: Together::Play,
+            times: limits::MAX_TOGETHER,
+        }));
+        let visits_only = effects_for(vec![HomeCapability::VisitRecord], "lived-visits");
+        assert!(matches!(
+            visits_only.as_slice(),
+            [HomeEffect::HomeVisit { .. }]
+        ));
     }
 
     #[test]
@@ -388,7 +488,9 @@ mod tests {
         recall.validate().unwrap();
         write_document(&dir.join(RECALL_FILE), &recall).unwrap();
         assert!(visit.recalled());
-        visit.leave(&visit.state.clone()).unwrap();
+        visit
+            .leave(&visit.state.clone(), &Lived::default())
+            .unwrap();
         assert!(!dir.join(RESULT_FILE).exists() && !dir.join(RECEIPT_FILE).exists());
         let _ = std::fs::remove_dir_all(dir.parent().unwrap());
     }

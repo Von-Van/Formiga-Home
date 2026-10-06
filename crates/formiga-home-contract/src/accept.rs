@@ -34,20 +34,22 @@ impl HomeState {
             .retain(|home| snapshot.neighbour(home.keeper).is_some());
         let mut shown = BTreeSet::new();
         for home in &mut settled.households {
+            let own = own_mementos(home);
             for room in &mut home.rooms {
                 room.displays.retain(|placed| {
-                    let fits = snapshot
-                        .item(&placed.item)
-                        .is_some_and(|item| match placed.spot {
-                            Spot::Floor { .. } => item.allows(DisplayMode::Floor),
-                            Spot::On { .. } | Spot::Wall { .. } => true,
-                        });
+                    let fits = own.contains(&placed.item)
+                        || snapshot
+                            .item(&placed.item)
+                            .is_some_and(|item| match placed.spot {
+                                Spot::Floor { .. } => item.allows(DisplayMode::Floor),
+                                Spot::On { .. } | Spot::Wall { .. } => true,
+                            });
                     fits && shown.insert(placed.item.clone())
                 });
             }
             home.forget_what_is_gone();
             home.likings.retain(|liking| match &liking.thing {
-                Liked::Shown { item } => snapshot.item(item).is_some(),
+                Liked::Shown { item } => snapshot.item(item).is_some() || own.contains(item),
                 Liked::Piece { .. } => true,
             });
         }
@@ -121,16 +123,18 @@ fn proposed_home(
 ) -> HouseholdHome {
     let mut home = proposed.clone();
     home.keeper = keeper;
+    let own = own_mementos(&home);
     let mut shown = BTreeSet::new();
     for room in &mut home.rooms {
         let before = room.displays.len();
         room.displays.retain(|placed| {
-            let fits = snapshot
-                .item(&placed.item)
-                .is_some_and(|item| match placed.spot {
-                    Spot::Floor { .. } => item.allows(DisplayMode::Floor),
-                    Spot::On { .. } | Spot::Wall { .. } => true,
-                });
+            let fits = own.contains(&placed.item)
+                || snapshot
+                    .item(&placed.item)
+                    .is_some_and(|item| match placed.spot {
+                        Spot::Floor { .. } => item.allows(DisplayMode::Floor),
+                        Spot::On { .. } | Spot::Wall { .. } => true,
+                    });
             fits && shown.insert(placed.item.clone())
         });
         if room.displays.len() != before {
@@ -146,4 +150,13 @@ fn proposed_home(
         set_aside.push("liking_not_kept");
     }
     home
+}
+
+/// How the household's own keepsakes are shown: things it has that the colony's snapshot never
+/// lists.
+fn own_mementos(home: &HouseholdHome) -> Vec<crate::DisplayId> {
+    home.mementos
+        .iter()
+        .map(|memento| memento.id(home.keeper))
+        .collect()
 }

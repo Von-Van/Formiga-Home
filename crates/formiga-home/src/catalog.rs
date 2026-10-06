@@ -39,6 +39,26 @@ pub struct Surface {
     pub at: (f32, f32),
     pub height: i32,
     pub holds: Holds,
+    /// What is over it, if anything, keeping what is shown there to its height.
+    pub cover: Option<Cover>,
+}
+
+/// What is over a surface, and how far above it: nothing taller than that is shown there.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Cover {
+    /// A board or a roof. What is shown stands at its front, where the board hides least of it.
+    Board(i32),
+    /// Glass, seen through.
+    Glass(i32),
+}
+
+impl Cover {
+    /// How much room there is under it, in pixels.
+    pub fn clearance(self) -> i32 {
+        match self {
+            Self::Board(room) | Self::Glass(room) => room,
+        }
+    }
 }
 
 /// When a piece is in the catalogue.
@@ -313,6 +333,7 @@ pub static PIECES: [Piece; 31] = [
             at: (0.5, 0.5),
             height: 15,
             holds: Holds::Top,
+            cover: None,
         }],
         arrives: Arrival::Always,
         lift: 0,
@@ -331,11 +352,13 @@ pub static PIECES: [Piece; 31] = [
                 at: (0.55, 0.5),
                 height: 11,
                 holds: Holds::Top,
+                cover: None,
             },
             Surface {
                 at: (1.45, 0.5),
                 height: 11,
                 holds: Holds::Top,
+                cover: None,
             },
         ],
         arrives: Arrival::Always,
@@ -355,16 +378,19 @@ pub static PIECES: [Piece; 31] = [
                 at: (0.5, 0.5),
                 height: 4,
                 holds: Holds::Shelf,
+                cover: Some(Cover::Board(18)),
             },
             Surface {
                 at: (0.5, 0.5),
-                height: 18,
+                height: 24,
                 holds: Holds::Shelf,
+                cover: Some(Cover::Board(18)),
             },
             Surface {
                 at: (0.5, 0.5),
-                height: 32,
+                height: 44,
                 holds: Holds::Shelf,
+                cover: None,
             },
         ],
         arrives: Arrival::Always,
@@ -376,19 +402,21 @@ pub static PIECES: [Piece; 31] = [
         name: "Glass case",
         family: Family::Shelves,
         size: (1, 1),
-        height: 36,
+        height: 44,
         flat: false,
         uses: &[],
         surfaces: &[
             Surface {
                 at: (0.5, 0.5),
-                height: 12,
+                height: 6,
                 holds: Holds::Shelf,
+                cover: Some(Cover::Board(17)),
             },
             Surface {
                 at: (0.5, 0.5),
-                height: 25,
+                height: 24,
                 holds: Holds::Shelf,
+                cover: Some(Cover::Board(17)),
             },
         ],
         arrives: Arrival::AfterFinds(6),
@@ -492,24 +520,27 @@ pub static PIECES: [Piece; 31] = [
         name: "Curio cabinet",
         family: Family::Shelves,
         size: (1, 1),
-        height: 54,
+        height: 55,
         flat: false,
         uses: &[],
         surfaces: &[
             Surface {
                 at: (0.5, 0.5),
-                height: 8,
+                height: 4,
                 holds: Holds::Shelf,
+                cover: Some(Cover::Board(15)),
             },
             Surface {
                 at: (0.5, 0.5),
-                height: 22,
+                height: 20,
                 holds: Holds::Shelf,
+                cover: Some(Cover::Board(15)),
             },
             Surface {
                 at: (0.5, 0.5),
                 height: 36,
                 holds: Holds::Shelf,
+                cover: Some(Cover::Board(15)),
             },
         ],
         arrives: Arrival::AfterFinds(10),
@@ -528,6 +559,7 @@ pub static PIECES: [Piece; 31] = [
             at: (0.5, 0.5),
             height: 20,
             holds: Holds::Shelf,
+            cover: Some(Cover::Glass(15)),
         }],
         arrives: Arrival::AfterFinds(4),
         lift: 0,
@@ -538,24 +570,27 @@ pub static PIECES: [Piece; 31] = [
         name: "Glass counter",
         family: Family::Shelves,
         size: (2, 1),
-        height: 20,
+        height: 26,
         flat: false,
         uses: &[],
         surfaces: &[
             Surface {
-                at: (0.42, 0.5),
+                at: (0.3, 0.5),
                 height: 10,
                 holds: Holds::Shelf,
+                cover: Some(Cover::Glass(15)),
             },
             Surface {
                 at: (1.0, 0.5),
                 height: 10,
                 holds: Holds::Shelf,
+                cover: Some(Cover::Glass(15)),
             },
             Surface {
-                at: (1.58, 0.5),
+                at: (1.7, 0.5),
                 height: 10,
                 holds: Holds::Shelf,
+                cover: Some(Cover::Glass(15)),
             },
         ],
         arrives: Arrival::AfterFinds(14),
@@ -654,6 +689,7 @@ pub static PIECES: [Piece; 31] = [
             at: (0.5, 0.5),
             height: 12,
             holds: Holds::Top,
+            cover: None,
         }],
         arrives: Set::Woodland.arrives(),
         lift: 0,

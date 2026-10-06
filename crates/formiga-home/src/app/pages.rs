@@ -6,9 +6,10 @@
 
 use super::notebook::{LABEL, ink, kicker, label_job};
 use super::*;
-use crate::art::shell;
+use crate::art::{displays, shell};
 use formiga_art::{BodyClip, CreatureRenderer, EyelidPose, FaceRenderState, GazeDirection};
 use formiga_core::ActionKind;
+use formiga_home_contract::DisplayItem;
 
 /// How big a picture can be drawn inside `fit` points, whole screen pixels to each of its own,
 /// and never more than `most` of them.
@@ -35,6 +36,12 @@ fn cropped(canvas: Canvas) -> Canvas {
         }
     }
     cut
+}
+
+/// What was asked of a thing from its menu on the found things page.
+enum Tapped {
+    PutAway(DisplayId),
+    LetGo(DisplayId),
 }
 
 /// A one-unit outline round `rect` with its corners left out: the notebook's stepped edge.
@@ -84,12 +91,13 @@ impl HomeApp {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| match self.mode {
+                Mode::Live if self.live_page == Drawer::Journal => self.journal_page(ui, unit),
                 Mode::Live => self.household_page(ui, ctx, unit),
                 Mode::Arrange => {
                     match self.drawer {
-                        Drawer::Finds => self.finds_page(ui, ctx, unit),
                         Drawer::Furniture => self.furniture_page(ui, ctx, unit),
                         Drawer::Room => self.rooms_page(ui, ctx, unit),
+                        _ => self.finds_page(ui, ctx, unit),
                     }
                     ui.add_space(10.0);
                     self.arranging_foot(ui);
@@ -136,6 +144,44 @@ impl HomeApp {
             }
             cut
         }))
+    }
+
+    /// The household's journal, newest first, a line a moment under the day it happened.
+    fn journal_page(&mut self, ui: &mut egui::Ui, unit: f32) {
+        let dark = ui.visuals().dark_mode;
+        let journal = home_of(&self.state, self.keeper).journal.clone();
+        kicker(ui, "Journal");
+        if journal.is_empty() {
+            ui.label(
+                egui::RichText::new(
+                    "Nothing written yet. Friends who come over, keepsakes, new rooms and \
+                     favourites are noted here.",
+                )
+                .italics()
+                .color(ink::muted(dark)),
+            );
+            return;
+        }
+        let today = crate::journal::day_of(time::OffsetDateTime::now_utc());
+        let mut last = None;
+        for entry in journal.iter().rev() {
+            let day = crate::journal::day_of(entry.at_utc);
+            if last != Some(day) {
+                if last.is_some() {
+                    ui.add_space(3.0 * unit);
+                }
+                ui.label(
+                    egui::RichText::new(crate::journal::heading(day, today))
+                        .small()
+                        .color(ink::forest(dark)),
+                );
+                last = Some(day);
+            }
+            ui.label(crate::journal::line(
+                &entry.moment,
+                &self.household.snapshot,
+            ));
+        }
     }
 
     fn household_page(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, unit: f32) {
@@ -438,7 +484,13 @@ impl HomeApp {
     fn finds_page(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, unit: f32) {
         let dark = ui.visuals().dark_mode;
         let snapshot = self.household.snapshot.clone();
-        if snapshot.inventory.is_empty() {
+        let (colony, made): (Vec<&DisplayItem>, Vec<&DisplayItem>) = snapshot
+            .inventory
+            .iter()
+            .partition(|item| !keepsakes::is_keepsake(item));
+        let house = self.house.clone();
+        let mut chosen = None;
+        if colony.is_empty() {
             ui.label(
                 egui::RichText::new(
                     "Nothing found yet. Whatever the colony finds will be here to show.",
@@ -446,34 +498,79 @@ impl HomeApp {
                 .italics()
                 .color(ink::muted(dark)),
             );
-            return;
+        } else {
+            let here = colony
+                .iter()
+                .filter(|item| {
+                    matches!(
+                        self.household.whereabouts(&self.state, &item.id),
+                        Whereabouts::Here
+                    )
+                })
+                .count();
+            kicker(ui, "Found things");
+            ui.label(
+                egui::RichText::new(format!(
+                    "{} the colony has \u{b7} {here} shown here",
+                    colony.len()
+                ))
+                .small()
+                .color(ink::muted(dark)),
+            );
+            ui.add_space(4.0);
+            chosen = chosen.or(self.thing_tiles(ui, ctx, &colony, &house, unit));
         }
-        let here = snapshot
-            .inventory
-            .iter()
-            .filter(|item| {
-                matches!(
-                    self.household.whereabouts(&self.state, &item.id),
-                    Whereabouts::Here
-                )
-            })
-            .count();
-        kicker(ui, "Found things");
-        ui.label(
-            egui::RichText::new(format!(
-                "{} the colony has \u{b7} {here} shown here",
-                snapshot.inventory.len()
-            ))
-            .small()
-            .color(ink::muted(dark)),
-        );
-        ui.add_space(4.0);
-        let house = self.house.clone();
-        let mut put_away = None;
+        if !made.is_empty() {
+            ui.add_space(8.0);
+            kicker(ui, "Made at home");
+            ui.label(
+                egui::RichText::new("Left by friends, drawn, or framed, and kept here")
+                    .small()
+                    .color(ink::muted(dark)),
+            );
+            ui.add_space(4.0);
+            chosen = chosen.or(self.thing_tiles(ui, ctx, &made, &house, unit));
+        }
+        match chosen {
+            Some(Tapped::PutAway(item)) => {
+                self.arranging.carrying = Some(Carry::Thing(item));
+                if self
+                    .arranging
+                    .put_away(&mut self.state, self.keeper, &self.house)
+                {
+                    self.changed("Back in the drawer.");
+                }
+            }
+            Some(Tapped::LetGo(item)) => {
+                self.arranging.remember(&self.state);
+                if let Some(home) = self.state.household_mut(self.keeper) {
+                    keepsakes::let_go(home, &item);
+                }
+                if self.arranging.carrying == Some(Carry::Thing(item)) {
+                    self.arranging.carrying = None;
+                }
+                self.keepsakes_changed();
+                self.changed("Let go.");
+            }
+            None => {}
+        }
+    }
+
+    /// A tile for each of `items`, to pick one up by, and what was asked of one from its menu.
+    fn thing_tiles(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        items: &[&DisplayItem],
+        house: &House,
+        unit: f32,
+    ) -> Option<Tapped> {
+        let dark = ui.visuals().dark_mode;
+        let mut tapped = None;
         let size = egui::vec2(24.0 * unit, 24.0 * unit);
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = egui::vec2(2.0 * unit, 2.0 * unit);
-            for item in &snapshot.inventory {
+            for item in items {
                 let whereabouts = self.household.whereabouts(&self.state, &item.id);
                 let carried = self.arranging.carrying == Some(Carry::Thing(item.id.clone()));
                 let (response, rect) = tile(
@@ -483,9 +580,9 @@ impl HomeApp {
                     carried,
                     unit,
                 );
-                let (texture, pixels) = self.thumbnail(ctx, format!("item:{}", item.id), || {
-                    cropped(displays::icon(item))
-                });
+                let icon = displays::tile_picture(self.scene.icon(item), item);
+                let (texture, pixels) =
+                    self.thumbnail(ctx, format!("item:{}", item.id), || cropped(icon));
                 let shown = crisp(ui, pixels, size - egui::vec2(6.0, 6.0) * unit, 4.0);
                 ui.painter().image(
                     texture,
@@ -509,14 +606,16 @@ impl HomeApp {
                 }
                 let where_now = match &whereabouts {
                     Whereabouts::Nowhere => "Not shown anywhere yet".to_owned(),
-                    Whereabouts::Here => format!("Here, {}", where_here(&house, &item.id)),
+                    Whereabouts::Here => format!("Here, {}", where_here(house, &item.id)),
                     Whereabouts::Elsewhere(house) => format!("In {house}"),
                 };
                 let favourite = self.favourite_of(&Liked::Shown {
                     item: item.id.clone(),
                 });
                 let name = item.name.clone();
-                let finder = item.finder_name.clone();
+                let keepsake = keepsakes::is_keepsake(item);
+                // A keepsake's name already says whom it came from.
+                let finder = item.finder_name.clone().filter(|_| !keepsake);
                 let response = response.on_hover_ui(|ui| {
                     ui.strong(&name);
                     ui.label(egui::RichText::new(&where_now).small());
@@ -535,31 +634,31 @@ impl HomeApp {
                     self.arranging.dragged = response.drag_started();
                 }
                 let response = response.on_hover_cursor(egui::CursorIcon::Grab);
-                if matches!(whereabouts, Whereabouts::Here) {
+                let here = matches!(whereabouts, Whereabouts::Here);
+                if here || keepsake {
                     response.context_menu(|ui| {
-                        if ui.button("Put away").clicked() {
-                            put_away = Some(item.id.clone());
+                        if here && ui.button("Put away").clicked() {
+                            tapped = Some(Tapped::PutAway(item.id.clone()));
+                            ui.close();
+                        }
+                        if keepsake && ui.button("Let it go").clicked() {
+                            tapped = Some(Tapped::LetGo(item.id.clone()));
                             ui.close();
                         }
                     });
                 }
             }
         });
-        if let Some(item) = put_away {
-            self.arranging.carrying = Some(Carry::Thing(item));
-            if self
-                .arranging
-                .put_away(&mut self.state, self.keeper, &self.house)
-            {
-                self.changed("Back in the drawer.");
-            }
-        }
+        tapped
     }
 
     fn furniture_page(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, unit: f32) {
         let dark = ui.visuals().dark_mode;
         let snapshot = &self.household.snapshot;
-        let (days, things) = (snapshot.days_lived, snapshot.inventory.len());
+        let (days, things) = (
+            snapshot.days_lived,
+            crate::keepsakes::colony_things(snapshot).count(),
+        );
         let house = self.house.clone();
         let size = egui::vec2(30.0 * unit, 30.0 * unit);
         // The sets, to look at one at a time.
@@ -682,7 +781,10 @@ impl HomeApp {
         let mut floor = None;
         let mut wall = None;
         let snapshot = &self.household.snapshot;
-        let (days, things) = (snapshot.days_lived, snapshot.inventory.len());
+        let (days, things) = (
+            snapshot.days_lived,
+            crate::keepsakes::colony_things(snapshot).count(),
+        );
         kicker(ui, "Floor");
         let size = egui::vec2(34.0 * unit, 22.0 * unit);
         ui.horizontal_wrapped(|ui| {
@@ -858,6 +960,9 @@ impl HomeApp {
             self.placing = None;
             let taken_down = self.arranging.build(&mut self.state, self.keeper, &grown);
             self.room_page = (grown.rooms.len() - 1) as u8;
+            if let Some(room) = grown.rooms.last().and_then(|room| room.kind.clone()) {
+                self.note(HomeMoment::Room { room });
+            }
             self.changed(if taken_down.is_empty() {
                 "A new room."
             } else {

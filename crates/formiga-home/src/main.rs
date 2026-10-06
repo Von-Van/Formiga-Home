@@ -13,6 +13,8 @@ mod house;
 mod household;
 mod icon;
 mod iso;
+mod journal;
+mod keepsakes;
 mod life;
 mod paint;
 mod path;
@@ -39,7 +41,8 @@ Usage: formiga-home [--sample | --formiga-home <VISIT DIRECTORY> | --from-save <
                            only ever read
   --house <N>              Which house to open, counting the colony house as 0
   --render-room <PNG>      Draw the house to a PNG and exit without opening a window
-  --lived-in               With --render-room: the house a few weeks on, with finds shown
+  --lived-in               With --render-room, or a rehearsal with no house yet: the house a few
+                           weeks on, with finds and keepsakes shown
   --floor <ID> --wall <ID> With --lived-in: the finishes to draw it in
   --render-catalog <PNG>   Draw every piece of furniture at every turn, for review
   --render-poses <PNG>     Draw everyone in every pose Home uses, for review
@@ -48,7 +51,8 @@ Usage: formiga-home [--sample | --formiga-home <VISIT DIRECTORY> | --from-save <
   --rooms <N>              With --render-room or a rehearsal: the house grown to N rooms (up to 3)
   --snap <PNG>             Open the window, and after --at seconds (3 if not given) save a
                            picture of the window itself and close, for review
-  --page <PAGE>            With --snap: open arranging, on finds, furniture or rooms
+  --page <PAGE>            With --snap: open arranging, on finds, furniture or rooms; or the
+                           journal
   --theme <THEME>          With --snap: the notebook light or dark, whatever the household's
                            own preference
   --zoom <STEPS>           With --snap: the house that many whole pixels closer than fits
@@ -177,6 +181,8 @@ fn parse_args(mut args: impl Iterator<Item = std::ffi::OsString>) -> Result<Opti
 }
 
 fn main() -> Result<()> {
+    // Before anything else starts a thread, while the clock's offset can be read soundly.
+    journal::read_local_offset();
     // For the packaging scripts: the newest Home version this build reads, which goes in the
     // macOS bundle and the Windows registry for Desktop to find.
     if std::env::args_os()
@@ -248,6 +254,10 @@ fn main() -> Result<()> {
             let household =
                 Household::new(snapshot.clone()).context("could not draw the household")?;
             let mut homes = store::RehearsalHomes::new(data.as_deref(), &snapshot.colony_key);
+            if args.lived_in {
+                // For review: a house that has been lived in, if the rehearsal has none yet.
+                homes.live_in(&household, &args.floor, &args.wall);
+            }
             if args.rooms > 1 {
                 // For review: the rehearsal's house grown, as if the owner had built on.
                 homes.grow(&snapshot, args.rooms);
@@ -312,7 +322,19 @@ fn render_to(render: &Render, household: &Household, args: &Args) -> Canvas {
     match render {
         Render::Catalog => art::furniture::sheet(),
         Render::Poses => staging::poses(household),
-        Render::Finds => art::displays::sheet(&household.snapshot.inventory),
+        Render::Finds => {
+            // Everything the colony has, then what a lived-in house has made of its own.
+            let home = staging::lived_in(household, &args.floor, &args.wall);
+            let mut snapshot = household.snapshot.clone();
+            keepsakes::stock(&mut snapshot, &home);
+            let pictures = keepsakes::pictures(&home);
+            art::displays::sheet(&snapshot.inventory, |item| {
+                pictures
+                    .get(&item.id)
+                    .cloned()
+                    .unwrap_or_else(|| art::displays::icon(item))
+            })
+        }
         Render::Room => {
             let home = if args.lived_in {
                 staging::lived_in(household, &args.floor, &args.wall)
@@ -321,8 +343,11 @@ fn render_to(render: &Render, household: &Household, args: &Args) -> Canvas {
             };
             let mut home = staging::grown(home, args.rooms, &household.snapshot);
             arrange::settle(&mut home);
+            let mut snapshot = household.snapshot.clone();
+            keepsakes::stock(&mut snapshot, &home);
             let house = house::House::of(&home.rooms);
             let mut scene = scene::Scene::new(&house);
+            scene.set_pictures(keepsakes::pictures(&home));
             let mut overlay = scene::Overlay {
                 backdrop: true,
                 ..scene::Overlay::default()
@@ -334,27 +359,20 @@ fn render_to(render: &Render, household: &Household, args: &Args) -> Canvas {
                     let mut now = 0.0;
                     while now < until {
                         now += 1.0 / 30.0;
-                        life.tick(
-                            household,
-                            &house,
-                            &household.snapshot,
-                            &home.likings,
-                            now,
-                            1.0 / 30.0,
-                        );
+                        life.tick(household, &house, &snapshot, &home.likings, now, 1.0 / 30.0);
                     }
                     for id in life.present() {
-                        println!("{}", life.doing(household, &house, &household.snapshot, id));
+                        println!("{}", life.doing(household, &house, &snapshot, id));
                     }
                     let mut seen = house.clone();
                     let worn = life.worn();
                     seen.shown.retain(|shown| !worn.contains(&shown.item));
                     overlay.lamps_off = life.lamps_off().to_vec();
-                    scene.compose(&seen, &household.snapshot, &mut life.actors, now, &overlay)
+                    scene.compose(&seen, &snapshot, &mut life.actors, now, &overlay)
                 }
                 None => {
                     let mut actors = staging::pose(household, &house, household.reduce_motion());
-                    scene.compose(&house, &household.snapshot, &mut actors, 0.5, &overlay)
+                    scene.compose(&house, &snapshot, &mut actors, 0.5, &overlay)
                 }
             }
         }

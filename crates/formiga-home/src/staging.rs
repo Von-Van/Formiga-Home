@@ -11,7 +11,7 @@ use crate::room;
 use crate::starter;
 use formiga_art::ExpressionKind;
 use formiga_core::ActionKind;
-use formiga_home_contract::{CatalogId, DisplayId, HouseholdHome, Spot, WallSide};
+use formiga_home_contract::{CatalogId, DisplayId, HouseholdHome, MementoKind, Spot, WallSide};
 
 /// The sample house a few weeks on: a sofa and a low table, a case for the precious things, a
 /// lamp and a long rug, finds on the shelf, in the case, on the table, on both walls and on the
@@ -146,7 +146,68 @@ pub fn lived_in(household: &Household, floor: &str, wall: &str) -> HouseholdHome
     for (item, spot) in shown {
         room::show(&mut home, 0, &item, spot);
     }
+    keepsakes(&mut home, household);
     home
+}
+
+/// What a few weeks of visits leave: a postcard from the friend who drops by, the little one's
+/// drawing of the keeper, and a photo of the two of them, each up where there is room.
+fn keepsakes(home: &mut HouseholdHome, household: &Household) {
+    let at = time::OffsetDateTime::now_utc() - time::Duration::days(3);
+    let keeper = household.keeper();
+    let likeness = |resident: &crate::household::Resident| {
+        (
+            formiga_home_contract::TravelerId(resident.id),
+            crate::keepsakes::ink_of(resident),
+        )
+    };
+    let mut made = Vec::new();
+    if let Some(friend) = household.visitors.first() {
+        made.extend(crate::keepsakes::make(
+            home,
+            MementoKind::Postcard,
+            Some(formiga_home_contract::TravelerId(friend.id)),
+            Vec::new(),
+            at,
+        ));
+    }
+    if let Some(little) = household.residents.iter().find(|r| r.is_little()) {
+        made.extend(crate::keepsakes::make(
+            home,
+            MementoKind::Drawing,
+            Some(formiga_home_contract::TravelerId(little.id)),
+            vec![likeness(keeper)],
+            at,
+        ));
+    }
+    let everyone: Vec<_> = household.residents.iter().map(likeness).collect();
+    made.extend(crate::keepsakes::make(
+        home,
+        MementoKind::Photo,
+        None,
+        everyone,
+        at,
+    ));
+    let mut snapshot = household.snapshot.clone();
+    crate::keepsakes::stock(&mut snapshot, home);
+    let walls = [
+        (WallSide::North, 6),
+        (WallSide::West, 6),
+        (WallSide::North, 0),
+        (WallSide::West, 2),
+    ];
+    for id in made {
+        let Some(item) = snapshot.item(&id) else {
+            continue;
+        };
+        let free = walls.iter().find_map(|&(side, at)| {
+            let spot = Spot::Wall { side, at };
+            room::can_show(&home.rooms[0], item, spot).map(|_| spot)
+        });
+        if let Some(spot) = free {
+            room::show(home, 0, &id, spot);
+        }
+    }
 }
 
 /// The same house grown to `rooms` rooms: a reading nook behind it, then a gallery beside it, each

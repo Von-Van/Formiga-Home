@@ -47,6 +47,9 @@ pub enum DisplaySource {
     DesktopFind { variant: u8 },
     /// One of Formiga Hill's souvenirs that Desktop has kept, by Hill's own identifier.
     HillSouvenir { id: String },
+    /// One of the household's own keepsakes, made at home. Never sent by Desktop: Home makes
+    /// these for itself, from the household's home. Since version 4.
+    HomeMemento { memento: crate::state::MementoKind },
     /// A source a newer Desktop has. Shown on its card, by its name.
     #[serde(other)]
     Unknown,
@@ -123,6 +126,8 @@ impl DisplayItem {
             DisplaySource::HillSouvenir { id } => {
                 self.id.source() == DisplayId::SOUVENIR && self.id.key() == id
             }
+            // Desktop never sends a keepsake: Home makes those for itself.
+            DisplaySource::HomeMemento { .. } => false,
             DisplaySource::Unknown => true,
         };
         if !names_itself {

@@ -128,6 +128,18 @@ impl RehearsalHomes {
         }
     }
 
+    /// The house a few weeks on, if the rehearsal has no house yet.
+    pub fn live_in(&mut self, household: &crate::household::Household, floor: &str, wall: &str) {
+        let snapshot = &household.snapshot;
+        let mut state = self.load(&snapshot.colony_key);
+        if state.household(snapshot.household.keeper).is_none() {
+            state.set_household(crate::staging::lived_in(household, floor, wall));
+            if let Err(error) = self.save(&state) {
+                eprintln!("formiga-home: {error:#}");
+            }
+        }
+    }
+
     pub fn save(&self, state: &HomeState) -> anyhow::Result<()> {
         let Some(path) = &self.path else {
             return Ok(());
