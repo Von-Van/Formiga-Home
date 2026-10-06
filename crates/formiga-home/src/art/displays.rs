@@ -321,6 +321,7 @@ mod tests {
             &save,
             sample::keeper(&save),
             &[],
+            &formiga_home_contract::HomeCapability::ALL,
             formiga_home_contract::SessionId::parse(sample::SESSION).unwrap(),
             sample::MADE,
             "test",

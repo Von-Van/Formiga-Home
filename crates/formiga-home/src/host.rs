@@ -68,10 +68,12 @@ impl Colony {
                 .context("nobody keeps that house")?,
         };
         let visitors = likely_visitors(&save, keeper);
+        // A rehearsal takes back everything Home would send, as Desktop's own sample offers.
         Ok(project_household(
             &save,
             keeper,
             &visitors,
+            &HomeCapability::ALL,
             SessionId::generate().context("no randomness for a session id")?,
             made,
             label,

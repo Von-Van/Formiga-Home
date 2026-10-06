@@ -1,12 +1,14 @@
 //! Formiga Hill's souvenirs as a house keeps them, each its own way rather than all on velvet:
 //! the ribbon tied on a hook or folded on a napkin, the daisy pressed under glass, the penny in a
 //! dish, the acorn in a thimble, the feather in a bud vase or pinned up, the marble on a brass
-//! stand, and the ticket tacked up or held in a clip. The souvenir itself is Hill's own
-//! picture, untouched; only what keeps it is drawn here.
+//! stand, and the ticket tacked up or held in a clip; and from the Fairground, the rosette on a
+//! little easel or a hook, the bell hanging from its own stand, the teddy with the hoopla ring
+//! that won it, and the rope coiled on a scrap of sacking or over a hook. The souvenir itself is
+//! Hill's own picture, untouched; only what keeps it is drawn here.
 
 use super::Sprite;
 use super::displays::pinned;
-use super::ramps::{BERRY, BRASS, CORNFLOWER, LINEN, SAGE};
+use super::ramps::{BERRY, BRASS, CORNFLOWER, LINEN, OAK, SAGE};
 use crate::paint::{self, rgb, rgba};
 use formiga_art::{Canvas, Rgba};
 use formiga_core::Souvenir;
@@ -30,7 +32,7 @@ fn wall_shadow(canvas: &mut Canvas, picture: &Canvas, x: i32, y: i32) {
 /// Hung on a wall.
 pub fn hung(souvenir: Souvenir, icon: &Canvas) -> Sprite {
     match souvenir {
-        Souvenir::PicnicRibbon => on_hook(icon),
+        Souvenir::PicnicRibbon | Souvenir::RaceRosette | Souvenir::TugRope => on_hook(icon),
         Souvenir::PressedDaisy => under_glass(icon, false),
         Souvenir::FairTicket => tacked(icon),
         _ => pinned(icon),
@@ -47,6 +49,90 @@ pub fn set_down(souvenir: Souvenir, icon: &Canvas) -> Sprite {
         Souvenir::SwingFeather => in_bud_vase(icon),
         Souvenir::ChestMarble => on_stand(icon),
         Souvenir::FairTicket => in_clip(icon),
+        Souvenir::RaceRosette => on_easel(icon),
+        Souvenir::StrikerBell => on_bell_stand(icon),
+        Souvenir::HooplaTeddy => with_hoopla_ring(icon),
+        Souvenir::TugRope => on_sacking(icon),
+    }
+}
+
+/// The rosette stood on a little oak easel, its legs splayed behind it.
+fn on_easel(icon: &Canvas) -> Sprite {
+    let mut canvas = Canvas::new(9, 12);
+    foot_shadow(&mut canvas, 4, 11, 4);
+    for (x, y) in [(2, 10), (3, 8), (3, 9), (6, 10), (5, 8), (5, 9)] {
+        paint::put(&mut canvas, x, y, OAK.shadow);
+    }
+    paint::vline(&mut canvas, 4, 6, 5, OAK.base);
+    paint::hline(&mut canvas, 2, 7, 5, OAK.light);
+    paint::blit(&mut canvas, icon, 1, 0);
+    Sprite {
+        canvas,
+        anchor: (4, 10),
+        over: None,
+        lids: Vec::new(),
+    }
+}
+
+/// The bell hanging from the arm of its own little oak stand.
+fn on_bell_stand(icon: &Canvas) -> Sprite {
+    let mut canvas = Canvas::new(10, 12);
+    foot_shadow(&mut canvas, 5, 11, 4);
+    paint::hline(&mut canvas, 1, 10, 8, OAK.base);
+    paint::put(&mut canvas, 1, 10, OAK.light);
+    paint::vline(&mut canvas, 1, 1, 9, OAK.light);
+    paint::vline(&mut canvas, 2, 1, 9, OAK.shadow);
+    paint::hline(&mut canvas, 1, 1, 5, OAK.base);
+    paint::put(&mut canvas, 5, 2, BRASS.shadow);
+    paint::blit(&mut canvas, icon, 2, 2);
+    Sprite {
+        canvas,
+        anchor: (5, 10),
+        over: None,
+        lids: Vec::new(),
+    }
+}
+
+/// The teddy sat with the hoopla ring that won it lying at its feet.
+fn with_hoopla_ring(icon: &Canvas) -> Sprite {
+    let mut canvas = Canvas::new(11, 10);
+    foot_shadow(&mut canvas, 5, 9, 5);
+    paint::blit(&mut canvas, icon, 2, 0);
+    // The ring, red and white in turn, lying flat in front.
+    for x in 0..11 {
+        let (dx, rim) = (
+            (x as f32 - 5.0) / 5.0,
+            if x % 3 == 0 { BERRY.base } else { LINEN.shine },
+        );
+        let up = ((1.0 - dx * dx).max(0.0)).sqrt() * 1.5;
+        paint::put(&mut canvas, x, (8.0 - up).round() as i32, rim);
+        paint::put(&mut canvas, x, (8.0 + up * 0.6).round() as i32, rim);
+    }
+    Sprite {
+        canvas,
+        anchor: (5, 9),
+        over: None,
+        lids: Vec::new(),
+    }
+}
+
+/// The rope coiled on a scrap of sacking.
+fn on_sacking(icon: &Canvas) -> Sprite {
+    let mut canvas = Canvas::new(11, 10);
+    foot_shadow(&mut canvas, 5, 9, 5);
+    let sack = [rgb(0xc9a873), rgb(0xb08e5c)];
+    for y in 6..9 {
+        for x in 1..10 {
+            paint::put(&mut canvas, x, y, sack[((x + y) % 2) as usize]);
+        }
+    }
+    paint::hline(&mut canvas, 1, 9, 9, rgb(0x8c6e44));
+    paint::blit(&mut canvas, icon, 2, 1);
+    Sprite {
+        canvas,
+        anchor: (5, 9),
+        over: None,
+        lids: Vec::new(),
     }
 }
 

@@ -12,11 +12,11 @@ it.
 ## Relationship to Formiga Desktop
 
 - Desktop lives at `../Formiga Desktop` (GitHub `Von-Van/Formiga-Desktop`, public). Home is
-  private. `formiga-core`, `formiga-art` and `formiga-travel` come from Desktop by one release tag
-  in the root `Cargo.toml`, so their types agree. Never copy their source into this repository.
-- `formiga-home-contract` is a draft of a contract that belongs to Desktop. It lives here until
-  Desktop adopts it, then moves to Desktop's workspace, as `formiga-travel` lives there for
-  Formiga Hill. Until then, change it as Desktop's own crate would be changed: versioned, with
+  private. `formiga-core`, `formiga-art`, `formiga-travel` and `formiga-home-contract` come from
+  Desktop by one release tag in the root `Cargo.toml`, so their types agree. Never copy their
+  source into this repository.
+- `formiga-home-contract` is Desktop's, adopted in Desktop 0.67.0, as `formiga-travel` is the
+  contract Formiga Hill builds against. Any change to it is proposed for Desktop: versioned, with
   its golden fixtures untouched.
 - Desktop is authoritative for the colony. Home never reads or writes Desktop's `colony.json` at
   runtime. The only exception is `--from-save`, which reads (never writes) a save and projects it

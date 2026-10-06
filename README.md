@@ -58,11 +58,11 @@ stands. The full agreement between the two apps is written up in
 
 ## Where things stand
 
-Home is a preview. Most of it works end to end, but Desktop does not yet open houses itself, so
-for now Home runs in **rehearsal**: it opens either Desktop's own sample household or a house
-from a real colony save, read-only. A rehearsal is not a shortcut, though. It keeps its layouts in
-Home's own folder and checks them with the very same rules Desktop would use, so a rehearsal
-proves the same loop a real visit would.
+Home is a preview. Formiga Desktop opens houses in it from 0.67.0: install Home, and clicking a
+house in Desktop's village opens it here. Started on its own, Home runs in **rehearsal**: it opens
+either Desktop's own sample household or a house from a real colony save, read-only. A rehearsal
+is not a shortcut, though. It keeps its layouts in Home's own folder and checks them with the very
+same rules Desktop would use, so a rehearsal proves the same loop a real visit would.
 
 | Part | Status |
 | --- | --- |
@@ -73,8 +73,8 @@ proves the same loop a real visit would.
 | Visitors, favourites and photos | Preview |
 | Keepsakes, the Journal, and souvenirs each kept their own way | Preview |
 | Going next door, and friends staying over | Preview |
-| The household contract (`formiga-home-contract`) | Draft, kept here until Desktop adopts it |
-| Opening a house from Desktop's village | Not yet in Desktop |
+| The household contract (`formiga-home-contract`) | Desktop's, since Desktop 0.67.0; Home takes it by Desktop's release tag |
+| Opening a house from Desktop's village | In Desktop from 0.67.0 |
 | Packaging for macOS | Run end to end: a universal, signed `Formiga Home.app` with Desktop's bundle id and contract version, a zip and a disk image, each with its checksum; the packaged app answers a visit from a session directory |
 | Packaging for Windows | Builds and passes its checks for Windows; the installer itself has not yet been run on Windows |
 
@@ -240,8 +240,6 @@ machines and publishes a release with every package and its checksum. Both sign 
 ### How the code is laid out
 
 ```text
-crates/formiga-home-contract/   the household contract: documents, ids, limits, Desktop's
-                                projection of a house, and what Desktop keeps of an answer
 crates/formiga-home/src/
   main.rs          arguments, the window, and the renders
   app.rs, app/     the window: Live and Arrange Mode, the notebook round it, the notes pages,
@@ -301,6 +299,5 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-The contract's tests compare against saved example documents for every version (its "golden
-fixtures"). `FORMIGA_HOME_BLESS=1 cargo test -p formiga-home-contract --test golden` writes the
-fixtures for this build's own version, and never touches an older version's.
+The household contract, with its tests and its saved example documents for every version (its
+"golden fixtures"), lives in Formiga Desktop's workspace, and changes there.

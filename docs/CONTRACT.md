@@ -10,15 +10,15 @@ The reason for being this careful is fairly practical. A colony can represent mo
 time, and Home is an optional extra. If Home is missing, out of date, or crashes partway through a
 visit, the colony should not notice. Nearly every rule below exists to make that true.
 
-The contract itself is the `formiga-home-contract` crate. Its `lib.rs` is the authority, followed
-by `snapshot.rs`, `state.rs`, `replies.rs`, `inventory.rs` and `accept.rs`. Example documents for
-every version (the "golden fixtures") are kept in its `tests/fixtures`.
+The contract itself is the `formiga-home-contract` crate, in Formiga Desktop's workspace since
+Desktop 0.67.0. Its `lib.rs` is the authority, followed by `snapshot.rs`, `state.rs`,
+`replies.rs`, `inventory.rs` and `accept.rs`. Example documents for every version (the "golden
+fixtures") are kept in its `tests/fixtures`. Home takes it by Desktop's release tag, with the
+other Desktop crates, so their types always agree.
 
-For now the crate is a draft that lives beside Home. It follows the example of Desktop's
-`formiga-travel` crate, which plays the same role for Formiga Hill, and is built on top of it: a
-resident is exactly the `Traveler` a trip would carry, documents are written the same way, and
-text is made safe the same way. When Desktop adopts the contract, the crate moves into Desktop's
-workspace and Home takes it by release tag, just like the other Desktop crates.
+It follows the example of Desktop's `formiga-travel` crate, which plays the same role for Formiga
+Hill, and is built on top of it: a resident is exactly the `Traveler` a trip would carry,
+documents are written the same way, and text is made safe the same way.
 
 ## Who owns what
 
@@ -227,6 +227,7 @@ one wrote.
 | 4 | `mementos` and `journal` in each home; the receipt's `together` and `moment` effects, and the `bond_nudges` and `journal_moments` capabilities that offer them. All optional, so an older reader still reads every document |
 | 5 | The receipt's `next_door` effect and the `next_door` capability that offers it; a `stayed_over` moment. An older reader reads the effect as one it does not support and the moment as `unknown` |
 | 6 | The receipt's `move_in` effect and the `roommates` capability that offers it; an `asked_to_move_in` moment. Read by an older reader as before |
+| 7 | Desktop 0.67.0, which adopted the contract. No new fields: residents are written in travel version 4, Formiga Hill's Fairground souvenirs may be shown, and a snapshot offers only the capabilities Desktop applies |
 
 ## Finding Home
 

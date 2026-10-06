@@ -1,8 +1,5 @@
 [workspace]
-members = [
-    "crates/formiga-home",
-    "crates/formiga-home-contract",
-]
+members = ["crates/formiga-home"]
 resolver = "2"
 
 [workspace.package]
@@ -13,13 +10,13 @@ authors = ["Formiga contributors"]
 publish = false
 
 [workspace.dependencies]
-# Formiga Desktop's shared crates, all three from the same Desktop release so their types agree.
-# Move all three to a new release's tag together.
-formiga-art = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.66.6" }
-formiga-core = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.66.6" }
-formiga-travel = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.66.6" }
-
-formiga-home-contract = { path = "crates/formiga-home-contract" }
+# Formiga Desktop's shared crates, all four from the same Desktop release so their types agree:
+# the household contract among them, which is Desktop's. Move all four to a new release's tag
+# together.
+formiga-art = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.0" }
+formiga-core = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.0" }
+formiga-home-contract = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.0" }
+formiga-travel = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.0" }
 
 anyhow = "1.0.104"
 directories = "5.0.1"
@@ -28,8 +25,6 @@ png = "0.18.1"
 rfd = "0.17.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-sha2 = "0.10.9"
-thiserror = "2.0.20"
 time = { version = "0.3.55", features = ["formatting", "local-offset", "macros", "parsing", "serde"] }
 
 [profile.release]
