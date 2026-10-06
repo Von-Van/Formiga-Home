@@ -978,3 +978,42 @@ fn a_pat_stops_a_walk_so_the_pat_is_answered() {
     assert!(!actor.walking());
     assert_eq!(actor.shows(now), ActionKind::PetReaction.into());
 }
+
+#[test]
+fn a_seat_someone_was_patted_on_is_not_offered_to_anyone_else() {
+    let (household, layout) = home();
+    let keeper = household.keeper().id;
+    let mut life = Life::new(&household, &layout);
+    let sofa = piece(&layout, "sofa");
+    life.ask(keeper, Act::Sit(sofa), 0.0);
+    // Patted once it is up on top, walking along to its seat.
+    let mut now = 0.0;
+    let mut was = 0.0;
+    while now < 30.0 {
+        now = run(&mut life, &household, &layout, now, 1.0 / 30.0);
+        let actor = life.actor(keeper).unwrap();
+        if actor.walking() && actor.on_piece == Some(sofa) && actor.lift > 0.0 && actor.lift == was
+        {
+            break;
+        }
+        was = actor.lift;
+    }
+    life.pet(&household, keeper, now);
+    let actor = life.actor(keeper).unwrap();
+    assert_eq!(actor.on_piece, Some(sofa), "patted up on the sofa");
+    let offered = life
+        .free_seats(&layout)
+        .iter()
+        .filter(|seat| seat.piece == sofa)
+        .count();
+    let places = seat_points(
+        layout.piece(sofa).unwrap(),
+        catalog::piece(&layout.piece(sofa).unwrap().piece).unwrap(),
+    )
+    .len();
+    assert_eq!(
+        offered,
+        places - 1,
+        "the place it is on is offered while it is still there"
+    );
+}
