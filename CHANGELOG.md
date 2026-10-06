@@ -13,7 +13,7 @@ opens the same houses as before.
 - Residents walk up onto a seat or a bed and back down off it, a step at a time, instead of
   jumping from the floor beside it and walking out through the furniture.
 - A pat or a lift stops a resident's walk, so it answers the pat or dangles while carried rather
-  than walking on the spot, and it lands where it was let go.
+  than walking on the spot. Let go over open floor, it lands where it was let go.
 - A resident patted while up on a sofa or bed stays up there to answer, and walks down afterwards.
 
 ## 0.1.1 (2026-10-06)
