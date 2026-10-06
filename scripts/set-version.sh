@@ -34,6 +34,12 @@ if [ "${1:-}" = "--check" ]; then
   for file in "${tag_docs[@]}"; do
     grep -qF "\`$tag\`" "$file" || { echo "$file does not name $tag" >&2; missing=1; }
   done
+  locked="$(awk '$0 == "name = \"formiga-home\"" { getline; gsub(/version = |"/, ""); print; exit }' Cargo.lock)"
+  [ "$locked" = "$current" ] || { echo "Cargo.lock has formiga-home $locked, not $current" >&2; missing=1; }
+  if grep 'source = "git+https://github.com/Von-Van/Formiga-Desktop' Cargo.lock | grep -vqF "?tag=$tag#"; then
+    echo "Cargo.lock takes some of Desktop's crates from another tag than $tag" >&2
+    missing=1
+  fi
   [ "$missing" -eq 0 ] && echo "Every place names $current and $tag."
   exit "$missing"
 fi
@@ -47,10 +53,8 @@ if ! [[ "$new" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || ! [[ "$new_tag" =~ ^v[0-9]+\.[0
   echo "       $(basename "$0") --check" >&2
   exit 2
 fi
-if [ "$new" = "$current" ] && [ "$new_tag" = "$tag" ]; then
-  echo "The version is already $current on $tag" >&2
-  exit 1
-fi
+# Running it again with the same values is how an interrupted run is finished: the files are left
+# as they are and Cargo.lock is brought up to them.
 
 # The dots are literal, and 0.1.1 must not match inside 0.1.10.
 literal() { printf '%s' "$1" | sed 's/\./\\./g'; }
@@ -59,16 +63,14 @@ old_tag="$(literal "$tag")"
 
 perl -pi -e "s/^version = \"$old_version\"\$/version = \"$new\"/" Cargo.toml
 perl -pi -e "s/<string>$old_version<\\/string>/<string>$new<\\/string>/" "$plist"
-if [ "$new_tag" != "$tag" ]; then
-  for file in Cargo.toml "${tag_docs[@]}"; do
-    perl -pi -e "s/(?<![0-9.])$old_tag(?![0-9])/$new_tag/g" "$file"
-  done
-  # Only Desktop's crates move; nothing else in the lockfile is touched.
-  crates=()
-  while read -r crate; do crates+=(-p "$crate"); done \
-    < <(sed -n 's/^\([a-z-]*\) = { git = "https:\/\/github.com\/Von-Van\/Formiga-Desktop".*/\1/p' Cargo.toml)
-  cargo update --quiet "${crates[@]}"
-fi
+for file in Cargo.toml "${tag_docs[@]}"; do
+  perl -pi -e "s/(?<![0-9.])$old_tag(?![0-9])/$new_tag/g" "$file"
+done
+# Only Desktop's crates and this app's own entry move; nothing else in the lockfile is touched.
+crates=()
+while read -r crate; do crates+=(-p "$crate"); done \
+  < <(sed -n 's/^\([a-z-]*\) = { git = "https:\/\/github.com\/Von-Van\/Formiga-Desktop".*/\1/p' Cargo.toml)
+cargo update --quiet "${crates[@]}"
 cargo update --workspace --quiet
 
 echo "Home is now $new on Formiga Desktop $new_tag."
