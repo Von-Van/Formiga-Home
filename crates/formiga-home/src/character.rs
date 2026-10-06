@@ -147,6 +147,12 @@ impl Character {
         warmth >= 0.99 || (!shy && warmth > 0.3)
     }
 
+    /// Whether, asked to come and live here, it would like to: only for a close friend, and never
+    /// one who would rather keep apart.
+    pub fn would_move_in(&self, warmth: f32) -> bool {
+        warmth >= 0.99 && !self.keeps_apart()
+    }
+
     /// Would rather sit apart from the others than among them.
     pub fn keeps_apart(&self) -> bool {
         matches!(

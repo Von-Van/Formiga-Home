@@ -34,6 +34,9 @@ pub enum HomeCapability {
     /// [`crate::HomeEffect::NextDoor`]: Desktop opens the house the owner went over to, next,
     /// if it can. Since version 5.
     NextDoor,
+    /// [`crate::HomeEffect::MoveIn`]: Desktop considers, by its own rules, a visitor the owner
+    /// asked to come and live here. Since version 6.
+    Roommates,
     /// Anything a newer Desktop offers that this build does not know.
     #[serde(other)]
     Unknown,

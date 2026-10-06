@@ -52,6 +52,7 @@
 //! | 3 | A room's `plan`, `kind` and `doors`: where each room stands in its house, what kind of room it is, and its doorways |
 //! | 4 | A home's `mementos` and `journal`; the receipt's `together` and `moment` effects, and the capabilities that offer them |
 //! | 5 | The receipt's `next_door` effect and the capability that offers it: the owner going over to another house, which Desktop opens next if it will; a `stayed_over` moment |
+//! | 6 | The receipt's `move_in` effect and the `roommates` capability that offers it: a visitor asked to come and live here, which Desktop decides on; an `asked_to_move_in` moment |
 //!
 //! The golden fixtures under `tests/fixtures` are every version as it was first written, and must
 //! keep reading.
@@ -92,7 +93,7 @@ pub use state::{
 };
 
 /// The version of every Home document this build writes, and the newest it reads.
-pub const HOME_FORMAT_VERSION: u32 = 5;
+pub const HOME_FORMAT_VERSION: u32 = 6;
 
 /// The `format` of each document.
 pub const SNAPSHOT_FORMAT: &str = "formiga.home.snapshot";

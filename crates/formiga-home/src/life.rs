@@ -2365,7 +2365,8 @@ fn subject(household: &Household, little: Id, present: &[Id]) -> Id {
         .unwrap_or(little)
 }
 
-fn band(band: Band) -> f32 {
+/// A bond's band as a number, from nothing for strangers to 1 for the closest.
+pub fn band(band: Band) -> f32 {
     match band {
         Band::None => 0.0,
         Band::Low => 0.33,

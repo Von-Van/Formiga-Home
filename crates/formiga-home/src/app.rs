@@ -54,6 +54,8 @@ enum Entry {
     Choose(Id),
     /// Ask a visitor to stay over.
     StayOver(Id),
+    /// Ask a visitor to come and live here.
+    MoveIn(Id),
 }
 
 /// How the house is shown on its page: as big as fits, or zoomed in by whole pixels and moved
@@ -167,6 +169,8 @@ pub struct HomeApp {
     opened_at_utc: OffsetDateTime,
     /// The house the owner is going over to, if they are going next door.
     next_door: Option<TravelerId>,
+    /// A friend asked to move in this visit, who would like to.
+    move_in: Option<Id>,
     _open: Option<store::Open>,
     /// For review: a picture of the window itself to save, and when, after which it closes; and
     /// how many steps closer than fits to show the house in it.
@@ -248,6 +252,7 @@ impl HomeApp {
             left: false,
             opened_at_utc: now_utc(),
             next_door: None,
+            move_in: None,
             _open: open,
             snap: None,
             snap_zoom: 0,
@@ -888,11 +893,12 @@ impl HomeApp {
         let home = home_of(&self.state, self.keeper);
         let worth = |moment: &HomeMoment| match moment {
             HomeMoment::Memento { .. } => 0,
-            HomeMoment::StayedOver { .. } => 1,
-            HomeMoment::Room { .. } => 2,
-            HomeMoment::Favourite { .. } => 3,
-            HomeMoment::Visit { .. } => 4,
-            HomeMoment::Unknown => 5,
+            HomeMoment::AskedToMoveIn { .. } => 1,
+            HomeMoment::StayedOver { .. } => 2,
+            HomeMoment::Room { .. } => 3,
+            HomeMoment::Favourite { .. } => 4,
+            HomeMoment::Visit { .. } => 5,
+            HomeMoment::Unknown => 6,
         };
         let mut moments: Vec<_> = home
             .journal
@@ -923,6 +929,7 @@ impl HomeApp {
                 .map(|entry| entry.moment.clone())
                 .collect(),
             next_door: self.next_door,
+            move_in: self.move_in.map(|friend| (TravelerId(friend), self.keeper)),
         }
     }
 
@@ -1173,6 +1180,52 @@ impl HomeApp {
         })
     }
 
+    /// Asking a visitor to move in, once a visit, where somebody will hear of it.
+    fn move_in_entry(&self, id: Id) -> Option<(Entry, String)> {
+        (self.household.is_visitor(id)
+            && self.life.present().contains(&id)
+            && self.move_in.is_none()
+            && self.host.hears_move_ins())
+        .then(|| {
+            (
+                Entry::MoveIn(id),
+                format!("Ask {} to move in", self.name(id)),
+            )
+        })
+    }
+
+    /// A friend asked to come and live here: it says whether it would like to, and if so, Desktop
+    /// hears of it on leaving and decides.
+    fn ask_to_move_in(&mut self, visitor: Id) {
+        let name = self.name(visitor);
+        let warmth = self.household.friend_of(visitor).map_or(0.0, |friend| {
+            life::band(self.household.bond(friend.id, visitor).warmth)
+        });
+        let Some(character) = self
+            .household
+            .resident(visitor)
+            .map(|visitor| visitor.character.clone())
+        else {
+            return;
+        };
+        if !character.would_move_in(warmth) {
+            self.say(format!("{name} is happy in their own house."));
+            return;
+        }
+        self.move_in = Some(visitor);
+        self.note(HomeMoment::AskedToMoveIn {
+            visitor: TravelerId(visitor),
+        });
+        match &self.host {
+            Host::Visit(_) => self.say(format!(
+                "{name} would like that. Whether they move in is settled at home in the village."
+            )),
+            Host::Rehearsal(_) => self.say(format!(
+                "{name} would like that, but nobody moves house in a rehearsal."
+            )),
+        }
+    }
+
     fn click_live(&mut self, target: Target, at: egui::Pos2) {
         let now = self.now();
         let house = self.house.clone();
@@ -1185,6 +1238,7 @@ impl HomeApp {
                     entries: {
                         let mut entries = vec![(Entry::Pet, "Give a pat".to_owned())];
                         entries.extend(self.stay_over_entry(id));
+                        entries.extend(self.move_in_entry(id));
                         entries
                     },
                     opened: now,
@@ -1220,6 +1274,7 @@ impl HomeApp {
                 let title = match &target {
                     Target::Resident(other) => {
                         entries.extend(self.stay_over_entry(*other));
+                        entries.extend(self.move_in_entry(*other));
                         entries.push((
                             Entry::Choose(*other),
                             format!("Choose {} instead", self.name(*other)),
@@ -1528,6 +1583,7 @@ impl HomeApp {
                     self.life.pet(&self.household, chosen_id, now);
                 }
                 Entry::Choose(other) => self.selected = Some(other),
+                Entry::MoveIn(visitor) => self.ask_to_move_in(visitor),
                 Entry::StayOver(visitor) => {
                     if !self.life.ask_to_stay(&self.household, visitor) {
                         self.say(format!(

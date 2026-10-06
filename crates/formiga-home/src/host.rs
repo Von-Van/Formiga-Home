@@ -168,6 +168,15 @@ impl Host {
         }
     }
 
+    /// Whether a friend can be asked to move in: Desktop considers it if it offers to; a
+    /// rehearsal hears it, and nobody moves.
+    pub fn hears_move_ins(&self) -> bool {
+        match self {
+            Self::Visit(visit) => visit.snapshot.offers(HomeCapability::Roommates),
+            Self::Rehearsal(_) => true,
+        }
+    }
+
     /// Whether Desktop has taken the household back already.
     pub fn recalled(&self) -> bool {
         match self {

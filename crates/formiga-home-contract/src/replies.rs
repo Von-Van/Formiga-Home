@@ -220,6 +220,14 @@ pub enum HomeEffect {
     /// next, if it offers [`crate::HomeCapability::NextDoor`] and can, by its own rules. At most
     /// once a visit. Since version 5.
     NextDoor { household: TravelerId },
+    /// The owner asked `resident`, a friend visiting, to come and live in the house `household`
+    /// keeps, the one visited, and it would like to. A request only: Desktop grants it or not by
+    /// its own rules, if it offers [`crate::HomeCapability::Roommates`]. At most once a visit.
+    /// Since version 6.
+    MoveIn {
+        resident: TravelerId,
+        household: TravelerId,
+    },
     /// Anything a newer Home sends that this build does not know.
     #[serde(other)]
     Unsupported,
@@ -249,6 +257,7 @@ impl HomeEffect {
             Self::Together { .. } => "together",
             Self::Moment { .. } => "moment",
             Self::NextDoor { .. } => "next_door",
+            Self::MoveIn { .. } => "move_in",
             Self::Unsupported => "unsupported",
         }
     }
@@ -306,6 +315,27 @@ impl HomeReceipt {
                     && snapshot.neighbour(*household).is_some() =>
             {
                 Some(*household)
+            }
+            _ => None,
+        })
+    }
+}
+
+impl HomeReceipt {
+    /// Who the owner asked to move in, and into whose house, if Desktop offered to consider it:
+    /// a friend lent for the visit, into the house visited.
+    pub fn move_in(&self, snapshot: &HomeSnapshot) -> Option<(TravelerId, TravelerId)> {
+        if !snapshot.offers(crate::HomeCapability::Roommates) {
+            return None;
+        }
+        self.effects.iter().find_map(|effect| match effect {
+            HomeEffect::MoveIn {
+                resident,
+                household,
+            } if *household == snapshot.household.keeper
+                && snapshot.visitor(*resident).is_some() =>
+            {
+                Some((*resident, *household))
             }
             _ => None,
         })
@@ -370,6 +400,19 @@ impl HomeDocument for HomeReceipt {
             .count();
         if next > 1 {
             return Err(invalid("a receipt going to two houses at once"));
+        }
+        let mut moves = 0;
+        for effect in &self.effects {
+            if let HomeEffect::MoveIn {
+                resident,
+                household,
+            } = effect
+            {
+                moves += 1;
+                if resident == household || moves > 1 {
+                    return Err(invalid("a move that does not add up"));
+                }
+            }
         }
         Ok(())
     }
@@ -544,6 +587,35 @@ mod tests {
         for receipt in [twice, alone, too_often, never, chatty] {
             assert!(receipt.validate().is_err(), "{receipt:?} was accepted");
         }
+    }
+
+    #[test]
+    fn only_a_visiting_friend_can_be_asked_to_move_in_and_only_once() {
+        let snapshot = crate::sample::snapshot();
+        let (keeper, friend) = (snapshot.household.keeper, snapshot.visitors[0].id);
+        let moving = |resident, household| HomeEffect::MoveIn {
+            resident,
+            household,
+        };
+        let mut receipt = HomeReceipt::new(
+            &seal(),
+            datetime!(2026-10-05 12:20 UTC),
+            "0.1.0",
+            vec![moving(friend, keeper)],
+        );
+        assert!(receipt.validate().is_ok());
+        assert_eq!(receipt.move_in(&snapshot), Some((friend, keeper)));
+        let mut declined = snapshot.clone();
+        declined
+            .capabilities
+            .retain(|capability| *capability != crate::HomeCapability::Roommates);
+        assert_eq!(receipt.move_in(&declined), None, "not offered");
+        receipt.effects = vec![moving(snapshot.residents[1].id, keeper)];
+        assert_eq!(receipt.move_in(&snapshot), None, "lives here already");
+        receipt.effects = vec![moving(friend, friend)];
+        assert!(receipt.validate().is_err(), "into its own house");
+        receipt.effects = vec![moving(friend, keeper), moving(friend, keeper)];
+        assert!(receipt.validate().is_err(), "twice");
     }
 
     #[test]

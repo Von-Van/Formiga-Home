@@ -724,8 +724,8 @@ fn a_rehearsal_goes_next_door_in_the_same_window_and_back_again() {
 }
 
 #[test]
-fn a_visitor_can_be_asked_to_stay_over_from_its_menu() {
-    let data = scratch("stay-over");
+fn a_close_friend_can_be_asked_to_stay_over_and_to_move_in_from_its_menu() {
+    let data = scratch("move-in");
     let mut window = Harness::open(&data);
     let friend = window.app.household.visitors[0].id;
     while !window.app.life.present().contains(&friend) {
@@ -738,5 +738,24 @@ fn a_visitor_can_be_asked_to_stay_over_from_its_menu() {
     let name = window.app.name(friend);
     window.click_text(&format!("Ask {name} to stay over"));
     assert!(window.app.life.staying(friend));
+    let at = window.find(&Target::Resident(friend));
+    window.click(at);
+    window.click_text(&format!("Ask {name} to move in"));
+    assert_eq!(window.app.move_in, Some(friend));
+    assert_eq!(
+        window.app.lived().move_in,
+        Some((TravelerId(friend), window.app.keeper))
+    );
+    assert!(window.app.move_in_entry(friend).is_none(), "once a visit");
+    let journal = &window
+        .app
+        .state
+        .household(window.app.keeper)
+        .unwrap()
+        .journal;
+    assert!(matches!(
+        journal.last().map(|entry| &entry.moment),
+        Some(HomeMoment::AskedToMoveIn { visitor }) if visitor.0 == friend
+    ));
     let _ = std::fs::remove_dir_all(&data);
 }

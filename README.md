@@ -111,6 +111,9 @@ The notebook opens in **Live Mode**, where the household is simply at home.
   A close friend agrees; a shy one only if it is very close. A friend whose visit is up may ask to
   stay of its own accord. Someone staying over stays until you leave, and when tired sleeps in the
   guest bedroll, or in a bed nobody at home has made their favourite.
+- **Moving in.** A close friend can be asked, from its menu, to come and live here, once a visit.
+  If it would like to, Desktop hears of it when you leave and decides, by its own rules; Home
+  never moves anyone itself.
 - **Next door.** The household page lists the village's other houses. Click one to go over:
   Desktop closes this house and opens that one in the same place on screen. A rehearsal opens it
   itself, in the same window.

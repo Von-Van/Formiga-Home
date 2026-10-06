@@ -28,6 +28,8 @@ pub struct Lived {
     pub together: Vec<(TravelerId, TravelerId, Together, u8)>,
     pub moments: Vec<HomeMoment>,
     pub next_door: Option<TravelerId>,
+    /// A friend asked to come and live here, and the house it would move into.
+    pub move_in: Option<(TravelerId, TravelerId)>,
 }
 
 impl Lived {
@@ -43,6 +45,16 @@ impl Lived {
             && snapshot.neighbour(household).is_some()
         {
             effects.push(HomeEffect::NextDoor { household });
+        }
+        if offers(HomeCapability::Roommates)
+            && let Some((resident, household)) = self.move_in
+            && household == snapshot.household.keeper
+            && snapshot.visitor(resident).is_some()
+        {
+            effects.push(HomeEffect::MoveIn {
+                resident,
+                household,
+            });
         }
         if offers(HomeCapability::JournalMoments) {
             effects.extend(self.moments.iter().take(limits::MAX_MOMENTS).map(|moment| {
@@ -393,6 +405,7 @@ mod tests {
             ],
             moments: vec![HomeMoment::Visit { visitor: friend }; 5],
             next_door: Some(friend),
+            move_in: Some((friend, keeper)),
         };
         let effects_for = |capabilities: Vec<HomeCapability>, name: &str| {
             let mut offered = snapshot.clone();
@@ -412,6 +425,7 @@ mod tests {
                 HomeCapability::BondNudges,
                 HomeCapability::JournalMoments,
                 HomeCapability::NextDoor,
+                HomeCapability::Roommates,
             ],
             "lived-all",
         );
@@ -421,6 +435,7 @@ mod tests {
             [
                 "home_visit",
                 "next_door",
+                "move_in",
                 "moment",
                 "moment",
                 "moment",

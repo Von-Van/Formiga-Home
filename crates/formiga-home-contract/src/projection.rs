@@ -179,6 +179,7 @@ pub fn project_household(
             HomeCapability::BondNudges,
             HomeCapability::JournalMoments,
             HomeCapability::NextDoor,
+            HomeCapability::Roommates,
         ],
         household: Household {
             keeper: TravelerId(keeper),

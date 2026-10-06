@@ -262,6 +262,8 @@ pub enum HomeMoment {
     Room { room: CatalogId },
     /// A friend stayed over, the whole visit, and slept here. Since version 5.
     StayedOver { visitor: TravelerId },
+    /// The owner asked a friend to come and live here, and it would like to. Since version 6.
+    AskedToMoveIn { visitor: TravelerId },
     /// A moment a newer Home records.
     #[serde(other)]
     Unknown,
