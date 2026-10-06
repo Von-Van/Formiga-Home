@@ -10,6 +10,9 @@ Home's version now matches Formiga Desktop's, so the apps released together carr
 is built on Formiga Desktop 0.67.3 and still reads travel version 4 and household version 7, so it
 opens the same houses as before.
 
+- Residents no longer slide across the floor. After about 25 seconds in a house, every walk and
+  other looping animation froze on one frame, so residents glided wherever they went. Formiga
+  Desktop 0.67.3 fixes this in the drawing Home shares with it.
 - Residents walk up onto a seat or a bed and back down off it, a step at a time, instead of
   jumping from the floor beside it and walking out through the furniture.
 - A pat or a lift stops a resident's walk, so it answers the pat or dangles while carried rather
