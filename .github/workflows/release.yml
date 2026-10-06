@@ -57,6 +57,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Check the version and take its notes from the changelog
+        id: notes
         env:
           TAG: ${{ github.ref_name }}
         run: |
@@ -77,6 +78,15 @@ jobs:
             exit 1
           fi
           printf '\nUnsigned build. A SHA-256 checksum file is included for every download.\n' >> notes.md
+          # A tag whose message carries the line "Formiga-Release: draft" publishes a draft, seen
+          # only by the repository's owners until it is published, so every app of a joint release
+          # can be tried before any goes out. The checkout keeps only the commit, so fetch the tag.
+          git fetch --quiet --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          if git tag -l --format='%(contents)' "$TAG" | grep -qx 'Formiga-Release: draft'; then
+            echo "draft=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "draft=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/download-artifact@v4
         with:
           pattern: release-*
@@ -85,4 +95,5 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           body_path: notes.md
+          draft: ${{ steps.notes.outputs.draft == 'true' }}
           files: release/*
