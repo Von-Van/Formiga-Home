@@ -1051,9 +1051,19 @@ fn lamp(easel: &mut Easel) {
 
 /// A lamp's light, centred on the foot of the lamp at `foot` on the scene: a warm pool round
 /// its foot, drawn on the floor before anything stands on it.
-pub fn lamp_pool(canvas: &mut Canvas, foot: (i32, i32)) {
+pub fn lamp_pool(canvas: &mut Canvas, foot: (i32, i32), on_floor: impl Fn(i32, i32) -> bool) {
     for (rx, alpha) in [(22, 28_u8), (15, 34), (9, 40)] {
-        paint::ellipse(canvas, foot.0, foot.1, rx, rx / 2, rgba(0xffe2a0, alpha));
+        let ry = rx / 2;
+        for dy in -ry..=ry {
+            for dx in -rx..=rx {
+                let inside = (dx * dx) as f32 / (rx * rx) as f32
+                    + (dy * dy) as f32 / (ry * ry).max(1) as f32;
+                let (x, y) = (foot.0 + dx, foot.1 + dy);
+                if inside <= 1.0 && on_floor(x, y) {
+                    paint::put(canvas, x, y, rgba(0xffe2a0, alpha));
+                }
+            }
+        }
     }
 }
 

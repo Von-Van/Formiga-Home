@@ -172,6 +172,8 @@ pub struct HomeApp {
     /// how many steps closer than fits to show the house in it.
     snap: Option<(PathBuf, f32, bool)>,
     snap_zoom: i32,
+    /// For review: an hour and month to show instead of the clock's.
+    fixed_daylight: Option<crate::daylight::Daylight>,
 }
 
 /// Now, to the second, as the journal keeps time.
@@ -249,7 +251,19 @@ impl HomeApp {
             _open: open,
             snap: None,
             snap_zoom: 0,
+            fixed_daylight: None,
         }
+    }
+
+    /// For review only: the house at this hour and month, whatever the clock says.
+    pub fn set_daylight(&mut self, daylight: crate::daylight::Daylight) {
+        self.fixed_daylight = Some(daylight);
+    }
+
+    /// The hour and month at home.
+    fn daylight(&self) -> crate::daylight::Daylight {
+        self.fixed_daylight
+            .unwrap_or_else(crate::daylight::Daylight::now)
     }
 
     /// For review only: open on `page` of the arranging notes, or living in the house if none,
@@ -566,6 +580,7 @@ impl HomeApp {
             selected: self.selected,
             arranging: self.mode == Mode::Arrange,
             lamps_off: self.life.lamps_off().to_vec(),
+            daylight: self.daylight(),
             ..Overlay::default()
         };
         match self.mode {
@@ -1045,6 +1060,7 @@ impl HomeApp {
         let overlay = Overlay {
             lamps_off: self.life.lamps_off().to_vec(),
             backdrop: true,
+            daylight: self.daylight(),
             ..Overlay::default()
         };
         self.scene.compose(
@@ -1624,6 +1640,7 @@ impl HomeApp {
         }
         self.keys(&ctx);
         if self.mode == Mode::Live {
+            self.life.set_dark(self.daylight().dark().0);
             let home = home_of(&self.state, self.keeper);
             self.life.tick(
                 &self.household,

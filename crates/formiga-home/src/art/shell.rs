@@ -10,6 +10,7 @@
 //! two rooms, stands in front of whatever is in the room behind it, so it is drawn with the
 //! furniture, in turn, by [`low_wall`].
 
+use crate::daylight::Season;
 use crate::house::{Height, House, Room, Wall};
 use crate::iso::{SLAB, View, WALL_HEIGHT};
 use crate::paint::{self, Ramp, rgb};
@@ -23,8 +24,9 @@ pub const LOW_WALL: i32 = 10;
 
 /// The house's floors, its full-height walls and its cut edges, ready for everything else to be
 /// drawn over. With `backdrop`, the soft light of a table top behind it all, as a photo has it;
-/// without, the picture is clear round the house, for the page it is drawn on.
-pub fn draw(view: &View, house: &House, backdrop: bool) -> Canvas {
+/// without, the picture is clear round the house, for the page it is drawn on. The doormat has a
+/// little of the `season` on it, brought in on someone's feet.
+pub fn draw(view: &View, house: &House, backdrop: bool, season: Season) -> Canvas {
     let mut canvas = Canvas::new(view.size.0, view.size.1);
     if backdrop {
         paint_backdrop(&mut canvas);
@@ -36,14 +38,14 @@ pub fn draw(view: &View, house: &House, backdrop: bool) -> Canvas {
         let room = &house.rooms[usize::from(wall.room)];
         match wall.beyond {
             Some(_) => threshold(&mut canvas, view, wall),
-            None => mat(&mut canvas, view, wall, room),
+            None => mat(&mut canvas, view, wall, room, season),
         }
     }
     for wall in house.walls.iter().filter(|w| w.height == Height::Full) {
         let room = &house.rooms[usize::from(wall.room)];
         wall_face(&mut canvas, view, wall, room, WALL_HEIGHT);
         if wall.door {
-            front_door(&mut canvas, view, wall, false);
+            front_door(&mut canvas, view, wall, false, season);
         }
     }
     for room in &house.rooms {
@@ -651,7 +653,7 @@ fn threshold(canvas: &mut Canvas, view: &View, wall: &Wall) {
 }
 
 /// A doormat inside the front door.
-fn mat(canvas: &mut Canvas, view: &View, wall: &Wall, room: &Room) {
+fn mat(canvas: &mut Canvas, view: &View, wall: &Wall, room: &Room, season: Season) {
     let (a, _) = wall.foot();
     let (dx, dy) = along_wall(wall.side);
     let (ix, iy) = match wall.side {
@@ -683,18 +685,49 @@ fn mat(canvas: &mut Canvas, view: &View, wall: &Wall, room: &Room) {
     let px = |p: (f32, f32)| (p.0.round() as i32, p.1.round() as i32);
     paint::line(canvas, px(shape[3]), px(shape[2]), floor.edge);
     paint::line(canvas, px(shape[1]), px(shape[2]), coir.edge);
+    // A fallen leaf or two, a petal, a little snow.
+    let brought: &[(f32, f32, u32)] = match season {
+        Season::Spring => &[(0.34, 0.24, 0xf2b8c8), (0.62, 0.36, 0xf7d4dc)],
+        Season::Summer => &[],
+        Season::Autumn => &[
+            (0.3, 0.3, 0xc9692c),
+            (0.56, 0.2, 0xe0a040),
+            (0.7, 0.4, 0xa64a26),
+        ],
+        Season::Winter => &[
+            (0.28, 0.16, 0xf4f8fc),
+            (0.4, 0.14, 0xe6eef6),
+            (0.66, 0.18, 0xf4f8fc),
+        ],
+    };
+    for &(along, inward, color) in brought {
+        let (x, y) = px(corner(along, inward));
+        paint::put(canvas, x, y, rgb(color));
+        paint::put(canvas, x + 1, y, paint::darker(rgb(color), 0.15));
+    }
+}
+
+/// The garden through the open front door, as the year has it: the sky, the ground, and what is
+/// scattered on it.
+fn garden(season: Season) -> (Rgba, Rgba, Rgba) {
+    match season {
+        Season::Spring => (rgb(0xd6ecf4), rgb(0x9ccd84), rgb(0xf2b8c8)),
+        Season::Summer => (rgb(0xcfe6f0), rgb(0x8cc178), rgb(0x5f8f4e)),
+        Season::Autumn => (rgb(0xe8e2d4), rgb(0xc98e4a), rgb(0xa65a2c)),
+        Season::Winter => (rgb(0xe2e8ee), rgb(0xf0f4f8), rgb(0xc4ccd8)),
+    }
 }
 
 /// The front door, in a full-height wall: shut, or standing open while someone comes or goes,
 /// with a glimpse of the garden through it.
-pub fn front_door(canvas: &mut Canvas, view: &View, wall: &Wall, open: bool) {
+pub fn front_door(canvas: &mut Canvas, view: &View, wall: &Wall, open: bool, season: Season) {
     const TALL: f32 = 38.0;
     let (a, b) = wall.foot();
     let (a, b) = (view.screen(a.0, a.1), view.screen(b.0, b.1));
     let face = [a, b, (b.0, b.1 - TALL - 3.0), (a.0, a.1 - TALL - 3.0)];
     let oak = Ramp::new(0x4a2a1c, 0x6e4128, 0x8f5a36, 0xb07a4c, 0xcf9c6a);
     let paint_ = Ramp::new(0x2f4a3c, 0x46705a, 0x5c8f74, 0x7aae92, 0xa2cdb4);
-    let garden = (rgb(0xcfe6f0), rgb(0x8cc178));
+    let garden = garden(season);
     paint::fill_polygon(&face, |px, py| {
         let (sx, sy) = (px as f32 + 0.5, py as f32 + 0.5);
         let across = ((sx - a.0) / (b.0 - a.0)).clamp(0.0, 0.999);
@@ -721,7 +754,7 @@ pub fn front_door(canvas: &mut Canvas, view: &View, wall: &Wall, open: bool) {
             } else if up > TALL * 0.55 {
                 garden.0
             } else if paint::chance(px, py, 127, 60) {
-                paint::mix(garden.1, rgb(0x5f8f4e), 0.5)
+                paint::mix(garden.1, garden.2, 0.5)
             } else {
                 garden.1
             }
@@ -886,7 +919,7 @@ mod tests {
                 layout.wall = CatalogId::known(wall.id);
                 let house = House::of(std::slice::from_ref(&layout));
                 let view = View::of(&house);
-                let canvas = draw(&view, &house, true);
+                let canvas = draw(&view, &house, true, Season::Summer);
                 // Every pixel is painted: the backdrop leaves nothing clear.
                 assert!(canvas.pixels().iter().all(|pixel| pixel.a == 255));
                 // The middle of the floor is the floor, not the backdrop.
@@ -898,7 +931,7 @@ mod tests {
                     bare.get(cx as i32, cy as i32)
                 );
                 // Without the backdrop, the picture is clear round the house.
-                let clear = draw(&view, &house, false);
+                let clear = draw(&view, &house, false, Season::Winter);
                 assert_eq!(clear.get(0, 0).a, 0);
                 assert_eq!(clear.get(cx as i32, cy as i32).a, 255);
             }

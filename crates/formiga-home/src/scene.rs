@@ -14,6 +14,7 @@
 use crate::actor::Actor;
 use crate::art::{PieceCache, Sprite, displays, shell};
 use crate::catalog;
+use crate::daylight::{Daylight, Season};
 use crate::house::{At, Height, House, Room, Wall};
 use crate::household::Id;
 use crate::iso::View;
@@ -66,6 +67,8 @@ pub struct Overlay {
     pub chosen_room: Option<u8>,
     /// A doorway being carried: the stretch of wall it would go in, and whether it fits there.
     pub door: Option<(Wall, bool)>,
+    /// The time of day and of year, at home.
+    pub daylight: Daylight,
 }
 
 /// What has been drawn so far that a piece standing in front of it could hide, pixel by pixel:
@@ -182,7 +185,7 @@ impl Placed {
 
 /// What the shell was last drawn for: the rooms, their walls, what hangs on them, and whether
 /// with the backdrop.
-type ShellKey = (Vec<Room>, Vec<Wall>, Vec<(DisplayId, At)>, bool);
+type ShellKey = (Vec<Room>, Vec<Wall>, Vec<(DisplayId, At)>, bool, Season);
 
 pub struct Scene {
     pub view: View,
@@ -259,7 +262,13 @@ impl Scene {
 
     /// The shell, with whatever hangs on its walls, drawn again only when either changes. The
     /// house's picture is as big as the house needs.
-    pub fn refresh_shell(&mut self, house: &House, snapshot: &HomeSnapshot, backdrop: bool) {
+    pub fn refresh_shell(
+        &mut self,
+        house: &House,
+        snapshot: &HomeSnapshot,
+        backdrop: bool,
+        season: Season,
+    ) {
         let mut hung: Vec<_> = house
             .shown
             .iter()
@@ -267,12 +276,18 @@ impl Scene {
             .map(|shown| (shown.item.clone(), shown.at))
             .collect();
         hung.sort_by_key(|shown| shown.1);
-        let key = (house.rooms.clone(), house.walls.clone(), hung, backdrop);
+        let key = (
+            house.rooms.clone(),
+            house.walls.clone(),
+            hung,
+            backdrop,
+            season,
+        );
         if self.shell_key.as_ref() == Some(&key) {
             return;
         }
         self.view = View::of(house);
-        let mut canvas = shell::draw(&self.view, house, backdrop);
+        let mut canvas = shell::draw(&self.view, house, backdrop, season);
         for (item, at) in &key.2 {
             let At::Wall { room, side, at } = *at else {
                 continue;
@@ -395,7 +410,7 @@ impl Scene {
         now: f32,
         overlay: &Overlay,
     ) -> Canvas {
-        self.refresh_shell(house, snapshot, overlay.backdrop);
+        self.refresh_shell(house, snapshot, overlay.backdrop, overlay.daylight.season());
         let mut canvas = self.shell.clone();
         let view = self.view;
         // The front door stands open while anyone is in its doorway.
@@ -409,7 +424,7 @@ impl Scene {
                 !actor.hidden && (actor.pos.0 - mx).powi(2) + (actor.pos.1 - my).powi(2) < 0.7
             });
             if passing {
-                shell::front_door(&mut canvas, &view, wall, true);
+                shell::front_door(&mut canvas, &view, wall, true, overlay.daylight.season());
             }
         }
         // A light that is on, and how high its bulb glows.
@@ -418,9 +433,25 @@ impl Scene {
                 .and_then(|piece| piece.glow())
                 .filter(|_| !overlay.lamps_off.contains(&placed.uid))
         };
-        for placed in house.pieces.iter().filter(|placed| lit(placed).is_some()) {
-            let (cx, cy) = room::footprint(placed).centre();
-            crate::art::furniture::lamp_pool(&mut canvas, view.pixel(cx, cy));
+        // A lamp's light shows on the floor only once the day's has begun to go.
+        let lamps: Vec<((i32, i32), i32)> = house
+            .pieces
+            .iter()
+            .filter_map(|placed| {
+                let glow = lit(placed)?;
+                let (cx, cy) = room::footprint(placed).centre();
+                Some((view.pixel(cx, cy), glow))
+            })
+            .collect();
+        // The house's own floor, and whatever stands on it: what a lamp lights.
+        let on_floor = |x: i32, y: i32| {
+            let point = view.floor_at(x as f32 + 0.5, y as f32 + 0.5);
+            house.room_of_point(point).is_some()
+        };
+        if overlay.daylight.lamplight() {
+            for (foot, _) in &lamps {
+                crate::art::furniture::lamp_pool(&mut canvas, *foot, on_floor);
+            }
         }
         let order = self.order(house, snapshot, actors, now, overlay.lifted.as_ref());
         let resident_opacity = if overlay.arranging { 170 } else { 255 };
@@ -473,6 +504,7 @@ impl Scene {
                 }
             }
         }
+        light(&mut canvas, &overlay.daylight, &lamps, on_floor);
         if !overlay.arranging {
             for actor in actors.iter_mut().filter(|actor| !actor.hidden) {
                 actor.draw_cue(&mut canvas, &view, now);
@@ -793,6 +825,66 @@ static UNKNOWN: catalog::Piece = catalog::Piece {
     set: catalog::Set::Home,
 };
 
+/// How far a lamp's light reaches across the floor, in pixels, and round its shade.
+const LAMP_REACH: f32 = 48.0;
+const SHADE_REACH: f32 = 16.0;
+
+/// The house as the hour lights it: as drawn by day, and as the light goes, each pixel drawn
+/// towards the colour of the dark, except as far as a lit lamp reaches.
+fn light(
+    canvas: &mut Canvas,
+    daylight: &Daylight,
+    lamps: &[((i32, i32), i32)],
+    in_house: impl Fn(i32, i32) -> bool,
+) {
+    let (dark, tint) = daylight.dark();
+    if dark <= 0.0 {
+        return;
+    }
+    for y in 0..canvas.height() as i32 {
+        for x in 0..canvas.width() as i32 {
+            let pixel = canvas.get(x, y);
+            if pixel.a == 0 {
+                continue;
+            }
+            // How lit it is by the nearest lamp: a pool on the house's floor round its foot, and
+            // a glow round its shade, wherever that is.
+            let floor = in_house(x, y);
+            let lamp = lamps
+                .iter()
+                .map(|&((fx, fy), glow)| {
+                    let (dx, dy) = ((x - fx) as f32, (y - fy) as f32);
+                    let pool = if floor {
+                        1.0 - ((dx / LAMP_REACH).powi(2) + (dy * 2.0 / LAMP_REACH).powi(2)).sqrt()
+                    } else {
+                        0.0
+                    };
+                    let up = (y - (fy - glow)) as f32;
+                    let shade = 1.0 - (dx * dx + up * up).sqrt() / SHADE_REACH;
+                    pool.max(shade).clamp(0.0, 1.0)
+                })
+                .fold(0.0_f32, f32::max);
+            let lamp = lamp * lamp * (3.0 - 2.0 * lamp);
+            let k = dark * (1.0 - lamp);
+            let warm = dark * lamp;
+            let channel = |value: u8, tint: f32, warmth: f32| {
+                let lit = f32::from(value) * (1.0 - k + k * tint) + warmth * 255.0;
+                lit.round().clamp(0.0, 255.0) as u8
+            };
+            canvas.set(
+                x,
+                y,
+                formiga_art::Rgba::new(
+                    channel(pixel.r, tint[0], warm * 0.06),
+                    channel(pixel.g, tint[1], warm * 0.03),
+                    channel(pixel.b, tint[2], 0.0),
+                    pixel.a,
+                ),
+            );
+        }
+    }
+}
+
 /// How far in front of a shelf's middle, in pixels down the picture, a thing stands when there is
 /// a board over it: at the board's front, where the board hides as little of it as it can. In the
 /// picture rather than on the floor, so it is the same at every turn.
@@ -941,6 +1033,34 @@ mod tests {
             names,
             vec![Drawn::Resident(1), Drawn::Piece(0), Drawn::Resident(0)]
         );
+    }
+
+    #[test]
+    fn by_day_the_house_is_as_drawn_and_by_night_dark_but_where_a_lamp_reaches() {
+        let grey = formiga_art::Rgba::new(160, 160, 160, 255);
+        let mut picture = Canvas::new(120, 80);
+        for y in 0..80 {
+            for x in 0..120 {
+                picture.set(x, y, grey);
+            }
+        }
+        let lamp = [((60, 50), 30)];
+        let everywhere = |_: i32, _: i32| true;
+        let mut day = picture.clone();
+        light(&mut day, &Daylight::default(), &lamp, everywhere);
+        assert_eq!(day.get(5, 5), grey);
+        let mut night = picture.clone();
+        let late = Daylight {
+            hour: 23.0,
+            month: time::Month::June,
+        };
+        light(&mut night, &late, &lamp, everywhere);
+        let (far, near) = (night.get(5, 75), night.get(60, 50));
+        assert!(
+            far.r < 120 && far.b > far.r,
+            "dark and blue away from the lamp: {far:?}"
+        );
+        assert!(near.r >= grey.r, "lit at the lamp's foot: {near:?}");
     }
 
     #[test]

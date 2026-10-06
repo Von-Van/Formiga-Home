@@ -822,3 +822,28 @@ fn only_a_close_friend_talks_a_shy_one_into_staying_over() {
     assert!(character.agrees_to_stay(0.66));
     assert!(character.asks_to_stay(1.0) > character.asks_to_stay(0.0));
 }
+
+#[test]
+fn at_night_the_household_turns_in_and_sleeps_longer_than_by_day() {
+    let (household, layout) = home();
+    let asleep_for = |dark: f32| {
+        let mut life = Life::new(&household, &layout);
+        life.set_dark(dark);
+        let mut now = 0.0;
+        let mut asleep = 0;
+        for _ in 0..(10 * 60) {
+            now = run(&mut life, &household, &layout, now, 1.0);
+            asleep += household
+                .residents
+                .iter()
+                .filter(|resident| life.asleep(resident.id))
+                .count();
+        }
+        asleep
+    };
+    let (day, night) = (asleep_for(0.0), asleep_for(0.55));
+    assert!(
+        night > day * 3 / 2 + 30,
+        "asleep {night} s by night, {day} s by day"
+    );
+}

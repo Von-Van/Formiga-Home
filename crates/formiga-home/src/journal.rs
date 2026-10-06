@@ -17,9 +17,14 @@ pub fn read_local_offset() {
     let _ = LOCAL.set(offset);
 }
 
+/// A moment on the owner's clock.
+pub fn local(at: OffsetDateTime) -> OffsetDateTime {
+    at.to_offset(*LOCAL.get().unwrap_or(&UtcOffset::UTC))
+}
+
 /// The day a moment happened, on the owner's clock.
 pub fn day_of(at: OffsetDateTime) -> Date {
-    at.to_offset(*LOCAL.get().unwrap_or(&UtcOffset::UTC)).date()
+    local(at).date()
 }
 
 /// A day's heading: "Today", "Yesterday", or "5 October".

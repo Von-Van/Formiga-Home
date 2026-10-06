@@ -549,6 +549,8 @@ pub struct Life {
     /// How often each pair has spent time together, and how, since the house opened: two
     /// residents in turn, the lesser id first, each count no more than the contract keeps.
     together: BTreeMap<(Id, Id, Together), u8>,
+    /// How dark it is at home.
+    dark: f32,
 }
 
 impl Life {
@@ -606,6 +608,7 @@ impl Life {
             known,
             novel: Vec::new(),
             together: BTreeMap::new(),
+            dark: 0.0,
         }
     }
 
@@ -616,6 +619,12 @@ impl Life {
     #[cfg(test)]
     pub fn actor(&self, id: Id) -> Option<&Actor> {
         self.actors.iter().find(|actor| actor.id == id)
+    }
+
+    /// How dark it is at home, from nothing by day to about a half at night: the later it is,
+    /// the sooner everyone tires and the longer they sleep.
+    pub fn set_dark(&mut self, dark: f32) {
+        self.dark = dark.clamp(0.0, 1.0);
     }
 
     /// What has happened since the window last asked.
@@ -982,7 +991,9 @@ impl Life {
                     let warmth = household
                         .friend_of(id)
                         .map_or(0.0, |friend| band(household.bond(friend.id, id).warmth));
-                    let asks = resident.character.asks_to_stay(warmth);
+                    // Late at night, going home is further than it was.
+                    let late = if self.dark >= 0.45 { 2.0 } else { 1.0 };
+                    let asks = resident.character.asks_to_stay(warmth) * late;
                     let nobody_yet = !self.minds.iter().any(|mind| mind.staying);
                     if nobody_yet && self.minds[index].dice.next() < asks {
                         self.stay_over(index);
@@ -993,7 +1004,10 @@ impl Life {
                 }
                 _ => {}
             }
-            let rates = resident.character.drive_rates();
+            let mut rates = resident.character.drive_rates();
+            // As the light goes, everyone tires, the little ones soonest.
+            let tiring = if resident.is_little() { 3.5 } else { 2.2 };
+            rates[Drive::Rest.index()] *= 1.0 + self.dark * tiring;
             let mind = &mut self.minds[index];
             for (drive, rate) in mind.drives.iter_mut().zip(rates) {
                 *drive = (*drive + rate * dt / 60.0).min(1.0);
@@ -1615,6 +1629,7 @@ impl Life {
             }
         }
         let character = &resident.character;
+        let dark = self.dark;
         let dice = &mut self.minds[index].dice;
         let settled = character.settled_face();
         let precious = |item: &DisplayId| snapshot.item(item).is_some_and(is_precious);
@@ -1687,7 +1702,7 @@ impl Life {
                 ),
                 Act::Sleep(_) | Act::InviteLittle(..) => (
                     Pose::new(ActionKind::Sleep, ExpressionKind::Sleepy).with_cue(Cue::Sleep),
-                    dice.between(20.0, 28.0),
+                    dice.between(20.0, 28.0) * (1.0 + dark * 3.0),
                 ),
                 Act::Bounce(_) => (
                     Pose::new(Gesture::Cheer, ExpressionKind::Joy)
@@ -1986,7 +2001,11 @@ impl Life {
                 } else {
                     0.8
                 };
-                options.push((Act::Sleep(uid), fits * if lazy { 1.5 } else { 1.0 } * mine));
+                let bedtime = 1.0 + self.dark * 3.0;
+                options.push((
+                    Act::Sleep(uid),
+                    fits * if lazy { 1.5 } else { 1.0 } * mine * bedtime,
+                ));
                 options.push((Act::CurlUp(uid), fits * 0.8 * solitude * mine));
                 if (character.playful() && kind == TemperamentKind::Troublemaker)
                     || resident.is_little()

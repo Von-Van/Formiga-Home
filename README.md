@@ -35,6 +35,9 @@ simply get on with their own lives.
   what someone took a liking to, when a room was built.
 - **A house that grows.** Over time a house can gain a second and third room, all seen together
   in one cutaway, with doorways between them.
+- **Day and night.** The house follows your own clock: as drawn by day, warm as the light goes,
+  and blue at night but for the pools of its lamps, when everyone tires sooner and sleeps longer.
+  The garden through the front door, and what comes in on the doormat, follow the year.
 - **Soft play.** There are no needs to keep up, no money, no decay, and nothing is lost by staying
   away. Nothing runs while Home is closed.
 
@@ -200,6 +203,8 @@ cargo run -p formiga-home -- --render-room life.png --lived-in --at 45
 | `--render-poses` | Every resident in every pose Home uses |
 
 `--scale <N>` sets how many screen pixels make one pixel of the art (3 by default).
+`--hour <H>` and `--month <M>` show the house at that hour and in that month; a picture is
+otherwise drawn at midday in June, so it is the same every time, and the window follows the clock.
 
 The notebook itself can be pictured too. `--snap <PNG>` opens the window, waits `--at` seconds,
 saves a picture of just that window and closes. A window opened this way stays behind everything

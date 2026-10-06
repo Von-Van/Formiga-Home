@@ -8,6 +8,7 @@ mod arrange;
 mod art;
 mod catalog;
 mod character;
+mod daylight;
 mod host;
 mod house;
 mod household;
@@ -56,6 +57,8 @@ Usage: formiga-home [--sample | --formiga-home <VISIT DIRECTORY> | --from-save <
   --theme <THEME>          With --snap: the notebook light or dark, whatever the household's
                            own preference
   --zoom <STEPS>           With --snap: the house that many whole pixels closer than fits
+  --hour <H> --month <M>   The house at that hour (0 to 24) and in that month (1 to 12): for a
+                           picture, midday in June otherwise; for the window, the owner's clock
   --scale <N>              Pixels per scene pixel in a PNG (default 3)
   --home-version           Print the newest Home version this build reads, for packaging
   --icon <FOLDER>          Write Home's icon as .icns, .ico and .png, for packaging
@@ -88,6 +91,26 @@ struct Args {
     page: Option<String>,
     theme: Option<String>,
     zoom: i32,
+    hour: Option<f32>,
+    month: Option<u8>,
+}
+
+impl Args {
+    /// The hour and month asked for: for a picture, midday in June unless said otherwise, so
+    /// that it is the same every time; for the window, the owner's own clock.
+    fn daylight(&self, picture: bool) -> Option<daylight::Daylight> {
+        if !picture && self.hour.is_none() && self.month.is_none() {
+            return None;
+        }
+        let default = daylight::Daylight::default();
+        Some(daylight::Daylight {
+            hour: self.hour.unwrap_or(default.hour),
+            month: self
+                .month
+                .and_then(|month| time::Month::try_from(month).ok())
+                .unwrap_or(default.month),
+        })
+    }
 }
 
 fn parse_args(mut args: impl Iterator<Item = std::ffi::OsString>) -> Result<Option<Args>> {
@@ -105,6 +128,8 @@ fn parse_args(mut args: impl Iterator<Item = std::ffi::OsString>) -> Result<Opti
         page: None,
         theme: None,
         zoom: 0,
+        hour: None,
+        month: None,
     };
     let value = |args: &mut dyn Iterator<Item = std::ffi::OsString>, flag: &str| {
         args.next()
@@ -161,6 +186,22 @@ fn parse_args(mut args: impl Iterator<Item = std::ffi::OsString>) -> Result<Opti
             }
             Some("--page") => {
                 parsed.page = Some(value(&mut args, "--page")?.to_string_lossy().into());
+            }
+            Some("--hour") => {
+                parsed.hour = Some(
+                    value(&mut args, "--hour")?
+                        .to_string_lossy()
+                        .parse()
+                        .context("--hour is a number of hours since midnight")?,
+                );
+            }
+            Some("--month") => {
+                parsed.month = Some(
+                    value(&mut args, "--month")?
+                        .to_string_lossy()
+                        .parse()
+                        .context("--month is a number, 1 for January")?,
+                );
             }
             Some("--rooms") => {
                 parsed.rooms = value(&mut args, "--rooms")?
@@ -234,6 +275,7 @@ fn main() -> Result<()> {
     let data = store::folder();
     let open = data.as_deref().map(store::take);
     let busy = matches!(open, Some(Err(store::Busy)));
+    let daylight = args.daylight(false);
     let (host, household) = match args.source {
         Source::Visit(dir) => {
             let (visit, household) = session::arrive(&dir, busy)?;
@@ -301,6 +343,9 @@ fn main() -> Result<()> {
         options,
         Box::new(move |cc| {
             let mut app = app::HomeApp::new(&cc.egui_ctx, household, host, data, open);
+            if let Some(daylight) = daylight {
+                app.set_daylight(daylight);
+            }
             if let Some(path) = args.snap {
                 app.snap(
                     path,
@@ -353,12 +398,14 @@ fn render_to(render: &Render, household: &Household, args: &Args) -> Canvas {
             scene.set_pictures(keepsakes::pictures(&home));
             let mut overlay = scene::Overlay {
                 backdrop: true,
+                daylight: args.daylight(true).unwrap_or_default(),
                 ..scene::Overlay::default()
             };
             match args.at {
                 // The household's own life, run forward as the window would run it.
                 Some(until) => {
                     let mut life = life::Life::new(household, &house);
+                    life.set_dark(overlay.daylight.dark().0);
                     let mut now = 0.0;
                     while now < until {
                         now += 1.0 / 30.0;
