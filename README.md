@@ -58,7 +58,7 @@ stands. The full agreement between the two apps is written up in
 
 ## Where things stand
 
-Home is a preview. Formiga Desktop opens houses in it from 0.67.0: install Home, and clicking a
+Home is released. Formiga Desktop opens houses in it from 0.67.0: install Home, and clicking a
 house in Desktop's village opens it here. Started on its own, Home runs in **rehearsal**: it opens
 either Desktop's own sample household or a house from a real colony save, read-only. A rehearsal
 is not a shortcut, though. It keeps its layouts in Home's own folder and checks them with the very
@@ -66,17 +66,17 @@ same rules Desktop would use, so a rehearsal proves the same loop a real visit w
 
 | Part | Status |
 | --- | --- |
-| The house: up to three rooms, doorways and a front door, seven floors, seven walls, thirty-two pieces of furniture in three sets plus the house's own | Preview |
-| The notebook window: the leather cover as its frame, the house on one page and notes on the other | Preview |
-| Residents living on their own, and the short list of things you can ask of each | Preview |
-| Arranging, Found Things, and the card for anything without its own picture | Preview |
-| Visitors, favourites and photos | Preview |
-| Keepsakes, the Journal, and souvenirs each kept their own way | Preview |
-| Going next door, and friends staying over | Preview |
+| The house: up to three rooms, doorways and a front door, seven floors, seven walls, thirty-two pieces of furniture in three sets plus the house's own | Released |
+| The notebook window: the leather cover as its frame, the house on one page and notes on the other | Released |
+| Residents living on their own, and the short list of things you can ask of each | Released |
+| Arranging, Found Things, and the card for anything without its own picture | Released |
+| Visitors, favourites and photos | Released |
+| Keepsakes, the Journal, and souvenirs each kept their own way | Released |
+| Going next door, and friends staying over | Released |
 | The household contract (`formiga-home-contract`) | Desktop's, since Desktop 0.67.0; Home takes it by Desktop's release tag |
 | Opening a house from Desktop's village | In Desktop from 0.67.0 |
 | Packaging for macOS | Run end to end: a universal, signed `Formiga Home.app` with Desktop's bundle id and contract version, a zip and a disk image, each with its checksum; the packaged app answers a visit from a session directory |
-| Packaging for Windows | Builds and passes its checks for Windows; the installer itself has not yet been run on Windows |
+| Packaging for Windows | A per-user installer and a portable zip, each with its checksum; the installer has been run on Windows |
 
 ## A visit
 
@@ -272,10 +272,10 @@ packaging/, scripts/   the macOS app and the Windows installer
 
 ### Formiga Desktop's crates
 
-`formiga-core`, `formiga-art` and `formiga-travel` all come from Formiga Desktop. They are taken
-from one release tag on GitHub, currently `v0.66.6` (travel version 3), so that their types always
-agree with each other. Moving to a newer release means changing the tag on all three together in
-the root `Cargo.toml`.
+`formiga-core`, `formiga-art`, `formiga-travel` and `formiga-home-contract` all come from Formiga
+Desktop. They are taken from one release tag on GitHub, currently `v0.67.1` (travel version 4,
+household version 7), so that their types always agree with each other. Moving to a newer release
+means changing the tag on all four together in the root `Cargo.toml`.
 
 To build against unreleased changes in a local Desktop checkout, create `.cargo/config.toml` (git
 ignores it):
@@ -285,9 +285,10 @@ ignores it):
 formiga-core = { path = "../Formiga Desktop/crates/formiga-core" }
 formiga-art = { path = "../Formiga Desktop/crates/formiga-art" }
 formiga-travel = { path = "../Formiga Desktop/crates/formiga-travel" }
+formiga-home-contract = { path = "../Formiga Desktop/crates/formiga-home-contract" }
 ```
 
-Patch all three or none, and delete the file before committing anything that depends on it.
+Patch all four or none, and delete the file before committing anything that depends on it.
 
 ### Checks
 
