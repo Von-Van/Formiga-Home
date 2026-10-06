@@ -275,7 +275,9 @@ packaging/, scripts/   the macOS app and the Windows installer
 `formiga-core`, `formiga-art`, `formiga-travel` and `formiga-home-contract` all come from Formiga
 Desktop. They are taken from one release tag on GitHub, currently `v0.67.1` (travel version 4,
 household version 7), so that their types always agree with each other. Moving to a newer release
-means changing the tag on all four together in the root `Cargo.toml`.
+means changing the tag on all four together in the root `Cargo.toml`, which
+`scripts/set-version.sh <version> <tag>` does along with Home's own version and `Cargo.lock`. Each
+version's release notes are its section of [CHANGELOG.md](CHANGELOG.md).
 
 To build against unreleased changes in a local Desktop checkout, create `.cargo/config.toml` (git
 ignores it):
