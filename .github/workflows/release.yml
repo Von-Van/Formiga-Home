@@ -55,6 +55,28 @@ jobs:
     needs: [package-macos, package-windows]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - name: Check the version and take its notes from the changelog
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          # The tag must be the version the app reports, or Desktop would see another.
+          crate="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
+          if [ "$crate" != "$version" ]; then
+            echo "The tag says $version but Cargo.toml says $crate" >&2
+            exit 1
+          fi
+          # This version's notes are its section of the changelog.
+          awk -v want="## $version" '
+            /^## / { if (found) exit; if ($0 == want || index($0, want " ") == 1) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "CHANGELOG.md has no section for $version" >&2
+            exit 1
+          fi
+          printf '\nUnsigned build. A SHA-256 checksum file is included for every download.\n' >> notes.md
       - uses: actions/download-artifact@v4
         with:
           pattern: release-*
@@ -62,6 +84,5 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
-          body: |
-            Unsigned build. A SHA-256 checksum file is included for every download.
+          body_path: notes.md
           files: release/*
