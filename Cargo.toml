@@ -3,7 +3,7 @@ members = ["crates/formiga-home"]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.1"
+version = "0.67.3"
 edition = "2024"
 rust-version = "1.97"
 authors = ["Formiga contributors"]
@@ -13,10 +13,10 @@ publish = false
 # Formiga Desktop's shared crates, all four from the same Desktop release so their types agree:
 # the household contract among them, which is Desktop's. Move all four to a new release's tag
 # together.
-formiga-art = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.1" }
-formiga-core = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.1" }
-formiga-home-contract = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.1" }
-formiga-travel = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.1" }
+formiga-art = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.3" }
+formiga-core = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.3" }
+formiga-home-contract = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.3" }
+formiga-travel = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.3" }
 
 anyhow = "1.0.104"
 directories = "5.0.1"
