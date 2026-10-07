@@ -20,7 +20,7 @@ use crate::art::cues::Cue;
 use crate::catalog::{self, Family, Use};
 use crate::character::Drive;
 use crate::house::{At, House};
-use crate::household::{Household, Id};
+use crate::household::{Household, Id, Resident};
 use crate::keepsakes;
 use crate::path::Floor;
 use crate::room;
@@ -1636,216 +1636,26 @@ impl Life {
         let Some(resident) = household.resident(self.minds[index].id) else {
             return;
         };
-        let id = resident.id;
         match &plan.act {
-            Act::SwitchLamp(uid) if plan.part == Part::Leads => {
-                match self.lamps_off.iter().position(|off| off == uid) {
-                    Some(at) => {
-                        self.lamps_off.remove(at);
-                    }
-                    None => self.lamps_off.push(*uid),
-                }
-            }
-            Act::TryOn(item) if plan.part == Part::Leads => {
-                if let Some(dress) = snapshot.item(item).and_then(wearable) {
-                    self.worn.push((item.clone(), id));
-                    self.actors[index].wear(Some(dress));
-                }
-            }
-            act => {
-                if let Some(item) = act.item()
-                    && !self.minds[index].seen.contains(item)
-                {
-                    self.minds[index].seen.push(item.clone());
-                }
-                if let Act::Browse(uid) = act {
-                    for item in shown_on(house, *uid) {
-                        if !self.minds[index].seen.contains(&item) {
-                            self.minds[index].seen.push(item);
-                        }
-                    }
-                }
-                if let Some(item) = act.item() {
-                    self.novel.retain(|novel| novel != item);
-                }
-            }
+            Act::SwitchLamp(uid) if plan.part == Part::Leads => self.switch_lamp(*uid),
+            Act::TryOn(item) if plan.part == Part::Leads => self.put_on(snapshot, index, item),
+            act => self.take_in(house, index, act),
         }
-        let character = &resident.character;
-        let dark = self.dark;
-        let dice = &mut self.minds[index].dice;
-        let settled = character.settled_face();
-        let precious = |item: &DisplayId| snapshot.item(item).is_some_and(is_precious);
-        let (pose, seconds) = match (&plan.part, &plan.act) {
-            (Part::Joins(leader), act) => {
-                let bond = household.bond(resident.id, *leader);
-                let warm = bond.warmth >= Band::Medium || household.family(resident.id, *leader);
-                let pose = match act {
-                    Act::Tease(_) if character.axes.feistiness > 0.55 => {
-                        Pose::idle(ExpressionKind::Grumpy).with_cue(Cue::Grumble)
-                    }
-                    Act::Tease(_) => Pose::idle(ExpressionKind::Worried).with_cue(Cue::Bang),
-                    Act::Hug(_) | Act::Comfort(_) => {
-                        Pose::idle(ExpressionKind::Affectionate).with_cue(Cue::Heart)
-                    }
-                    Act::Greet(_) if warm => Pose::new(ActionKind::Greet, ExpressionKind::Joy),
-                    Act::Greet(_) => Pose::idle(character.idle_face()),
-                    Act::PlayTogether(_) | Act::PlayWith(..) => {
-                        Pose::new(ActionKind::SocialPlay, ExpressionKind::Joy).with_cue(Cue::Note)
-                    }
-                    Act::ShowTo(..) if character.kind == TemperamentKind::Grump => {
-                        Pose::new(Gesture::Watch, ExpressionKind::Bored)
-                    }
-                    Act::ShowTo(..) => Pose::new(Gesture::Watch, ExpressionKind::Curious),
-                    Act::Share(..) => Pose::new(ActionKind::Eat, ExpressionKind::Content),
-                    Act::SitTogether(_) => Pose::new(ActionKind::Perch, settled),
-                    Act::InviteLittle(..) => {
-                        Pose::new(ActionKind::Sleep, ExpressionKind::Sleepy).with_cue(Cue::Sleep)
-                    }
-                    _ => Pose::idle(character.idle_face()),
-                };
-                (pose, f32::MAX)
+        let (pose, seconds) = match plan.part {
+            Part::Joins(leader) => (
+                joining_pose(household, resident, leader, &plan.act),
+                f32::MAX,
+            ),
+            Part::Leads => {
+                let dark = self.dark;
+                leading_pose(
+                    snapshot,
+                    resident,
+                    &plan.act,
+                    dark,
+                    &mut self.minds[index].dice,
+                )
             }
-            (Part::Leads, act) => match act {
-                Act::GoTo(..) => (Pose::idle(character.idle_face()), 1.0),
-                Act::Wander(..) => (
-                    Pose::new(Gesture::Watch, character.walk_face()),
-                    dice.between(1.5, 3.5),
-                ),
-                Act::Sit(_) => (
-                    Pose::new(ActionKind::Perch, settled),
-                    dice.between(6.0, 10.0),
-                ),
-                Act::Relax(_) => (
-                    Pose::new(ActionKind::Perch, ExpressionKind::Content),
-                    dice.between(12.0, 18.0),
-                ),
-                Act::SitAt(_) => (
-                    Pose::new(ActionKind::Perch, settled),
-                    dice.between(8.0, 12.0),
-                ),
-                Act::Draw(..) => (
-                    Pose::new(ActionKind::Perch, ExpressionKind::Focused).with_cue(Cue::Thought),
-                    dice.between(10.0, 14.0),
-                ),
-                Act::Nap(_) | Act::CurlUp(_) => {
-                    let long = if character.kind == TemperamentKind::Lazybones {
-                        1.5
-                    } else {
-                        1.0
-                    };
-                    (
-                        Pose::new(ActionKind::Sleep, ExpressionKind::Sleepy).with_cue(Cue::Sleep),
-                        dice.between(12.0, 18.0) * long,
-                    )
-                }
-                Act::Sprawl(_) => (
-                    Pose::new(ActionKind::Sleep, ExpressionKind::Content).with_cue(Cue::Sleep),
-                    dice.between(10.0, 16.0),
-                ),
-                Act::Sleep(_) | Act::InviteLittle(..) => (
-                    Pose::new(ActionKind::Sleep, ExpressionKind::Sleepy).with_cue(Cue::Sleep),
-                    dice.between(20.0, 28.0) * (1.0 + dark * 3.0),
-                ),
-                Act::Bounce(_) => (
-                    Pose::new(Gesture::Cheer, ExpressionKind::Joy)
-                        .spinning()
-                        .with_cue(Cue::Note),
-                    4.0,
-                ),
-                Act::SwitchLamp(_) => (Pose::new(Gesture::Reach, ExpressionKind::Curious), 1.4),
-                Act::Tend(_) => (
-                    Pose::new(Gesture::Reach, ExpressionKind::Content).with_cue(Cue::Heart),
-                    4.0,
-                ),
-                Act::Browse(_) => (
-                    Pose::new(ActionKind::InspectScreen, ExpressionKind::Curious)
-                        .with_cue(Cue::Question),
-                    dice.between(5.0, 7.0),
-                ),
-                Act::Play(_) | Act::PlayWithFind(_) => (
-                    Pose::new(ActionKind::SoloPlay, ExpressionKind::Joy).with_cue(Cue::Note),
-                    dice.between(6.0, 9.0),
-                ),
-                Act::PlayWith(..) | Act::PlayTogether(_) => (
-                    Pose::new(ActionKind::SocialPlay, ExpressionKind::Joy).with_cue(Cue::Note),
-                    dice.between(6.0, 8.0),
-                ),
-                Act::ShowOffToy(_) => (
-                    Pose::new(Gesture::Cheer, ExpressionKind::Smug).with_cue(Cue::Sparkle),
-                    3.5,
-                ),
-                Act::Snack(_) | Act::Share(..) => {
-                    let face = if resident
-                        .traveler
-                        .character
-                        .trait_ids
-                        .contains(&Trait::FoodMotivated)
-                    {
-                        ExpressionKind::Joy
-                    } else {
-                        ExpressionKind::Content
-                    };
-                    (Pose::new(ActionKind::Eat, face), 5.0)
-                }
-                Act::Inspect(item) => {
-                    let face = if character.studies() {
-                        ExpressionKind::Focused
-                    } else {
-                        ExpressionKind::Curious
-                    };
-                    let long = if character.studies() && precious(item) {
-                        1.5
-                    } else {
-                        1.0
-                    };
-                    (
-                        Pose::new(ActionKind::InspectScreen, face).with_cue(Cue::Question),
-                        dice.between(4.0, 6.0) * long,
-                    )
-                }
-                Act::Remember(_) => (
-                    Pose::new(Gesture::Watch, ExpressionKind::Affectionate).with_cue(Cue::Thought),
-                    6.0,
-                ),
-                Act::ShowTo(..) => (
-                    Pose::new(ActionKind::PresentDiscovery, ExpressionKind::Smug)
-                        .with_cue(Cue::Sparkle),
-                    5.0,
-                ),
-                Act::FussWith(_) => (Pose::new(Gesture::Reach, ExpressionKind::Smug), 3.5),
-                Act::TryOn(_) => {
-                    let face = if character.shows_off() {
-                        ExpressionKind::Smug
-                    } else {
-                        ExpressionKind::Joy
-                    };
-                    (
-                        Pose::new(Gesture::Bop, face).with_cue(Cue::Sparkle),
-                        dice.between(7.0, 10.0),
-                    )
-                }
-                Act::Greet(_) => (Pose::new(ActionKind::Greet, ExpressionKind::Joy), 2.5),
-                Act::SitTogether(_) => (
-                    Pose::new(ActionKind::Perch, ExpressionKind::Content),
-                    dice.between(10.0, 14.0),
-                ),
-                Act::Tease(_) => (
-                    Pose::new(Gesture::Crouch, ExpressionKind::Smug).with_cue(Cue::Bang),
-                    3.0,
-                ),
-                Act::Comfort(_) => (
-                    Pose::idle(ExpressionKind::Affectionate).with_cue(Cue::Heart),
-                    4.0,
-                ),
-                Act::Hug(_) => (
-                    Pose::idle(ExpressionKind::Affectionate).with_cue(Cue::Heart),
-                    3.5,
-                ),
-                Act::GrumbleAt(_) => (
-                    Pose::idle(ExpressionKind::Grumpy).with_cue(Cue::Grumble),
-                    2.5,
-                ),
-            },
         };
         let pose = if self.reduce_motion {
             pose.held()
@@ -1859,6 +1669,45 @@ impl Life {
                 until: now + seconds,
             },
         );
+    }
+
+    /// A lamp that was on goes off, and one that was off comes on.
+    fn switch_lamp(&mut self, uid: u16) {
+        match self.lamps_off.iter().position(|off| *off == uid) {
+            Some(at) => {
+                self.lamps_off.remove(at);
+            }
+            None => self.lamps_off.push(uid),
+        }
+    }
+
+    /// A find pinned on for a while, if it is small enough to wear.
+    fn put_on(&mut self, snapshot: &HomeSnapshot, index: usize, item: &DisplayId) {
+        if let Some(dress) = snapshot.item(item).and_then(wearable) {
+            self.worn.push((item.clone(), self.minds[index].id));
+            self.actors[index].wear(Some(dress));
+        }
+    }
+
+    /// Whatever an act is about has been had a good look at, everything on a shelf looked over
+    /// with it, and none of it is new any more.
+    fn take_in(&mut self, house: &House, index: usize, act: &Act) {
+        let seen = &mut self.minds[index].seen;
+        if let Some(item) = act.item()
+            && !seen.contains(item)
+        {
+            seen.push(item.clone());
+        }
+        if let Act::Browse(uid) = act {
+            for item in shown_on(house, *uid) {
+                if !seen.contains(&item) {
+                    seen.push(item);
+                }
+            }
+        }
+        if let Some(item) = act.item() {
+            self.novel.retain(|novel| novel != item);
+        }
     }
 
     /// Done, or let go: drives settle if it was done, it gets down off anything, puts back
@@ -1962,11 +1811,42 @@ impl Life {
     ) -> Option<Act> {
         let id = self.minds[index].id;
         let resident = household.resident(id)?;
-        let character = &resident.character;
-        let visiting = household.is_visitor(id);
-        let seats = self.free_seats(house);
-        let others: Vec<Id> = self
-            .minds
+        let choosing = Choosing {
+            household,
+            house,
+            snapshot,
+            likings,
+            resident,
+            index,
+            visiting: household.is_visitor(id),
+            seats: self.free_seats(house),
+            others: self.company(id),
+            visitors_here: self.minds.iter().any(|mind| {
+                mind.id != id && household.is_visitor(mind.id) && mind.presence.in_house()
+            }),
+            loved: favourites(likings, house, id),
+        };
+        let mut options: Vec<(Act, f32)> = Vec::new();
+        for placed in &house.pieces {
+            self.piece_whims(&choosing, placed, &mut options);
+        }
+        for shown in &house.shown {
+            self.find_whims(&choosing, &shown.item, &mut options);
+        }
+        for other in &choosing.others {
+            company_whims(&choosing, *other, &mut options);
+        }
+        let (room, leaving) = self.which_room(house, index);
+        options.extend(self.look_round(house, index, room, leaving));
+        keep_to_room(house, room, &mut options);
+        self.wait_for_others_elsewhere(house, index, room, &mut options);
+        self.likeliest(index, resident.character.whimsy(), options)
+    }
+
+    /// Whoever else is in the house and free for company: not being handled, and not about
+    /// something asked of it, or asleep.
+    fn company(&self, id: Id) -> Vec<Id> {
+        self.minds
             .iter()
             .filter(|mind| {
                 mind.id != id
@@ -1977,268 +1857,251 @@ impl Life {
                     })
             })
             .map(|mind| mind.id)
-            .collect();
-        let visitors_here = self
-            .minds
+            .collect()
+    }
+
+    /// How far a point is from everyone else in the house, up to a good way off.
+    fn apart(&self, id: Id, at: (f32, f32)) -> f32 {
+        self.actors
             .iter()
-            .any(|mind| mind.id != id && household.is_visitor(mind.id) && mind.presence.in_house());
-        let loved = favourites(likings, house, id);
-        let favourite = |thing: Liked| loved.iter().any(|(_, liked)| *liked == thing);
-        let piece_favourite = |uid: u16| {
-            if house.liked(uid).is_some_and(&favourite) {
-                1.8
+            .filter(|actor| actor.id != id && !actor.hidden)
+            .map(|actor| ((actor.pos.0 - at.0).powi(2) + (actor.pos.1 - at.1).powi(2)).sqrt())
+            .fold(8.0_f32, f32::min)
+    }
+
+    /// What a piece puts in mind to do with it.
+    fn piece_whims(
+        &self,
+        choosing: &Choosing,
+        placed: &formiga_home_contract::PlacedPiece,
+        options: &mut Vec<(Act, f32)>,
+    ) {
+        let Some(piece) = catalog::piece(&placed.piece) else {
+            return;
+        };
+        let uid = placed.uid;
+        let centre = room::footprint(placed).centre();
+        let prospect = Prospect {
+            piece,
+            uid,
+            free: choosing.seats.iter().any(|seat| seat.piece == uid),
+            solitude: if choosing.resident.character.keeps_apart() {
+                0.6 + self.apart(choosing.resident.id, centre) / 6.0
             } else {
                 1.0
+            },
+            mine: choosing.piece_favourite(uid),
+        };
+        self.seat_whims(choosing, &prospect, options);
+        self.bed_whims(choosing, &prospect, options);
+        self.pastime_whims(choosing, &prospect, options);
+        play_whims(choosing, &prospect, options);
+    }
+
+    /// A seat to sit or nap on, if there is room on it; and a grump's to grumble about, if
+    /// somebody else is in its favourite.
+    fn seat_whims(&self, choosing: &Choosing, prospect: &Prospect, options: &mut Vec<(Act, f32)>) {
+        let Prospect {
+            piece,
+            uid,
+            free,
+            solitude,
+            mine,
+        } = *prospect;
+        let kind = choosing.resident.character.kind;
+        let lazy = kind == TemperamentKind::Lazybones;
+        if piece.has(Use::Sit { seats: 1 }) {
+            if free {
+                options.push((Act::Sit(uid), 0.9 * solitude * mine));
+                options.push((Act::Nap(uid), if lazy { 1.3 } else { 0.7 } * mine));
+            } else if kind == TemperamentKind::Grump
+                && mine > 1.0
+                && let Some(sitter) = self
+                    .on_piece(uid)
+                    .filter(|sitter| *sitter != choosing.resident.id)
+            {
+                // Somebody is in its chair.
+                options.push((Act::GrumbleAt(sitter), 1.6));
             }
-        };
-        let me = self.actors[index].pos;
-        let mut options: Vec<(Act, f32)> = Vec::new();
-        let apart = |at: (f32, f32)| {
-            self.actors
-                .iter()
-                .filter(|actor| actor.id != id && !actor.hidden)
-                .map(|actor| ((actor.pos.0 - at.0).powi(2) + (actor.pos.1 - at.1).powi(2)).sqrt())
-                .fold(8.0_f32, f32::min)
-        };
+        }
+    }
+
+    /// A bed to sleep, curl up or bounce on: one of the household's own, or for a friend staying
+    /// over, a spare.
+    fn bed_whims(&self, choosing: &Choosing, prospect: &Prospect, options: &mut Vec<(Act, f32)>) {
+        let Prospect {
+            piece,
+            uid,
+            free,
+            solitude,
+            mine,
+        } = *prospect;
+        let resident = choosing.resident;
+        let character = &resident.character;
         let kind = character.kind;
         let lazy = kind == TemperamentKind::Lazybones;
-        for placed in &house.pieces {
-            let Some(piece) = catalog::piece(&placed.piece) else {
-                continue;
-            };
-            let uid = placed.uid;
-            let free = seats.iter().any(|seat| seat.piece == uid);
-            let centre = room::footprint(placed).centre();
-            let solitude = if character.keeps_apart() {
-                0.6 + apart(centre) / 6.0
-            } else {
-                1.0
-            };
-            let mine = piece_favourite(uid);
-            if piece.has(Use::Sit { seats: 1 }) {
-                if free {
-                    options.push((Act::Sit(uid), 0.9 * solitude * mine));
-                    options.push((Act::Nap(uid), if lazy { 1.3 } else { 0.7 } * mine));
-                } else if kind == TemperamentKind::Grump
-                    && mine > 1.0
-                    && let Some(sitter) = self.on_piece(uid).filter(|sitter| *sitter != id)
-                {
-                    // Somebody is in its chair.
-                    options.push((Act::GrumbleAt(sitter), 1.6));
-                }
-            }
-            let guest = visiting && self.minds[index].staying;
-            if piece.has(Use::Sleep) && free && guest && spare_bed(household, house, likings, uid) {
-                // A friend staying over sleeps in the guest bedroll if there is one, or in a bed
-                // nobody at home has made their own.
-                let bedroll = if piece.id == "bedroll" { 2.0 } else { 1.0 };
-                options.push((Act::Sleep(uid), 1.2 * bedroll));
-                options.push((Act::CurlUp(uid), 0.6 * bedroll * solitude));
-            }
-            if piece.has(Use::Sleep) && free && !visiting {
-                let basket = piece.id == "basket";
-                let fits = if resident.is_little() == basket {
-                    1.4
-                } else {
-                    0.8
-                };
-                let bedtime = 1.0 + self.dark * 3.0;
-                options.push((
-                    Act::Sleep(uid),
-                    fits * if lazy { 1.5 } else { 1.0 } * mine * bedtime,
-                ));
-                options.push((Act::CurlUp(uid), fits * 0.8 * solitude * mine));
-                if (character.playful() && kind == TemperamentKind::Troublemaker)
-                    || resident.is_little()
-                {
-                    options.push((Act::Bounce(uid), 0.7));
-                }
-            }
-            if piece.flat {
-                options.push((Act::Sprawl(uid), if lazy { 1.2 } else { 0.35 }));
-            }
-            if piece.family == Family::Tables && !visiting {
-                options.push((Act::SitAt(uid), 0.5 * solitude));
-                if resident.is_little() && !self.minds[index].drew {
-                    let of = subject(household, id, &others);
-                    options.push((Act::Draw(uid, of), 0.5 + character.axes.curiosity * 0.4));
-                }
-            }
-            if piece.family == Family::Plants && !visiting {
-                options.push((Act::Tend(uid), 0.25 + character.axes.affection * 0.3));
-            }
-            if piece.family == Family::Lights && character.fusses() {
-                options.push((Act::SwitchLamp(uid), 0.25));
-            }
-            if piece.family == Family::Shelves && !shown_on(house, uid).is_empty() {
-                let lots = if character.studies() || visiting {
-                    1.0
-                } else {
-                    0.4
-                };
-                options.push((Act::Browse(uid), lots));
-            }
-            if piece.has(Use::Play) {
-                options.push((Act::Play(uid), 1.0 * mine));
-                for other in &others {
-                    let bond = household.bond(id, *other);
-                    if character.playful() && bond.friction < Band::High {
-                        options.push((
-                            Act::PlayWith(uid, *other),
-                            0.6 + band(bond.playfulness) * 0.6,
-                        ));
-                    }
-                }
-                if character.shows_off() && !others.is_empty() {
-                    options.push((Act::ShowOffToy(uid), if visitors_here { 1.5 } else { 0.9 }));
-                }
-            }
-            if piece.has(Use::Snack) {
-                let loves_food = resident
-                    .traveler
-                    .character
-                    .trait_ids
-                    .contains(&Trait::FoodMotivated)
-                    || character.has_habit(Habit::LooksFoodOver);
-                options.push((Act::Snack(uid), if loves_food { 1.5 } else { 0.6 }));
-            }
+        let visiting = choosing.visiting;
+        let guest = visiting && self.minds[choosing.index].staying;
+        if piece.has(Use::Sleep)
+            && free
+            && guest
+            && spare_bed(choosing.household, choosing.house, choosing.likings, uid)
+        {
+            // A friend staying over sleeps in the guest bedroll if there is one, or in a bed
+            // nobody at home has made their own.
+            let bedroll = if piece.id == "bedroll" { 2.0 } else { 1.0 };
+            options.push((Act::Sleep(uid), 1.2 * bedroll));
+            options.push((Act::CurlUp(uid), 0.6 * bedroll * solitude));
         }
-        let seen = self.minds[index].seen.clone();
-        for shown in &house.shown {
-            let item = &shown.item;
-            let Some(thing) = snapshot.item(item) else {
-                continue;
-            };
-            if self.worn.iter().any(|(worn, _)| worn == item) {
-                continue;
-            }
-            let precious = is_precious(thing);
-            let souvenir = matches!(thing.source, DisplaySource::HillSouvenir { .. });
-            let mine = if favourite(Liked::Shown { item: item.clone() }) {
-                1.6
-            } else {
-                1.0
-            };
-            let mut inspect = if character.studies() && precious {
-                1.7
-            } else {
-                1.0
-            };
-            // A visitor takes a good look at everything on show it has not seen yet, and most of
-            // all at whatever stands out.
-            if visiting && !seen.contains(item) {
-                inspect *= if precious || souvenir { 2.4 } else { 1.8 };
-            }
-            // Something new since the room was arranged draws the inquisitive first.
-            if self.novel.contains(item)
-                && (character.studies() || kind == TemperamentKind::Oddball)
-            {
-                inspect *= 2.2;
-            }
-            options.push((Act::Inspect(item.clone()), inspect * mine));
-            // Something found by a close friend, or by itself, is something to remember by.
-            let found_by_friend = thing.finder_name.as_deref().is_some_and(|finder| {
-                finder == resident.name
-                    || household
-                        .everyone()
-                        .any(|other| other.name == finder && household.bond(id, other.id).close())
-            });
-            options.push((
-                Act::Remember(item.clone()),
-                if found_by_friend { 1.2 } else { 0.45 } * mine,
-            ));
-            if character.shows_off() && !visiting {
-                for other in &others {
-                    // A show-off's best audience is a visitor, and its best find the oddest.
-                    let audience = if household.is_visitor(*other) {
-                        2.2
-                    } else {
-                        1.0
-                    };
-                    let prize = if precious {
-                        1.6
-                    } else if souvenir {
-                        1.4
-                    } else {
-                        1.1
-                    };
-                    options.push((Act::ShowTo(item.clone(), *other), audience * prize * mine));
-                }
-            }
-            if character.fusses() {
-                options.push((Act::FussWith(item.clone()), 0.7));
-            }
-            if toy_like(thing) {
-                options.push((Act::PlayWithFind(item.clone()), 0.9 * mine));
-            }
-            if !visiting && wearable(thing).is_some() {
-                let dressy = if character.shows_off()
-                    || matches!(
-                        kind,
-                        TemperamentKind::Oddball | TemperamentKind::Troublemaker
-                    ) {
-                    0.7
-                } else {
-                    0.2
-                };
-                options.push((Act::TryOn(item.clone()), dressy));
-            }
-        }
-        for other in &others {
-            let bond = household.bond(id, *other);
-            let family = household.family(id, *other);
-            let seek = if bond.close() {
-                1.6
-            } else if family {
-                1.3
-            } else {
-                1.0
-            };
-            let shy = if bond.friction >= Band::High {
-                0.3
-            } else {
-                1.0
-            };
-            // A visitor came to see its friends.
-            let company = if visiting || household.is_visitor(*other) {
+        if piece.has(Use::Sleep) && free && !visiting {
+            let basket = piece.id == "basket";
+            let fits = if resident.is_little() == basket {
                 1.4
             } else {
-                1.0
+                0.8
             };
-            let weight = seek * shy * company;
-            options.push((Act::Greet(*other), 0.5 * weight));
-            if character.hugs() && (bond.warmth >= Band::Medium || family) {
-                options.push((Act::Hug(*other), 0.9 * weight));
-            }
-            if character.playful() {
-                options.push((
-                    Act::PlayTogether(*other),
-                    (0.5 + band(bond.playfulness) * 0.6) * weight,
-                ));
-            }
-            if character.teases() {
-                options.push((Act::Tease(*other), 0.8));
-            }
-            let little = household.resident(*other).is_some_and(|r| r.is_little());
-            let guards = kind == TemperamentKind::Guardian || household.family(id, *other);
-            if little && !resident.is_little() && guards {
-                options.push((Act::Comfort(*other), 1.0 * weight));
-            }
-            if !character.keeps_apart() && seats.len() >= 2 {
-                options.push((Act::SitTogether(*other), 0.8 * weight));
+            let bedtime = 1.0 + self.dark * 3.0;
+            options.push((
+                Act::Sleep(uid),
+                fits * if lazy { 1.5 } else { 1.0 } * mine * bedtime,
+            ));
+            options.push((Act::CurlUp(uid), fits * 0.8 * solitude * mine));
+            if (character.playful() && kind == TemperamentKind::Troublemaker)
+                || resident.is_little()
+            {
+                options.push((Act::Bounce(uid), 0.7));
             }
         }
-        let floor = Floor::of(house);
-        let rooms_now: Vec<(Id, Option<u8>)> = self
-            .minds
-            .iter()
-            .zip(&self.actors)
-            .map(|(mind, actor)| (mind.id, house.room_of_point(actor.pos)))
-            .collect();
+    }
+
+    /// The quieter things a piece is for: stretching out on a rug, sitting at a table or drawing
+    /// there, tending a plant, switching a lamp, looking over a shelf.
+    fn pastime_whims(
+        &self,
+        choosing: &Choosing,
+        prospect: &Prospect,
+        options: &mut Vec<(Act, f32)>,
+    ) {
+        let Prospect {
+            piece,
+            uid,
+            solitude,
+            ..
+        } = *prospect;
+        let resident = choosing.resident;
+        let character = &resident.character;
+        let lazy = character.kind == TemperamentKind::Lazybones;
+        let visiting = choosing.visiting;
+        if piece.flat {
+            options.push((Act::Sprawl(uid), if lazy { 1.2 } else { 0.35 }));
+        }
+        if piece.family == Family::Tables && !visiting {
+            options.push((Act::SitAt(uid), 0.5 * solitude));
+            if resident.is_little() && !self.minds[choosing.index].drew {
+                let of = subject(choosing.household, resident.id, &choosing.others);
+                options.push((Act::Draw(uid, of), 0.5 + character.axes.curiosity * 0.4));
+            }
+        }
+        if piece.family == Family::Plants && !visiting {
+            options.push((Act::Tend(uid), 0.25 + character.axes.affection * 0.3));
+        }
+        if piece.family == Family::Lights && character.fusses() {
+            options.push((Act::SwitchLamp(uid), 0.25));
+        }
+        if piece.family == Family::Shelves && !shown_on(choosing.house, uid).is_empty() {
+            let lots = if character.studies() || visiting {
+                1.0
+            } else {
+                0.4
+            };
+            options.push((Act::Browse(uid), lots));
+        }
+    }
+
+    /// What a find on show puts in mind: a good look, a memory, showing it off, fussing with it,
+    /// playing with it, trying it on. Not one somebody is wearing just now.
+    fn find_whims(&self, choosing: &Choosing, item: &DisplayId, options: &mut Vec<(Act, f32)>) {
+        let Some(thing) = choosing.snapshot.item(item) else {
+            return;
+        };
+        if self.worn.iter().any(|(worn, _)| worn == item) {
+            return;
+        }
+        let character = &choosing.resident.character;
+        let visiting = choosing.visiting;
+        let precious = is_precious(thing);
+        let souvenir = matches!(thing.source, DisplaySource::HillSouvenir { .. });
+        let mine = if choosing.favourite(&Liked::Shown { item: item.clone() }) {
+            1.6
+        } else {
+            1.0
+        };
+        let inspect = self.inspect_weight(choosing, item, precious, souvenir);
+        options.push((Act::Inspect(item.clone()), inspect * mine));
+        // Something found by a close friend, or by itself, is something to remember by.
+        let found_by_friend = found_by_friend(choosing, thing);
+        options.push((
+            Act::Remember(item.clone()),
+            if found_by_friend { 1.2 } else { 0.45 } * mine,
+        ));
+        if character.shows_off() && !visiting {
+            show_off_whims(choosing, item, precious, souvenir, mine, options);
+        }
+        if character.fusses() {
+            options.push((Act::FussWith(item.clone()), 0.7));
+        }
+        if toy_like(thing) {
+            options.push((Act::PlayWithFind(item.clone()), 0.9 * mine));
+        }
+        if !visiting && wearable(thing).is_some() {
+            let dressy = if character.shows_off()
+                || matches!(
+                    character.kind,
+                    TemperamentKind::Oddball | TemperamentKind::Troublemaker
+                ) {
+                0.7
+            } else {
+                0.2
+            };
+            options.push((Act::TryOn(item.clone()), dressy));
+        }
+    }
+
+    /// How much a find on show calls for a good look: most to one who studies things, if it is
+    /// precious; to a visitor, if it has not seen it yet; and to the inquisitive, if it is new.
+    fn inspect_weight(
+        &self,
+        choosing: &Choosing,
+        item: &DisplayId,
+        precious: bool,
+        souvenir: bool,
+    ) -> f32 {
+        let character = &choosing.resident.character;
+        let mut inspect = if character.studies() && precious {
+            1.7
+        } else {
+            1.0
+        };
+        // A visitor takes a good look at everything on show it has not seen yet, and most of
+        // all at whatever stands out.
+        if choosing.visiting && !self.minds[choosing.index].seen.contains(item) {
+            inspect *= if precious || souvenir { 2.4 } else { 1.8 };
+        }
+        // Something new since the room was arranged draws the inquisitive first.
+        if self.novel.contains(item)
+            && (character.studies() || character.kind == TemperamentKind::Oddball)
+        {
+            inspect *= 2.2;
+        }
+        inspect
+    }
+
+    /// Which room to be in: the one it is in, until that palls, and then, more often than not,
+    /// one of the others, however little there is to do there. And whether it is leaving this
+    /// one for it.
+    fn which_room(&mut self, house: &House, index: usize) -> (u8, bool) {
+        let here = house.room_of_point(self.actors[index].pos);
         let mind = &mut self.minds[index];
-        // Which room to be in: the one it is in, until that palls, and then, more often than
-        // not, one of the others, however little there is to do there.
-        let here = house.room_of_point(me);
         let elsewhere: Vec<u8> = (0..house.rooms.len() as u8)
             .filter(|room| Some(*room) != here)
             .collect();
@@ -2249,37 +2112,50 @@ impl Life {
         } else {
             here.unwrap_or(0)
         };
-        // A look round somewhere in it.
+        (room, leaving)
+    }
+
+    /// A look round somewhere in `room`, if there is open floor there a few steps off; the more
+    /// likely for leaving the room it is in.
+    fn look_round(
+        &mut self,
+        house: &House,
+        index: usize,
+        room: u8,
+        leaving: bool,
+    ) -> Option<(Act, f32)> {
+        let me = self.actors[index].pos;
+        let dice = &mut self.minds[index].dice;
         let area = &house.rooms[usize::from(room)];
         let wander = (
-            i32::from(area.x) + (mind.dice.next() * f32::from(area.width)) as i32,
-            i32::from(area.y) + (mind.dice.next() * f32::from(area.depth)) as i32,
+            i32::from(area.x) + (dice.next() * f32::from(area.width)) as i32,
+            i32::from(area.y) + (dice.next() * f32::from(area.depth)) as i32,
         );
-        if let Some(tile) = floor.nearest_open_in(wander, room) {
-            let far = ((tile.0 as f32 + 0.5 - me.0).powi(2) + (tile.1 as f32 + 0.5 - me.1).powi(2))
-                .sqrt();
-            if far > 1.5 {
-                let weight = if leaving { 1.2 } else { 0.5 };
-                options.push((Act::Wander(tile.0 as u8, tile.1 as u8), weight));
-            }
-        }
-        // Only what is in that room comes to mind, and the others, wherever they are.
-        let in_room = |act: &Act| {
-            let there = match (act.piece(), act.item()) {
-                (Some(uid), _) => house
-                    .piece(uid)
-                    .and_then(|placed| house.room_of_point(room::footprint(placed).centre())),
-                (_, Some(item)) => item_room(house, item),
-                (None, None) => return true,
-            };
-            there == Some(room)
-        };
-        if options.iter().any(|(act, _)| in_room(act)) {
-            options.retain(|(act, _)| in_room(act));
-        }
-        // Someone in another room can wait a while, for one only just come into this one.
-        let settling = 0.35 + mind.restless * 0.65;
-        for (act, weight) in &mut options {
+        let tile = Floor::of(house).nearest_open_in(wander, room)?;
+        let far =
+            ((tile.0 as f32 + 0.5 - me.0).powi(2) + (tile.1 as f32 + 0.5 - me.1).powi(2)).sqrt();
+        (far > 1.5).then(|| {
+            let weight = if leaving { 1.2 } else { 0.5 };
+            (Act::Wander(tile.0 as u8, tile.1 as u8), weight)
+        })
+    }
+
+    /// Someone in another room can wait a while, for one only just come into this one.
+    fn wait_for_others_elsewhere(
+        &self,
+        house: &House,
+        index: usize,
+        room: u8,
+        options: &mut [(Act, f32)],
+    ) {
+        let rooms_now: Vec<(Id, Option<u8>)> = self
+            .minds
+            .iter()
+            .zip(&self.actors)
+            .map(|(mind, actor)| (mind.id, house.room_of_point(actor.pos)))
+            .collect();
+        let settling = 0.35 + self.minds[index].restless * 0.65;
+        for (act, weight) in options {
             if let Some(other) = act.partner()
                 && rooms_now
                     .iter()
@@ -2290,7 +2166,12 @@ impl Life {
                 *weight *= settling;
             }
         }
-        let whimsy = character.whimsy();
+    }
+
+    /// Of everything that came to mind, what it most feels like: whatever answers its strongest
+    /// drive, unless it did that last, give or take as much whim as it has.
+    fn likeliest(&mut self, index: usize, whimsy: f32, options: Vec<(Act, f32)>) -> Option<Act> {
+        let mind = &mut self.minds[index];
         let mut best: Option<(Act, f32)> = None;
         for (act, weight) in options {
             let drive = mind.drives[act.drive().index()];
@@ -2394,6 +2275,395 @@ fn door(house: &House, floor: &Floor) -> ((f32, f32), (i32, i32)) {
         f32::from(first.y + first.depth) + 0.9,
     );
     (outside, inside)
+}
+
+/// What a resident choosing for itself has to go on.
+struct Choosing<'a> {
+    household: &'a Household,
+    house: &'a House,
+    snapshot: &'a HomeSnapshot,
+    likings: &'a [Liking],
+    resident: &'a Resident,
+    index: usize,
+    visiting: bool,
+    seats: Vec<Seat>,
+    /// Whoever else is about and free for company.
+    others: Vec<Id>,
+    /// Whether a visitor is in, besides itself.
+    visitors_here: bool,
+    loved: Vec<(Kind, Liked)>,
+}
+
+impl Choosing<'_> {
+    fn favourite(&self, thing: &Liked) -> bool {
+        self.loved.iter().any(|(_, liked)| liked == thing)
+    }
+
+    /// How much more a piece appeals for being a favourite.
+    fn piece_favourite(&self, uid: u16) -> f32 {
+        if self
+            .house
+            .liked(uid)
+            .is_some_and(|thing| self.favourite(&thing))
+        {
+            1.8
+        } else {
+            1.0
+        }
+    }
+}
+
+/// A piece as someone choosing for itself sees it: whether it has a place free, how far from
+/// everyone else it is to one who keeps apart, and how much more it appeals for being a
+/// favourite.
+#[derive(Clone, Copy)]
+struct Prospect<'a> {
+    piece: &'a catalog::Piece,
+    uid: u16,
+    free: bool,
+    solitude: f32,
+    mine: f32,
+}
+
+/// A toy to play with, alone, with someone or to show off with; and a snack.
+fn play_whims(choosing: &Choosing, prospect: &Prospect, options: &mut Vec<(Act, f32)>) {
+    let Prospect {
+        piece, uid, mine, ..
+    } = *prospect;
+    let household = choosing.household;
+    let resident = choosing.resident;
+    let character = &resident.character;
+    if piece.has(Use::Play) {
+        options.push((Act::Play(uid), 1.0 * mine));
+        for other in &choosing.others {
+            let bond = household.bond(resident.id, *other);
+            if character.playful() && bond.friction < Band::High {
+                options.push((
+                    Act::PlayWith(uid, *other),
+                    0.6 + band(bond.playfulness) * 0.6,
+                ));
+            }
+        }
+        if character.shows_off() && !choosing.others.is_empty() {
+            options.push((
+                Act::ShowOffToy(uid),
+                if choosing.visitors_here { 1.5 } else { 0.9 },
+            ));
+        }
+    }
+    if piece.has(Use::Snack) {
+        let loves_food = resident
+            .traveler
+            .character
+            .trait_ids
+            .contains(&Trait::FoodMotivated)
+            || character.has_habit(Habit::LooksFoodOver);
+        options.push((Act::Snack(uid), if loves_food { 1.5 } else { 0.6 }));
+    }
+}
+
+/// Whether a find was found by whoever is choosing, or by a close friend of its.
+fn found_by_friend(choosing: &Choosing, thing: &DisplayItem) -> bool {
+    let household = choosing.household;
+    let resident = choosing.resident;
+    thing.finder_name.as_deref().is_some_and(|finder| {
+        finder == resident.name
+            || household
+                .everyone()
+                .any(|other| other.name == finder && household.bond(resident.id, other.id).close())
+    })
+}
+
+/// A show-off's find to show to each of the others: its best audience a visitor, and its best
+/// find the oddest.
+fn show_off_whims(
+    choosing: &Choosing,
+    item: &DisplayId,
+    precious: bool,
+    souvenir: bool,
+    mine: f32,
+    options: &mut Vec<(Act, f32)>,
+) {
+    for other in &choosing.others {
+        let audience = if choosing.household.is_visitor(*other) {
+            2.2
+        } else {
+            1.0
+        };
+        let prize = if precious {
+            1.6
+        } else if souvenir {
+            1.4
+        } else {
+            1.1
+        };
+        options.push((Act::ShowTo(item.clone(), *other), audience * prize * mine));
+    }
+}
+
+/// What someone else in the house puts in mind: a hello, a hug, a game, some teasing, comfort
+/// for a little one, a seat together. Most of all with a close friend or family, and with
+/// whoever is visiting.
+fn company_whims(choosing: &Choosing, other: Id, options: &mut Vec<(Act, f32)>) {
+    let household = choosing.household;
+    let resident = choosing.resident;
+    let id = resident.id;
+    let character = &resident.character;
+    let bond = household.bond(id, other);
+    let family = household.family(id, other);
+    let seek = if bond.close() {
+        1.6
+    } else if family {
+        1.3
+    } else {
+        1.0
+    };
+    let shy = if bond.friction >= Band::High {
+        0.3
+    } else {
+        1.0
+    };
+    // A visitor came to see its friends.
+    let company = if choosing.visiting || household.is_visitor(other) {
+        1.4
+    } else {
+        1.0
+    };
+    let weight = seek * shy * company;
+    options.push((Act::Greet(other), 0.5 * weight));
+    if character.hugs() && (bond.warmth >= Band::Medium || family) {
+        options.push((Act::Hug(other), 0.9 * weight));
+    }
+    if character.playful() {
+        options.push((
+            Act::PlayTogether(other),
+            (0.5 + band(bond.playfulness) * 0.6) * weight,
+        ));
+    }
+    if character.teases() {
+        options.push((Act::Tease(other), 0.8));
+    }
+    let little = household.resident(other).is_some_and(|r| r.is_little());
+    let guards = character.kind == TemperamentKind::Guardian || household.family(id, other);
+    if little && !resident.is_little() && guards {
+        options.push((Act::Comfort(other), 1.0 * weight));
+    }
+    if !character.keeps_apart() && choosing.seats.len() >= 2 {
+        options.push((Act::SitTogether(other), 0.8 * weight));
+    }
+}
+
+/// Only what is in `room` comes to mind, and the others, wherever they are: if anything there
+/// does.
+fn keep_to_room(house: &House, room: u8, options: &mut Vec<(Act, f32)>) {
+    let in_room = |act: &Act| {
+        let there = match (act.piece(), act.item()) {
+            (Some(uid), _) => house
+                .piece(uid)
+                .and_then(|placed| house.room_of_point(room::footprint(placed).centre())),
+            (_, Some(item)) => item_room(house, item),
+            (None, None) => return true,
+        };
+        there == Some(room)
+    };
+    if options.iter().any(|(act, _)| in_room(act)) {
+        options.retain(|(act, _)| in_room(act));
+    }
+}
+
+/// How someone joins in an act `leader` leads, which it keeps up as long as the leader does.
+fn joining_pose(household: &Household, resident: &Resident, leader: Id, act: &Act) -> Pose {
+    let character = &resident.character;
+    let bond = household.bond(resident.id, leader);
+    let warm = bond.warmth >= Band::Medium || household.family(resident.id, leader);
+    match act {
+        Act::Tease(_) if character.axes.feistiness > 0.55 => {
+            Pose::idle(ExpressionKind::Grumpy).with_cue(Cue::Grumble)
+        }
+        Act::Tease(_) => Pose::idle(ExpressionKind::Worried).with_cue(Cue::Bang),
+        Act::Hug(_) | Act::Comfort(_) => {
+            Pose::idle(ExpressionKind::Affectionate).with_cue(Cue::Heart)
+        }
+        Act::Greet(_) if warm => Pose::new(ActionKind::Greet, ExpressionKind::Joy),
+        Act::Greet(_) => Pose::idle(character.idle_face()),
+        Act::PlayTogether(_) | Act::PlayWith(..) => {
+            Pose::new(ActionKind::SocialPlay, ExpressionKind::Joy).with_cue(Cue::Note)
+        }
+        Act::ShowTo(..) if character.kind == TemperamentKind::Grump => {
+            Pose::new(Gesture::Watch, ExpressionKind::Bored)
+        }
+        Act::ShowTo(..) => Pose::new(Gesture::Watch, ExpressionKind::Curious),
+        Act::Share(..) => Pose::new(ActionKind::Eat, ExpressionKind::Content),
+        Act::SitTogether(_) => Pose::new(ActionKind::Perch, character.settled_face()),
+        Act::InviteLittle(..) => {
+            Pose::new(ActionKind::Sleep, ExpressionKind::Sleepy).with_cue(Cue::Sleep)
+        }
+        _ => Pose::idle(character.idle_face()),
+    }
+}
+
+/// The pose someone leading an act does it in, and for how many seconds, with `dark` how dark it
+/// is at home.
+fn leading_pose(
+    snapshot: &HomeSnapshot,
+    resident: &Resident,
+    act: &Act,
+    dark: f32,
+    dice: &mut Dice,
+) -> (Pose, f32) {
+    let character = &resident.character;
+    let settled = character.settled_face();
+    match act {
+        Act::GoTo(..) => (Pose::idle(character.idle_face()), 1.0),
+        Act::Wander(..) => (
+            Pose::new(Gesture::Watch, character.walk_face()),
+            dice.between(1.5, 3.5),
+        ),
+        Act::Sit(_) => (
+            Pose::new(ActionKind::Perch, settled),
+            dice.between(6.0, 10.0),
+        ),
+        Act::Relax(_) => (
+            Pose::new(ActionKind::Perch, ExpressionKind::Content),
+            dice.between(12.0, 18.0),
+        ),
+        Act::SitAt(_) => (
+            Pose::new(ActionKind::Perch, settled),
+            dice.between(8.0, 12.0),
+        ),
+        Act::Draw(..) => (
+            Pose::new(ActionKind::Perch, ExpressionKind::Focused).with_cue(Cue::Thought),
+            dice.between(10.0, 14.0),
+        ),
+        Act::Nap(_) | Act::CurlUp(_) => {
+            let long = if character.kind == TemperamentKind::Lazybones {
+                1.5
+            } else {
+                1.0
+            };
+            (
+                Pose::new(ActionKind::Sleep, ExpressionKind::Sleepy).with_cue(Cue::Sleep),
+                dice.between(12.0, 18.0) * long,
+            )
+        }
+        Act::Sprawl(_) => (
+            Pose::new(ActionKind::Sleep, ExpressionKind::Content).with_cue(Cue::Sleep),
+            dice.between(10.0, 16.0),
+        ),
+        Act::Sleep(_) | Act::InviteLittle(..) => (
+            Pose::new(ActionKind::Sleep, ExpressionKind::Sleepy).with_cue(Cue::Sleep),
+            dice.between(20.0, 28.0) * (1.0 + dark * 3.0),
+        ),
+        Act::Bounce(_) => (
+            Pose::new(Gesture::Cheer, ExpressionKind::Joy)
+                .spinning()
+                .with_cue(Cue::Note),
+            4.0,
+        ),
+        Act::SwitchLamp(_) => (Pose::new(Gesture::Reach, ExpressionKind::Curious), 1.4),
+        Act::Tend(_) => (
+            Pose::new(Gesture::Reach, ExpressionKind::Content).with_cue(Cue::Heart),
+            4.0,
+        ),
+        Act::Browse(_) => (
+            Pose::new(ActionKind::InspectScreen, ExpressionKind::Curious).with_cue(Cue::Question),
+            dice.between(5.0, 7.0),
+        ),
+        Act::Play(_) | Act::PlayWithFind(_) => (
+            Pose::new(ActionKind::SoloPlay, ExpressionKind::Joy).with_cue(Cue::Note),
+            dice.between(6.0, 9.0),
+        ),
+        Act::PlayWith(..) | Act::PlayTogether(_) => (
+            Pose::new(ActionKind::SocialPlay, ExpressionKind::Joy).with_cue(Cue::Note),
+            dice.between(6.0, 8.0),
+        ),
+        Act::ShowOffToy(_) => (
+            Pose::new(Gesture::Cheer, ExpressionKind::Smug).with_cue(Cue::Sparkle),
+            3.5,
+        ),
+        Act::Snack(_) | Act::Share(..) => (Pose::new(ActionKind::Eat, snack_face(resident)), 5.0),
+        Act::Inspect(item) => inspecting_pose(snapshot, resident, item, dice),
+        Act::Remember(_) => (
+            Pose::new(Gesture::Watch, ExpressionKind::Affectionate).with_cue(Cue::Thought),
+            6.0,
+        ),
+        Act::ShowTo(..) => (
+            Pose::new(ActionKind::PresentDiscovery, ExpressionKind::Smug).with_cue(Cue::Sparkle),
+            5.0,
+        ),
+        Act::FussWith(_) => (Pose::new(Gesture::Reach, ExpressionKind::Smug), 3.5),
+        Act::TryOn(_) => {
+            let face = if character.shows_off() {
+                ExpressionKind::Smug
+            } else {
+                ExpressionKind::Joy
+            };
+            (
+                Pose::new(Gesture::Bop, face).with_cue(Cue::Sparkle),
+                dice.between(7.0, 10.0),
+            )
+        }
+        Act::Greet(_) => (Pose::new(ActionKind::Greet, ExpressionKind::Joy), 2.5),
+        Act::SitTogether(_) => (
+            Pose::new(ActionKind::Perch, ExpressionKind::Content),
+            dice.between(10.0, 14.0),
+        ),
+        Act::Tease(_) => (
+            Pose::new(Gesture::Crouch, ExpressionKind::Smug).with_cue(Cue::Bang),
+            3.0,
+        ),
+        Act::Comfort(_) => (
+            Pose::idle(ExpressionKind::Affectionate).with_cue(Cue::Heart),
+            4.0,
+        ),
+        Act::Hug(_) => (
+            Pose::idle(ExpressionKind::Affectionate).with_cue(Cue::Heart),
+            3.5,
+        ),
+        Act::GrumbleAt(_) => (
+            Pose::idle(ExpressionKind::Grumpy).with_cue(Cue::Grumble),
+            2.5,
+        ),
+    }
+}
+
+/// How a snack goes down: a joy to one who loves its food.
+fn snack_face(resident: &Resident) -> ExpressionKind {
+    if resident
+        .traveler
+        .character
+        .trait_ids
+        .contains(&Trait::FoodMotivated)
+    {
+        ExpressionKind::Joy
+    } else {
+        ExpressionKind::Content
+    }
+}
+
+/// A good look at a find: one who studies things looks hard, and longest at something precious.
+fn inspecting_pose(
+    snapshot: &HomeSnapshot,
+    resident: &Resident,
+    item: &DisplayId,
+    dice: &mut Dice,
+) -> (Pose, f32) {
+    let character = &resident.character;
+    let face = if character.studies() {
+        ExpressionKind::Focused
+    } else {
+        ExpressionKind::Curious
+    };
+    let precious = snapshot.item(item).is_some_and(is_precious);
+    let long = if character.studies() && precious {
+        1.5
+    } else {
+        1.0
+    };
+    (
+        Pose::new(ActionKind::InspectScreen, face).with_cue(Cue::Question),
+        dice.between(4.0, 6.0) * long,
+    )
 }
 
 /// Whether a bed is free for a guest: nobody at home has made it their favourite.
