@@ -220,7 +220,7 @@ mod tests {
         let mut first = open();
         assert!(first.state().households.is_empty());
         let mut arranged = first.state().clone();
-        let home = crate::staging::lived_in(&household, "floor.rose", "wall.plaster");
+        let home = crate::show_house::lived_in(&household, "floor.rose", "wall.plaster");
         arranged.set_household(home.clone());
         first.leave(&arranged, &Lived::default()).unwrap();
         let second = open();

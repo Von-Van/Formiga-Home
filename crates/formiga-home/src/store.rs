@@ -121,7 +121,7 @@ impl RehearsalHomes {
         let mut state = self.load(&snapshot.colony_key);
         let home = crate::arrange::ensure_home(&mut state, snapshot);
         if home.rooms.len() < rooms {
-            state.set_household(crate::staging::grown(home, rooms, snapshot));
+            state.set_household(crate::show_house::grown(home, rooms, snapshot));
             if let Err(error) = self.save(&state) {
                 eprintln!("formiga-home: {error:#}");
             }
@@ -133,7 +133,7 @@ impl RehearsalHomes {
         let snapshot = &household.snapshot;
         let mut state = self.load(&snapshot.colony_key);
         if state.household(snapshot.household.keeper).is_none() {
-            state.set_household(crate::staging::lived_in(household, floor, wall));
+            state.set_household(crate::show_house::lived_in(household, floor, wall));
             if let Err(error) = self.save(&state) {
                 eprintln!("formiga-home: {error:#}");
             }

@@ -19,7 +19,7 @@ use crate::house::{At, Height, House, Room, Wall};
 use crate::household::Id;
 use crate::iso::View;
 use crate::paint::{self, rgba};
-use crate::room::{self, Footprint, Place, Showing};
+use crate::placement::{self, Footprint, Place, Showing};
 use formiga_art::{Canvas, Rgba};
 use formiga_home_contract::{DisplayId, DisplayItem, HomeSnapshot};
 use std::collections::HashMap;
@@ -301,7 +301,7 @@ impl Scene {
             let Some(item) = snapshot.item(item) else {
                 continue;
             };
-            let Some(showing) = room::showing(item, Place::Wall) else {
+            let Some(showing) = placement::showing(item, Place::Wall) else {
                 continue;
             };
             let at_screen = self.view.on_wall(wall, HANG_HEIGHT);
@@ -329,7 +329,7 @@ impl Scene {
             if lifted == Some(&Target::Piece(piece.uid)) {
                 continue;
             }
-            let footprint = room::footprint(piece);
+            let footprint = placement::footprint(piece);
             let (flat, rect) = match catalog::piece(&piece.piece) {
                 Some(kind) => {
                     let sprite = self.pieces.get(kind, piece.turn);
@@ -439,7 +439,7 @@ impl Scene {
             .iter()
             .filter_map(|placed| {
                 let glow = lit(placed)?;
-                let (cx, cy) = room::footprint(placed).centre();
+                let (cx, cy) = placement::footprint(placed).centre();
                 Some((view.pixel(cx, cy), glow))
             })
             .collect();
@@ -472,7 +472,7 @@ impl Scene {
                         resident_opacity,
                     );
                     if let Some(glow) = lit(piece) {
-                        let (cx, cy) = room::footprint(piece).centre();
+                        let (cx, cy) = placement::footprint(piece).centre();
                         crate::art::furniture::lamp_bulb(&mut canvas, view.pixel(cx, cy), glow);
                     }
                 }
@@ -615,7 +615,7 @@ impl Scene {
             })
             .collect();
         shown.sort_by_key(|(slot, _)| *slot);
-        let surfaces = room::surfaces(placed);
+        let surfaces = placement::surfaces(placed);
         for (slot, item) in shown {
             let (Some(surface), Some(item)) =
                 (surfaces.get(usize::from(slot)), snapshot.item(item))
@@ -626,7 +626,7 @@ impl Scene {
                 catalog::Holds::Top => Place::Top,
                 catalog::Holds::Shelf => Place::Shelf,
             };
-            let Some(showing) = room::showing(item, place) else {
+            let Some(showing) = placement::showing(item, place) else {
                 continue;
             };
             let point = surface_anchor(&view, surface);
@@ -735,7 +735,7 @@ impl Scene {
             At::Wall { room, side, at } => view.on_wall(house.wall(room, side, at)?, HANG_HEIGHT),
             At::Floor { x, y } => floor_anchor(&view, x, y),
             At::On { piece, slot } => {
-                let surface = room::surfaces(house.piece(piece)?)
+                let surface = placement::surfaces(house.piece(piece)?)
                     .into_iter()
                     .nth(usize::from(slot))?;
                 surface_anchor(&view, &surface)
@@ -753,7 +753,7 @@ impl Scene {
         let shown = house.shown.iter().find(|shown| &shown.item == item)?;
         let thing = snapshot.item(item)?;
         let place = house.place_of(shown.at)?;
-        let showing = room::showing(thing, place)?;
+        let showing = placement::showing(thing, place)?;
         let at = self.spot_anchor(house, shown.at)?;
         Some((self.thing(thing, place, showing).clone(), at))
     }
@@ -801,7 +801,7 @@ impl Scene {
         // A rug is picked by its floor, once nothing standing on it was.
         let rug = house.pieces.iter().find(|placed| {
             catalog::piece(&placed.piece).is_some_and(|kind| kind.flat)
-                && room::footprint(placed).contains(tile.0, tile.1)
+                && placement::footprint(placed).contains(tile.0, tile.1)
         });
         Some(match rug {
             Some(rug) => Target::Piece(rug.uid),
@@ -891,7 +891,7 @@ fn light(
 const SHELF_FRONT: i32 = 3;
 
 /// Where a thing shown on a surface has its anchor on the scene.
-fn surface_anchor(view: &View, surface: &room::SurfaceAt) -> (i32, i32) {
+fn surface_anchor(view: &View, surface: &placement::SurfaceAt) -> (i32, i32) {
     let (sx, sy) = view.screen(surface.at.0, surface.at.1);
     let front = match surface.cover {
         Some(catalog::Cover::Board(_)) => SHELF_FRONT,

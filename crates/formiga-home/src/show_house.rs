@@ -7,7 +7,7 @@ use crate::art::cues::Cue;
 use crate::catalog;
 use crate::house::House;
 use crate::household::Household;
-use crate::room;
+use crate::placement;
 use crate::starter;
 use formiga_art::ExpressionKind;
 use formiga_core::ActionKind;
@@ -26,7 +26,7 @@ pub fn lived_in(household: &Household, floor: &str, wall: &str) -> HouseholdHome
         .retain(|placed| placed.piece.as_str() != "round_rug");
     let add = |home: &mut HouseholdHome, id: &str, x, y, turn| {
         let piece = catalog::PIECES.iter().find(|piece| piece.id == id).unwrap();
-        room::add_piece(home, 0, piece, x, y, turn)
+        placement::add_piece(home, 0, piece, x, y, turn)
     };
     add(&mut home, "long_rug", 2, 3, 0);
     add(&mut home, "sofa", 3, 6, 2);
@@ -144,7 +144,7 @@ pub fn lived_in(household: &Household, floor: &str, wall: &str) -> HouseholdHome
         (DisplayId::find(9), Spot::Floor { x: 0, y: 3 }),
     ];
     for (item, spot) in shown {
-        room::show(&mut home, 0, &item, spot);
+        placement::show(&mut home, 0, &item, spot);
     }
     keepsakes(&mut home, household);
     home
@@ -202,10 +202,10 @@ fn keepsakes(home: &mut HouseholdHome, household: &Household) {
         };
         let free = walls.iter().find_map(|&(side, at)| {
             let spot = Spot::Wall { side, at };
-            room::can_show(&home.rooms[0], item, spot).map(|_| spot)
+            placement::can_show(&home.rooms[0], item, spot).map(|_| spot)
         });
         if let Some(spot) = free {
-            room::show(home, 0, &id, spot);
+            placement::show(home, 0, &id, spot);
         }
     }
 }
@@ -251,7 +251,7 @@ pub fn pose(household: &Household, house: &House, reduce_motion: bool) -> Vec<Ac
                     .find(|placed| placed.piece.as_str() == "armchair")
                 {
                     let piece = catalog::piece(&chair.piece).unwrap();
-                    let (cx, cy) = room::footprint(chair).centre();
+                    let (cx, cy) = placement::footprint(chair).centre();
                     let facing = matches!(chair.turn % 4, 1 | 2);
                     actor.settle_on(chair.uid, (cx, cy), piece.lift as f32, facing);
                     actor.strike(

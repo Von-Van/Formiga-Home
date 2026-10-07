@@ -19,10 +19,10 @@ mod keepsakes;
 mod life;
 mod paint;
 mod path;
-mod room;
+mod placement;
 mod scene;
 mod session;
-mod staging;
+mod show_house;
 mod starter;
 mod store;
 
@@ -396,10 +396,10 @@ fn main() -> Result<()> {
 fn render_to(render: &Render, household: &Household, args: &Args) -> Canvas {
     match render {
         Render::Catalog => art::furniture::sheet(),
-        Render::Poses => staging::poses(household),
+        Render::Poses => show_house::poses(household),
         Render::Finds => {
             // Everything the colony has, then what a lived-in house has made of its own.
-            let home = staging::lived_in(household, &args.floor, &args.wall);
+            let home = show_house::lived_in(household, &args.floor, &args.wall);
             let mut snapshot = household.snapshot.clone();
             keepsakes::stock(&mut snapshot, &home);
             let pictures = keepsakes::pictures(&home);
@@ -412,11 +412,11 @@ fn render_to(render: &Render, household: &Household, args: &Args) -> Canvas {
         }
         Render::Room => {
             let home = if args.lived_in {
-                staging::lived_in(household, &args.floor, &args.wall)
+                show_house::lived_in(household, &args.floor, &args.wall)
             } else {
                 starter::home(&household.snapshot)
             };
-            let mut home = staging::grown(home, args.rooms, &household.snapshot);
+            let mut home = show_house::grown(home, args.rooms, &household.snapshot);
             arrange::settle(&mut home);
             let mut snapshot = household.snapshot.clone();
             keepsakes::stock(&mut snapshot, &home);
@@ -448,7 +448,7 @@ fn render_to(render: &Render, household: &Household, args: &Args) -> Canvas {
                     scene.compose(&seen, &snapshot, &mut life.actors, now, &overlay)
                 }
                 None => {
-                    let mut actors = staging::pose(household, &house, household.reduce_motion());
+                    let mut actors = show_house::pose(household, &house, household.reduce_motion());
                     scene.compose(&house, &snapshot, &mut actors, 0.5, &overlay)
                 }
             }

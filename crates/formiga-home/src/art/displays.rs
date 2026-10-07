@@ -8,7 +8,7 @@ use super::Sprite;
 use super::ramps::{BRASS, LINEN, OAK, VELVET};
 use super::souvenirs;
 use crate::paint::{self, rgb, rgba};
-use crate::room::{Place, Showing};
+use crate::placement::{Place, Showing};
 use formiga_art::{Canvas, TRINKET_CELL, draw_souvenir, draw_trinket};
 use formiga_core::{Souvenir, TRINKET_VARIANTS};
 use formiga_home_contract::{DisplayItem, DisplaySource};
@@ -37,7 +37,7 @@ pub fn icon(item: &DisplayItem) -> Canvas {
             None => unknown_icon(),
         },
         (DisplaySource::HomeMemento { memento }, _) => {
-            super::mementos::plain(*memento).unwrap_or_else(unknown_icon)
+            super::keepsakes::plain(*memento).unwrap_or_else(unknown_icon)
         }
         _ => unknown_icon(),
     }
@@ -265,7 +265,7 @@ pub fn sheet(items: &[DisplayItem], icon: impl Fn(&DisplayItem) -> Canvas) -> Ca
         let (ox, oy) = card.origin((cell.0 / 2, top + cell.1 - 6));
         paint::blit(&mut sheet, &card.canvas, ox, oy);
         for (index, place) in places.into_iter().enumerate() {
-            let Some(showing) = crate::room::showing(item, place) else {
+            let Some(showing) = crate::placement::showing(item, place) else {
                 continue;
             };
             let drawn = dress(icon(item), item, place, showing);
@@ -291,7 +291,7 @@ mod tests {
     fn every_thing_in_the_sample_has_a_picture_every_way_it_can_be_shown() {
         for item in &sample::snapshot().inventory {
             for place in [Place::Top, Place::Shelf, Place::Wall, Place::Floor] {
-                if let Some(showing) = crate::room::showing(item, place) {
+                if let Some(showing) = crate::placement::showing(item, place) {
                     let drawn = sprite(item, place, showing);
                     assert!(
                         drawn.canvas.alpha_bounds().is_some(),
@@ -334,7 +334,7 @@ mod tests {
         for item in &snapshot.inventory {
             let mut shown = 0;
             for place in [Place::Top, Place::Shelf, Place::Wall, Place::Floor] {
-                if let Some(showing) = crate::room::showing(item, place) {
+                if let Some(showing) = crate::placement::showing(item, place) {
                     let drawn = sprite(item, place, showing);
                     assert!(
                         drawn.canvas.alpha_bounds().is_some(),

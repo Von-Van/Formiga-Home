@@ -11,7 +11,7 @@
 pub mod cues;
 pub mod displays;
 pub mod furniture;
-pub mod mementos;
+pub mod keepsakes;
 pub mod notebook;
 pub mod shell;
 pub mod souvenirs;

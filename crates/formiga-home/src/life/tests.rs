@@ -1,11 +1,11 @@
 use super::*;
-use crate::staging;
+use crate::show_house;
 use crate::starter;
 use formiga_home_contract::sample;
 
 fn home() -> (Household, House) {
     let household = Household::new(sample::snapshot()).unwrap();
-    let layout = House::of(&staging::lived_in(&household, "floor.boards", "wall.leafy").rooms);
+    let layout = House::of(&show_house::lived_in(&household, "floor.boards", "wall.leafy").rooms);
     (household, layout)
 }
 
@@ -16,7 +16,7 @@ fn tempered(kind: TemperamentKind) -> (Household, House) {
         resident.character.temperament = kind.into();
     }
     let household = Household::new(snapshot).unwrap();
-    let layout = House::of(&staging::lived_in(&household, "floor.boards", "wall.leafy").rooms);
+    let layout = House::of(&show_house::lived_in(&household, "floor.boards", "wall.leafy").rooms);
     (household, layout)
 }
 
@@ -409,7 +409,7 @@ fn welcomes(kind: TemperamentKind, close: bool) -> Vec<Option<Act>> {
         }
     }
     let household = Household::new(snapshot).unwrap();
-    let layout = House::of(&staging::lived_in(&household, "floor.boards", "wall.leafy").rooms);
+    let layout = House::of(&show_house::lived_in(&household, "floor.boards", "wall.leafy").rooms);
     let mut life = Life::new(&household, &layout);
     // Everyone wide awake when the knock comes: a sleeper is left to sleep.
     for mind in &mut life.minds {
@@ -543,8 +543,8 @@ fn a_grump_grumbles_at_whoever_is_in_its_favourite_chair() {
 /// The sample house, lived in, with a reading nook built behind it.
 fn with_nook() -> (Household, House) {
     let household = Household::new(sample::snapshot()).unwrap();
-    let home = staging::grown(
-        staging::lived_in(&household, "floor.boards", "wall.leafy"),
+    let home = show_house::grown(
+        show_house::lived_in(&household, "floor.boards", "wall.leafy"),
         2,
         &household.snapshot,
     );
@@ -613,8 +613,8 @@ fn a_visitor_comes_in_at_the_front_door() {
 #[test]
 fn in_a_house_of_rooms_everyone_gets_about_it() {
     let household = Household::new(sample::snapshot()).unwrap();
-    let home = staging::grown(
-        staging::lived_in(&household, "floor.boards", "wall.leafy"),
+    let home = show_house::grown(
+        show_house::lived_in(&household, "floor.boards", "wall.leafy"),
         3,
         &household.snapshot,
     );
@@ -637,8 +637,8 @@ fn in_a_house_of_rooms_everyone_gets_about_it() {
 #[test]
 fn residents_spend_a_while_in_every_room_not_only_the_one_with_most_in_it() {
     let household = Household::new(sample::snapshot()).unwrap();
-    let home = staging::grown(
-        staging::lived_in(&household, "floor.boards", "wall.leafy"),
+    let home = show_house::grown(
+        show_house::lived_in(&household, "floor.boards", "wall.leafy"),
         3,
         &household.snapshot,
     );
@@ -763,13 +763,13 @@ fn what_a_friend_leaves_suits_it_and_a_warm_friend_leaves_something_more_often()
 /// The lived-in house with a guest bedroll put down wherever it first fits.
 fn with_bedroll() -> (Household, House, u16) {
     let household = Household::new(sample::snapshot()).unwrap();
-    let mut home = staging::lived_in(&household, "floor.boards", "wall.leafy");
+    let mut home = show_house::lived_in(&household, "floor.boards", "wall.leafy");
     let bedroll = catalog::PIECES.iter().find(|p| p.id == "bedroll").unwrap();
     let (x, y) = (0..8)
         .flat_map(|y| (0..8).map(move |x| (x, y)))
-        .find(|&(x, y)| room::can_place(&home.rooms[0], bedroll, x, y, 0, None))
+        .find(|&(x, y)| placement::can_place(&home.rooms[0], bedroll, x, y, 0, None))
         .expect("somewhere for a bedroll");
-    let uid = room::add_piece(&mut home, 0, bedroll, x, y, 0);
+    let uid = placement::add_piece(&mut home, 0, bedroll, x, y, 0);
     (household, House::of(&home.rooms), uid)
 }
 

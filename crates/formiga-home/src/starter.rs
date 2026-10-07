@@ -74,7 +74,7 @@ pub fn home(snapshot: &HomeSnapshot) -> HouseholdHome {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::room;
+    use crate::placement;
     use formiga_home_contract::{HomeDocument, HomeState, sample};
 
     #[test]
@@ -86,7 +86,7 @@ mod tests {
             let mut others = layout.clone();
             others.pieces.remove(index);
             assert!(
-                room::can_place(&others, piece, placed.x, placed.y, placed.turn, None),
+                placement::can_place(&others, piece, placed.x, placed.y, placed.turn, None),
                 "{} does not fit where it starts",
                 piece.id
             );

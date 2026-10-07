@@ -9,7 +9,7 @@
 use crate::catalog::{self, Piece, Template};
 use crate::house::{self, Height, House, Wall};
 use crate::iso::{View, WALL_HEIGHT};
-use crate::room::{self, Footprint, Showing};
+use crate::placement::{self, Footprint, Showing};
 use formiga_home_contract::limits::MAX_PLAN_REACH;
 use formiga_home_contract::{
     CatalogId, DisplayId, Door, HomeSnapshot, HomeState, HouseholdHome, Liked, Memento,
@@ -166,7 +166,7 @@ impl Arranging {
                 w,
                 d,
             };
-            let fits = room::can_place(layout, piece, x, y, turn, moving_here)
+            let fits = placement::can_place(layout, piece, x, y, turn, moving_here)
                 && (piece.flat || !blocks_a_doorway(house, footprint));
             return Some((
                 Landing::Floor { room: index, x, y },
@@ -195,14 +195,14 @@ impl Arranging {
             && let Some((index, uid)) = house.local(name)
             && let Some(layout) = home.rooms.get(usize::from(index))
         {
-            let best = room::surfaces(placed)
+            let best = placement::surfaces(placed)
                 .into_iter()
                 .filter_map(|surface| {
                     let spot = Spot::On {
                         piece: uid,
                         slot: surface.slot,
                     };
-                    let showing = room::can_show(layout, item, spot)?;
+                    let showing = placement::can_show(layout, item, spot)?;
                     let (sx, sy) = view.screen(surface.at.0, surface.at.1);
                     let distance =
                         (sx - point.0).powi(2) + (sy - surface.height as f32 - point.1).powi(2);
@@ -217,14 +217,14 @@ impl Arranging {
             let layout = home.rooms.get(usize::from(index))?;
             return Some((
                 Landing::Spot { room: index, spot },
-                room::can_show(layout, item, spot),
+                placement::can_show(layout, item, spot),
             ));
         }
         let (tx, ty) = view.tile_at(point.0, point.1)?;
         let (index, x, y) = house.to_room(i32::from(tx), i32::from(ty))?;
         let layout = home.rooms.get(usize::from(index))?;
         let spot = Spot::Floor { x, y };
-        let showing = room::can_show(layout, item, spot).filter(|_| {
+        let showing = placement::can_show(layout, item, spot).filter(|_| {
             !blocks_a_doorway(
                 house,
                 Footprint {
@@ -257,12 +257,12 @@ impl Arranging {
         let done = match (&carrying, landing) {
             (Carry::New { piece, turn }, Landing::Floor { room, x, y }) => {
                 let fits = home.rooms.get(usize::from(room)).is_some_and(|layout| {
-                    room::can_place(layout, piece, x, y, *turn, None)
+                    placement::can_place(layout, piece, x, y, *turn, None)
                         && (piece.flat
                             || !blocks_a_doorway(house, at(house, room, piece, x, y, *turn)))
                 });
-                room::has_room_for_more(home) && fits && {
-                    room::add_piece(home, usize::from(room), piece, x, y, *turn);
+                placement::has_room_for_more(home) && fits && {
+                    placement::add_piece(home, usize::from(room), piece, x, y, *turn);
                     true
                 }
             }
@@ -273,12 +273,12 @@ impl Arranging {
                 let fits = snapshot.item(id).is_some_and(|item| {
                     home.rooms
                         .get(usize::from(room))
-                        .and_then(|layout| room::can_show(layout, item, spot))
+                        .and_then(|layout| placement::can_show(layout, item, spot))
                         .is_some()
                 });
                 let shown_here = home.shown().any(|shown| shown == id);
-                if fits && (shown_here || room::has_room_for_more(home)) {
-                    room::show(home, usize::from(room), id, spot);
+                if fits && (shown_here || placement::has_room_for_more(home)) {
+                    placement::show(home, usize::from(room), id, spot);
                     true
                 } else {
                     false
@@ -334,7 +334,7 @@ impl Arranging {
             Carry::New { .. } | Carry::Door { .. } => false,
             Carry::Piece { name, .. } => match house.local(name) {
                 Some((index, uid)) => {
-                    room::remove_piece(&mut home.rooms[usize::from(index)], uid);
+                    placement::remove_piece(&mut home.rooms[usize::from(index)], uid);
                     true
                 }
                 None => false,
@@ -455,7 +455,7 @@ fn move_piece(
         return false;
     };
     let moving = (from == to).then_some(uid);
-    if !room::can_place(layout, piece, x, y, turn, moving)
+    if !placement::can_place(layout, piece, x, y, turn, moving)
         || (!piece.flat && blocks_a_doorway(house, at(house, to, piece, x, y, turn)))
     {
         return false;
@@ -485,7 +485,11 @@ fn move_piece(
         _ => true,
     });
     let taken = home.rooms[usize::from(to)].piece(uid).is_some();
-    let new_uid = if taken { room::next_uid(home) } else { uid };
+    let new_uid = if taken {
+        placement::next_uid(home)
+    } else {
+        uid
+    };
     let target = &mut home.rooms[usize::from(to)];
     target.pieces.push(PlacedPiece {
         uid: new_uid,
@@ -848,7 +852,7 @@ fn grow(
     arrived: &dyn Fn(&Piece) -> bool,
 ) -> Option<HouseholdHome> {
     let mut grown = home.clone();
-    let mut uid = room::next_uid(home);
+    let mut uid = placement::next_uid(home);
     let first = &home.rooms[0];
     let mut room = RoomLayout {
         width: template.size.0,
@@ -1069,7 +1073,7 @@ mod tests {
             ..Arranging::default()
         };
         let name = house.named(0, shelf).unwrap();
-        let surface = room::surfaces(house.piece(name).unwrap())[1];
+        let surface = placement::surfaces(house.piece(name).unwrap())[1];
         let (sx, sy) = view.screen(surface.at.0, surface.at.1);
         let point = (sx, sy - surface.height as f32);
         let (landing, showing) = arranging
@@ -1104,7 +1108,7 @@ mod tests {
         let neighbour = snapshot.village[1].keeper;
         let mut next_door = crate::starter::home(&snapshot);
         next_door.keeper = neighbour;
-        room::show(
+        placement::show(
             &mut next_door,
             0,
             &DisplayId::find(76),
@@ -1156,7 +1160,7 @@ mod tests {
             .find(|p| p.piece.as_str() == "shelf")
             .unwrap()
             .uid;
-        room::show(
+        placement::show(
             home,
             0,
             &DisplayId::find(3),
@@ -1294,7 +1298,7 @@ mod tests {
             .copied()
             .unwrap();
         let mut hung = home(&state, &snapshot);
-        room::show(
+        placement::show(
             &mut hung,
             usize::from(picture.room),
             &DisplayId::find(76),

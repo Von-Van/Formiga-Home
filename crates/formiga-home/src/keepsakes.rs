@@ -3,7 +3,7 @@
 //! like anything the colony has, in this house only: none ever goes to another house, and Desktop
 //! only keeps them.
 
-use crate::art::mementos;
+use crate::art;
 use crate::character::Character;
 use crate::household::Resident;
 use formiga_art::Canvas;
@@ -139,7 +139,7 @@ pub fn stock(snapshot: &mut HomeSnapshot, home: &HouseholdHome) {
 pub fn pictures(home: &HouseholdHome) -> HashMap<DisplayId, Canvas> {
     home.mementos
         .iter()
-        .map(|memento| (memento.id(home.keeper), mementos::picture(memento)))
+        .map(|memento| (memento.id(home.keeper), art::keepsakes::picture(memento)))
         .collect()
 }
 
@@ -317,7 +317,7 @@ mod tests {
                 ..
             })
         ));
-        crate::room::show(
+        crate::placement::show(
             &mut home,
             0,
             &id,

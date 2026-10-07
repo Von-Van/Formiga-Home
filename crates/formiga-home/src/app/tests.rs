@@ -179,7 +179,7 @@ impl Harness {
         let (cx, cy) = match target {
             Target::Floor(x, y) => view.tile_centre(*x, *y),
             Target::Piece(uid) => {
-                let footprint = room::footprint(layout.piece(*uid).unwrap());
+                let footprint = placement::footprint(layout.piece(*uid).unwrap());
                 let (x, y) = footprint.centre();
                 let (sx, sy) = view.screen(x, y);
                 (sx, sy - 6.0)

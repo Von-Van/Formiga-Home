@@ -13,7 +13,7 @@
 
 use crate::catalog;
 use crate::iso::{TILE_W, WALL_HEIGHT};
-use crate::room::{self, Footprint, Place};
+use crate::placement::{self, Footprint, Place};
 use formiga_home_contract::{CatalogId, DisplayId, Liked, PlacedPiece, RoomLayout, Spot, WallSide};
 use std::collections::BTreeSet;
 
@@ -389,7 +389,7 @@ impl House {
     pub fn place_of(&self, at: At) -> Option<Place> {
         match at {
             At::On { piece, slot } => {
-                let surface = room::surfaces(self.piece(piece)?)
+                let surface = placement::surfaces(self.piece(piece)?)
                     .into_iter()
                     .nth(usize::from(slot))?;
                 Some(match surface.holds {
@@ -415,7 +415,7 @@ impl House {
             if catalog::piece(&placed.piece).is_some_and(|piece| piece.flat) {
                 continue;
             }
-            for (x, y) in room::footprint(placed).tiles() {
+            for (x, y) in placement::footprint(placed).tiles() {
                 if x < self.width && y < self.depth {
                     grid[usize::from(y) * width + usize::from(x)] = false;
                 }
