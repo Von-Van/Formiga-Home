@@ -23,7 +23,7 @@ use crate::house::{At, House};
 use crate::household::{Household, Id, Resident};
 use crate::keepsakes;
 use crate::path::Floor;
-use crate::room;
+use crate::placement;
 use formiga_art::{AccessoryArt, ExpressionKind};
 use formiga_core::{Accessory, ActionKind, Gesture, Habit, TemperamentKind};
 use formiga_home_contract::limits::MAX_TOGETHER;
@@ -1429,7 +1429,7 @@ impl Life {
         if let Act::Sprawl(uid) = act {
             // Out on the rug itself, which is walked over: the open tile of it nearest its middle.
             let placed = house.piece(*uid)?;
-            let footprint = room::footprint(placed);
+            let footprint = placement::footprint(placed);
             let (cx, cy) = footprint.centre();
             let tile = footprint
                 .tiles()
@@ -1444,7 +1444,7 @@ impl Life {
         }
         if let Some(uid) = act.piece() {
             let placed = house.piece(uid)?;
-            let footprint = room::footprint(placed);
+            let footprint = placement::footprint(placed);
             let around = floor.beside(
                 placed.x,
                 placed.y,
@@ -1478,7 +1478,7 @@ impl Life {
                 });
                 let seat = pair.or_else(|| seats.first().copied())?;
                 let placed = house.piece(seat.piece)?;
-                let footprint = room::footprint(placed);
+                let footprint = placement::footprint(placed);
                 let tile = *floor
                     .beside(
                         placed.x,
@@ -1523,7 +1523,7 @@ impl Life {
         if settles {
             let near = |uid: u16| {
                 let placed = house.piece(uid)?;
-                let footprint = room::footprint(placed);
+                let footprint = placement::footprint(placed);
                 floor
                     .beside(
                         placed.x,
@@ -1880,7 +1880,7 @@ impl Life {
             return;
         };
         let uid = placed.uid;
-        let centre = room::footprint(placed).centre();
+        let centre = placement::footprint(placed).centre();
         let prospect = Prospect {
             piece,
             uid,
@@ -2460,7 +2460,7 @@ fn keep_to_room(house: &House, room: u8, options: &mut Vec<(Act, f32)>) {
         let there = match (act.piece(), act.item()) {
             (Some(uid), _) => house
                 .piece(uid)
-                .and_then(|placed| house.room_of_point(room::footprint(placed).centre())),
+                .and_then(|placed| house.room_of_point(placement::footprint(placed).centre())),
             (_, Some(item)) => item_room(house, item),
             (None, None) => return true,
         };
@@ -2781,8 +2781,8 @@ fn item_spot(house: &House, floor: &Floor, item: &DisplayId) -> Option<Viewpoint
     match shown.at {
         At::On { piece, slot } => {
             let placed = house.piece(piece)?;
-            let footprint = room::footprint(placed);
-            let at = room::surfaces(placed).get(usize::from(slot))?.at;
+            let footprint = placement::footprint(placed);
+            let at = placement::surfaces(placed).get(usize::from(slot))?.at;
             Some((
                 floor.beside(
                     placed.x,
@@ -2919,7 +2919,7 @@ pub fn choices(
                 acts.extend(others.iter().map(|other| Act::Share(*uid, *other)));
             }
             if acts.is_empty() || piece.flat {
-                let footprint = room::footprint(placed);
+                let footprint = placement::footprint(placed);
                 let (cx, cy) = footprint.centre();
                 let floor = Floor::of(house);
                 let beside = floor

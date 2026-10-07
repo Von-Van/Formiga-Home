@@ -259,14 +259,14 @@ crates/formiga-home/src/
   house.rs         the rooms set out as one house: walls, doorways, which walls are cut down
   path.rs          finding the way across the house, room to room through the doorways
   arrange.rs       picking up, carrying and putting down; doorways; building rooms; undo
-  room.rs          what can go where: footprints, surfaces, walls, the floor
+  placement.rs     what can go where: footprints, surfaces, walls, the floor
   catalog.rs       every piece of furniture, floor and wall, the sets, the kinds of room
   starter.rs       how a house first looks inside
   scene.rs         one frame of the house, back to front, and what is under the pointer
   iso.rs           the isometric grid, and how big a house's picture is
   art/             the shell, the furniture, shown things, souvenirs, keepsakes, cues, and the
                    notebook
-  staging.rs       rooms set up for the review renders and tests
+  show_house.rs    rooms set up for the review renders and tests
   paint.rs         painting tools
   icon.rs          the app icon: a little room, in pixels
 packaging/, scripts/   the macOS app and the Windows installer

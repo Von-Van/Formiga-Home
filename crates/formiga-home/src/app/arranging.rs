@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::arrange::Landing;
-use crate::room::{Place, Showing};
+use crate::placement::{Place, Showing};
 use crate::scene::Ghost;
 
 impl HomeApp {
@@ -153,7 +153,7 @@ impl HomeApp {
                     sprite,
                     at: self.scene.view.pixel(f32::from(x), f32::from(y)),
                     fits: showing.is_some(),
-                    footprint: Some(room::Footprint { x, y, w, d }),
+                    footprint: Some(placement::Footprint { x, y, w, d }),
                 }),
                 None,
             );
@@ -180,7 +180,7 @@ impl HomeApp {
             .thing(&item, place, showing.unwrap_or(Showing::Card))
             .clone();
         let footprint = match at {
-            At::Floor { x, y } => Some(room::Footprint { x, y, w: 1, d: 1 }),
+            At::Floor { x, y } => Some(placement::Footprint { x, y, w: 1, d: 1 }),
             _ => None,
         };
         (

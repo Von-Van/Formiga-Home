@@ -13,7 +13,7 @@ use crate::house::{At, House};
 use crate::household::{Household, Id, Whereabouts};
 use crate::keepsakes;
 use crate::life::{self, Act, Life};
-use crate::room;
+use crate::placement;
 use crate::scene::{Overlay, Scene, Target};
 use crate::store::{self, WindowPlace};
 use eframe::egui;
@@ -512,7 +512,7 @@ impl HomeApp {
             Target::Piece(uid) => {
                 let placed = house.piece(uid)?;
                 let piece = catalog::piece(&placed.piece)?;
-                let (cx, cy) = room::footprint(placed).centre();
+                let (cx, cy) = placement::footprint(placed).centre();
                 let (sx, sy) = view.screen(cx, cy);
                 let mut name = piece.name.to_owned();
                 if let Some(whose) = house.liked(uid).and_then(|liked| self.favourite_of(&liked)) {

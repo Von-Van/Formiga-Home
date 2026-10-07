@@ -263,7 +263,7 @@ mod tests {
         assert!(ack(&dir).accepted);
         assert_eq!(household.residents.len(), 2);
         let mut arranged = visit.state.clone();
-        arranged.set_household(crate::staging::lived_in(
+        arranged.set_household(crate::show_house::lived_in(
             &household,
             "floor.checks",
             "wall.stripes",
@@ -358,7 +358,7 @@ mod tests {
         let dir = visit_dir("crash", &snapshot, &sent);
         let (visit, household) = arrive(&dir, false).unwrap();
         let mut arranged = visit.state.clone();
-        arranged.set_household(crate::staging::lived_in(
+        arranged.set_household(crate::show_house::lived_in(
             &household,
             "floor.straw",
             "wall.timber",
