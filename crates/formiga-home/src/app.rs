@@ -6,21 +6,20 @@
 //! pat with a right-click. Arrange Mode is asked for explicitly, so a chair is never dragged by
 //! accident: there everyone waits while furniture and finds are picked up and put down.
 
-use crate::arrange::{self, Arranging, Carry, Landing};
+use crate::arrange::{self, Arranging, Carry};
 use crate::catalog::{self, FLOORS, Family, PIECES, WALLS};
 use crate::host::Host;
 use crate::house::{At, House};
 use crate::household::{Household, Id, Whereabouts};
 use crate::keepsakes;
-use crate::life::{self, Act, Asked, Event, Life, QUEUE_LIMIT, Used, choices};
-use crate::room::{self, Place, Showing};
-use crate::scene::{Ghost, Overlay, Scene, Target};
-use crate::session::Lived;
+use crate::life::{self, Act, Life};
+use crate::room;
+use crate::scene::{Overlay, Scene, Target};
 use crate::store::{self, WindowPlace};
 use eframe::egui;
 use formiga_art::Canvas;
 use formiga_home_contract::{
-    DisplayId, FavouriteKind, HomeMoment, HomeState, HouseholdHome, Liked, MementoKind, TravelerId,
+    DisplayId, HomeMoment, HomeState, HouseholdHome, Liked, MementoKind, TravelerId,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -44,82 +43,6 @@ enum Drawer {
     Room,
     Household,
     Journal,
-}
-
-/// What can be chosen from the menu over the room.
-#[derive(Clone, Debug, PartialEq)]
-enum Entry {
-    Ask(Act),
-    Pet,
-    Choose(Id),
-    /// Ask a visitor to stay over.
-    StayOver(Id),
-    /// Ask a visitor to come and live here.
-    MoveIn(Id),
-}
-
-/// How the house is shown on its page: as big as fits, or zoomed in by whole pixels and moved
-/// about, for a house that has grown too big to see closely all at once.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-struct Zoom {
-    /// Screen pixels to each of the picture's; none for as many as fit.
-    pixels: Option<f32>,
-    /// As many as fit, on the page as it was last drawn.
-    fit: f32,
-    /// How far the picture is moved from the middle of its page, in points.
-    pan: egui::Vec2,
-    /// Being moved about by a drag across the floor.
-    panning: bool,
-    /// A pinch, or a scroll with Ctrl or ⌘, adding up until it makes a step.
-    pinch: f32,
-}
-
-/// The closest the house can be seen: this many screen pixels to each of its own.
-const CLOSEST: f32 = 12.0;
-
-impl Zoom {
-    /// Where the picture goes on its page, `size` pixels of it: centred where it fits, and moved
-    /// no further than keeps the page covered where it does not.
-    fn place(&mut self, page: egui::Rect, pixels_per_point: f32, size: (u32, u32)) -> egui::Rect {
-        let pixels = self.pixels.unwrap_or(self.fit);
-        let shown = egui::vec2(size.0 as f32, size.1 as f32) * pixels / pixels_per_point;
-        let room = ((shown - page.size()) / 2.0).max(egui::Vec2::ZERO);
-        self.pan = self.pan.clamp(-room, room);
-        egui::Rect::from_center_size(page.center() + self.pan, shown)
-    }
-
-    fn closer_than_fits(&self) -> bool {
-        self.pixels.is_some_and(|pixels| pixels > self.fit)
-    }
-
-    /// A whole pixel closer (`by` 1) or further (-1), keeping what is at `anchor`, a point from
-    /// the page's middle, where it is. Never further than fits.
-    fn step(&mut self, by: i32, anchor: egui::Vec2) {
-        let old = self.pixels.unwrap_or(self.fit).max(0.1);
-        let new = old.floor() + by as f32;
-        self.pixels = if new <= self.fit.floor() {
-            None
-        } else {
-            Some(new.min(CLOSEST))
-        };
-        let new = self.pixels.unwrap_or(self.fit).max(0.1);
-        self.pan = anchor - (anchor - self.pan) * (new / old);
-        if self.pixels.is_none() {
-            self.pan = egui::Vec2::ZERO;
-        }
-    }
-
-    fn fit(&mut self) {
-        self.pixels = None;
-        self.pan = egui::Vec2::ZERO;
-    }
-}
-
-struct Menu {
-    at: egui::Pos2,
-    title: String,
-    entries: Vec<(Entry, String)>,
-    opened: f32,
 }
 
 pub struct HomeApp {
@@ -271,68 +194,6 @@ impl HomeApp {
             .unwrap_or_else(crate::daylight::Daylight::now)
     }
 
-    /// For review only: open on `page` of the arranging notes, or living in the house if none,
-    /// and after `at` seconds save a picture of the window to `path` and close.
-    pub fn snap(&mut self, path: PathBuf, at: f32, page: Option<&str>, zoom: i32) {
-        self.snap = Some((path, at, false));
-        self.snap_zoom = zoom;
-        let page = match page {
-            Some("finds") => Some(Drawer::Finds),
-            Some("furniture") => Some(Drawer::Furniture),
-            Some("rooms") => Some(Drawer::Room),
-            Some("journal") => {
-                self.live_page = Drawer::Journal;
-                None
-            }
-            _ => None,
-        };
-        if let Some(page) = page {
-            self.drawer = page;
-            self.set_mode(Mode::Arrange);
-        }
-    }
-
-    /// Ask for the picture when it is time, and save it when it comes.
-    fn take_snap(&mut self, ctx: &egui::Context) {
-        let Some((path, at, asked)) = self.snap.clone() else {
-            return;
-        };
-        // Once the page has been laid out once, so the zoom knows what fits.
-        if self.snap_zoom > 0 && self.zoom.fit > 0.0 {
-            for _ in 0..self.snap_zoom {
-                self.zoom.step(1, egui::Vec2::ZERO);
-            }
-            self.snap_zoom = 0;
-        }
-        if !asked && self.now() >= at {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
-            self.snap = Some((path.clone(), at, true));
-        }
-        let image = ctx.input(|input| {
-            input.events.iter().find_map(|event| match event {
-                egui::Event::Screenshot { image, .. } => Some(image.clone()),
-                _ => None,
-            })
-        });
-        if let Some(image) = image {
-            let [width, height] = image.size;
-            let mut canvas = Canvas::new(width as u32, height as u32);
-            for (index, pixel) in image.pixels.iter().enumerate() {
-                let [r, g, b, a] = pixel.to_srgba_unmultiplied();
-                canvas.set(
-                    (index % width) as i32,
-                    (index / width) as i32,
-                    formiga_art::Rgba::new(r, g, b, a),
-                );
-            }
-            if let Err(error) = crate::write_png(&path, &canvas, 1) {
-                eprintln!("formiga-home: {error:#}");
-            }
-            self.snap = None;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-        }
-    }
-
     fn now(&self) -> f32 {
         self.clock
     }
@@ -401,153 +262,6 @@ impl HomeApp {
         self.household
             .resident(id)
             .map_or_else(|| "Someone".to_owned(), |resident| resident.name.clone())
-    }
-
-    fn ask(&mut self, id: Id, act: Act) {
-        let now = self.now();
-        let label = act.label(&self.household, &self.house, &self.household.snapshot);
-        let name = self.name(id);
-        match self.life.ask(id, act, now) {
-            Asked::Queued => self.say(format!("{name}: {}", label.to_lowercase())),
-            Asked::Full => self.say(format!(
-                "{name} has {QUEUE_LIMIT} things to do already. Take one back in the drawer, or wait."
-            )),
-        }
-    }
-
-    fn keys(&mut self, ctx: &egui::Context) {
-        let (escape, turn, away, undo, redo, photo) = ctx.input(|input| {
-            let command = input.modifiers.command;
-            (
-                input.key_pressed(egui::Key::Escape),
-                input.key_pressed(egui::Key::R),
-                input.key_pressed(egui::Key::Delete) || input.key_pressed(egui::Key::Backspace),
-                command && !input.modifiers.shift && input.key_pressed(egui::Key::Z),
-                command && input.modifiers.shift && input.key_pressed(egui::Key::Z),
-                input.key_pressed(egui::Key::P),
-            )
-        });
-        // Closer and further, without ⌘ or Ctrl, which zoom the whole window instead.
-        let (closer, further, fit) = ctx.input(|input| {
-            let plain = !input.modifiers.command;
-            (
-                plain
-                    && (input.key_pressed(egui::Key::Plus) || input.key_pressed(egui::Key::Equals)),
-                plain && input.key_pressed(egui::Key::Minus),
-                plain && input.key_pressed(egui::Key::Num0),
-            )
-        });
-        // The notebook by the keys: the modes, its pages, whoever is chosen, and its note.
-        let (live, arrange, back, on, next, previous, note) = ctx.input(|input| {
-            let plain = !input.modifiers.command && !input.modifiers.alt;
-            let shift = input.modifiers.shift;
-            (
-                plain && input.key_pressed(egui::Key::L),
-                plain && input.key_pressed(egui::Key::A),
-                plain && input.key_pressed(egui::Key::OpenBracket),
-                plain && input.key_pressed(egui::Key::CloseBracket),
-                plain && !shift && input.key_pressed(egui::Key::N),
-                plain && shift && input.key_pressed(egui::Key::N),
-                plain
-                    && (input.key_pressed(egui::Key::H)
-                        || input.key_pressed(egui::Key::Questionmark)),
-            )
-        });
-        if ctx.egui_wants_keyboard_input() {
-            return;
-        }
-        if live {
-            self.set_mode(Mode::Live);
-        }
-        if arrange {
-            self.set_mode(Mode::Arrange);
-        }
-        if back || on {
-            self.turn_page(if on { 1 } else { -1 });
-        }
-        if (next || previous) && self.mode == Mode::Live {
-            self.choose_along(if next { 1 } else { -1 });
-        }
-        if note {
-            self.help = !self.help;
-        }
-        if closer {
-            self.zoom.step(1, egui::Vec2::ZERO);
-        }
-        if further {
-            self.zoom.step(-1, egui::Vec2::ZERO);
-        }
-        if fit {
-            self.zoom.fit();
-        }
-        if photo {
-            self.save_photo();
-        }
-        if escape {
-            if self.placing.take().is_none()
-                && self.menu.take().is_none()
-                && self.arranging.carrying.take().is_none()
-            {
-                self.selected = None;
-            }
-            self.arranging.dragged = false;
-        }
-        if self.mode != Mode::Arrange {
-            return;
-        }
-        if turn {
-            self.arranging.turn();
-        }
-        if away
-            && self
-                .arranging
-                .put_away(&mut self.state, self.keeper, &self.house)
-        {
-            self.changed("Put away.");
-        }
-        if undo && self.arranging.undo(&mut self.state) {
-            self.changed("Undone.");
-        }
-        if redo && self.arranging.redo(&mut self.state) {
-            self.changed("Done again.");
-        }
-    }
-
-    /// The next page of the notes, or the one before, in the mode the house is in.
-    fn turn_page(&mut self, by: i32) {
-        let pages = notebook::pages(self.mode);
-        let at = pages
-            .iter()
-            .position(|(page, _)| *page == self.page())
-            .unwrap_or(0) as i32;
-        let (page, _) = pages[(at + by).rem_euclid(pages.len() as i32) as usize];
-        match self.mode {
-            Mode::Live => self.live_page = page,
-            Mode::Arrange => {
-                self.drawer = page;
-                self.placing = None;
-            }
-        }
-    }
-
-    /// Choose the next one in the house, or the one before: residents, then visitors.
-    fn choose_along(&mut self, by: i32) {
-        let present = self.life.present();
-        let order: Vec<Id> = self
-            .household
-            .everyone()
-            .map(|resident| resident.id)
-            .filter(|id| present.contains(id))
-            .collect();
-        if order.is_empty() {
-            return;
-        }
-        let at = self
-            .selected
-            .and_then(|id| order.iter().position(|other| *other == id))
-            .map_or(if by > 0 { -1 } else { 0 }, |at| at as i32);
-        self.selected = Some(order[(at + by).rem_euclid(order.len() as i32) as usize]);
-        self.menu = None;
     }
 
     /// The room has changed: everyone steps clear of the furniture, and Desktop is handed the
@@ -751,320 +465,12 @@ impl HomeApp {
         }
     }
 
-    /// Moving about a house seen close, and coming closer or going further: a scroll moves it,
-    /// a drag across the floor moves it, and a pinch, or a scroll with Ctrl or ⌘, zooms.
-    fn zoom_input(&mut self, response: &egui::Response, ctx: &egui::Context, page: egui::Rect) {
-        let (scroll, pinch, moved, down, at) = ctx.input(|input| {
-            (
-                input.smooth_scroll_delta,
-                input.zoom_delta(),
-                input.pointer.delta(),
-                input.pointer.primary_down(),
-                input.pointer.latest_pos(),
-            )
-        });
-        if self.zoom.panning {
-            if down {
-                self.zoom.pan += moved;
-            } else {
-                self.zoom.panning = false;
-            }
-        }
-        if !response.contains_pointer() {
-            return;
-        }
-        let anchor = at.map_or(egui::Vec2::ZERO, |at| at - page.center());
-        if (pinch - 1.0).abs() > f32::EPSILON {
-            self.zoom.pinch += pinch.ln();
-            if self.zoom.pinch > 0.2 {
-                self.zoom.step(1, anchor);
-                self.zoom.pinch = 0.0;
-            } else if self.zoom.pinch < -0.2 {
-                self.zoom.step(-1, anchor);
-                self.zoom.pinch = 0.0;
-            }
-        } else if scroll != egui::Vec2::ZERO && self.zoom.closer_than_fits() {
-            self.zoom.pan += scroll;
-        }
-    }
-
-    /// Closer, as big as fits, and further: three small buttons on a card at the page's corner.
-    fn zoom_controls(&mut self, ui: &mut egui::Ui, page: egui::Rect, unit: f32) {
-        let dark = ui.visuals().dark_mode;
-        let cell = egui::vec2(15.0 * unit, 12.0 * unit);
-        let card = egui::Rect::from_min_size(
-            page.max - egui::vec2(cell.x * 3.0 + 3.0 * unit, cell.y + 3.0 * unit),
-            egui::vec2(cell.x * 3.0, cell.y),
-        );
-        let painter = ui.painter().clone();
-        painter.rect_filled(card.shrink(unit), 0.0, notebook::ink::card(dark));
-        pages::stepped(
-            &painter,
-            card,
-            unit,
-            notebook::ink::line(dark).gamma_multiply(0.7),
-        );
-        let fitted = self.zoom.pixels.is_none();
-        let cells = [
-            ("out", "\u{2212}", "Further away (\u{2212})"),
-            ("fit", "Fit", "The whole house (0)"),
-            ("in", "+", "Closer (+)"),
-        ];
-        for (index, (name, label, hint)) in cells.into_iter().enumerate() {
-            let rect =
-                egui::Rect::from_min_size(card.min + egui::vec2(cell.x * index as f32, 0.0), cell);
-            let response = ui
-                .interact(rect, egui::Id::new(("zoom", name)), egui::Sense::click())
-                .on_hover_text(hint);
-            let lit = response.hovered() || (name == "fit" && fitted);
-            if lit {
-                painter.rect_filled(
-                    rect.shrink(unit),
-                    0.0,
-                    notebook::ink::mint(dark).gamma_multiply(if response.hovered() {
-                        1.0
-                    } else {
-                        0.6
-                    }),
-                );
-            }
-            let galley = painter.layout_no_wrap(
-                label.to_owned(),
-                egui::FontId::proportional(if name == "fit" { 11.0 } else { 14.0 }),
-                notebook::ink::page(dark),
-            );
-            painter.galley(
-                rect.center() - galley.size() / 2.0,
-                galley,
-                notebook::ink::page(dark),
-            );
-            if response.clicked() {
-                match name {
-                    "in" => self.zoom.step(1, egui::Vec2::ZERO),
-                    "out" => self.zoom.step(-1, egui::Vec2::ZERO),
-                    _ => self.zoom.fit(),
-                }
-            }
-        }
-    }
-
     /// The house as it looks just now: with any find being worn lifted out of it.
     fn house_as_seen(&self) -> House {
         let mut house = self.house.clone();
         let worn = self.life.worn();
         house.shown.retain(|shown| !worn.contains(&shown.item));
         house
-    }
-
-    /// What has happened in the house since the last frame.
-    fn events(&mut self) {
-        for event in self.life.take_events() {
-            match event {
-                Event::Arrived(id) => {
-                    let notice = match self.household.friend_of(id) {
-                        Some(friend) => {
-                            format!("{} has come over to see {}.", self.name(id), friend.name)
-                        }
-                        None => format!("{} has come over.", self.name(id)),
-                    };
-                    self.say(notice);
-                    self.note(HomeMoment::Visit {
-                        visitor: TravelerId(id),
-                    });
-                }
-                Event::Left(id, gift) => {
-                    let left = gift.and_then(|kind| {
-                        self.make_keepsake(kind, Some(id), Vec::new()).map(|_| kind)
-                    });
-                    match left {
-                        Some(kind) => self.say(format!(
-                            "{} has gone home, and left {} for the drawer.",
-                            self.name(id),
-                            keepsakes::a(kind)
-                        )),
-                        None => self.say(format!("{} has gone home.", self.name(id))),
-                    }
-                    if self.selected == Some(id) {
-                        self.selected = None;
-                    }
-                }
-                Event::StayingOver(id) => {
-                    self.say(format!("{} is staying over.", self.name(id)));
-                    self.note(HomeMoment::StayedOver {
-                        visitor: TravelerId(id),
-                    });
-                }
-                Event::Drew(by, of) => {
-                    if self
-                        .make_keepsake(MementoKind::Drawing, Some(by), vec![of])
-                        .is_some()
-                    {
-                        let whom = if of == by {
-                            "itself".to_owned()
-                        } else {
-                            self.name(of)
-                        };
-                        self.say(format!(
-                            "{} has drawn {whom}. The drawing is in the drawer.",
-                            self.name(by)
-                        ));
-                    }
-                }
-                Event::Used(id, used) => {
-                    let liked = match used {
-                        Used::Piece(name) => self.house.liked(name),
-                        Used::Shown(item) => Some(Liked::Shown { item }),
-                    };
-                    let Some(liked) = liked else { continue };
-                    let was = self.favourites(id).iter().any(|(_, thing)| *thing == liked);
-                    if let Some(home) = self.state.household_mut(self.keeper) {
-                        home.note_use(TravelerId(id), liked.clone());
-                    }
-                    // A favourite just now come to is worth a line in the journal.
-                    let now = self
-                        .favourites(id)
-                        .into_iter()
-                        .find(|(_, thing)| *thing == liked)
-                        .map(|(kind, _)| kind);
-                    if let (Some(kind), false) = (now, was) {
-                        self.note(HomeMoment::Favourite {
-                            resident: TravelerId(id),
-                            thing: match kind {
-                                life::Kind::Seat => FavouriteKind::Seat,
-                                life::Kind::Bed => FavouriteKind::Bed,
-                                life::Kind::Toy => FavouriteKind::Toy,
-                                life::Kind::Find => FavouriteKind::Find,
-                            },
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    /// A resident's favourites in the house, as they now stand.
-    fn favourites(&self, id: Id) -> Vec<(life::Kind, Liked)> {
-        life::favourites(&home_of(&self.state, self.keeper).likings, &self.house, id)
-    }
-
-    /// A line in the household's journal, as of now.
-    fn note(&mut self, moment: HomeMoment) {
-        if let Some(home) = self.state.household_mut(self.keeper) {
-            home.note(now_utc(), moment);
-        }
-    }
-
-    /// What was lived in the house while it was open, for Desktop: who spent time together and
-    /// how, and the few moments most worth a line in its journal — a keepsake first, then a new
-    /// room, a new favourite, a friend come over — in the order they happened.
-    fn lived(&self) -> Lived {
-        let home = home_of(&self.state, self.keeper);
-        let worth = |moment: &HomeMoment| match moment {
-            HomeMoment::Memento { .. } => 0,
-            HomeMoment::AskedToMoveIn { .. } => 1,
-            HomeMoment::StayedOver { .. } => 2,
-            HomeMoment::Room { .. } => 3,
-            HomeMoment::Favourite { .. } => 4,
-            HomeMoment::Visit { .. } => 5,
-            HomeMoment::Unknown => 6,
-        };
-        let mut moments: Vec<_> = home
-            .journal
-            .iter()
-            .filter(|entry| entry.at_utc >= self.opened_at_utc)
-            .filter(|entry| match &entry.moment {
-                // A room built and taken back again is no news.
-                HomeMoment::Room { room } => home
-                    .rooms
-                    .iter()
-                    .any(|layout| layout.kind.as_ref() == Some(room)),
-                HomeMoment::Unknown => false,
-                _ => true,
-            })
-            .collect();
-        moments.sort_by_key(|entry| (worth(&entry.moment), entry.at_utc));
-        moments.truncate(formiga_home_contract::limits::MAX_MOMENTS);
-        moments.sort_by_key(|entry| entry.at_utc);
-        Lived {
-            together: self
-                .life
-                .together()
-                .into_iter()
-                .map(|(a, b, how, times)| (TravelerId(a), TravelerId(b), how, times))
-                .collect(),
-            moments: moments
-                .into_iter()
-                .map(|entry| entry.moment.clone())
-                .collect(),
-            next_door: self.next_door,
-            move_in: self.move_in.map(|friend| (TravelerId(friend), self.keeper)),
-        }
-    }
-
-    /// Go over to the house `keeper` keeps. On a visit, the house is left and Desktop opens that
-    /// one next, if it will; a rehearsal opens it itself, in the same window.
-    fn go_next_door(&mut self, ctx: &egui::Context, keeper: TravelerId) {
-        let name = self.household.snapshot.neighbour(keeper).map_or_else(
-            || "the house next door".to_owned(),
-            |house| format!("{}'s house", house.name),
-        );
-        self.next_door = Some(keeper);
-        let (colony, label) = match &self.host {
-            Host::Visit(_) => {
-                self.say(format!("Off to {name}…"));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                return;
-            }
-            Host::Rehearsal(rehearsal) => (rehearsal.colony.clone(), rehearsal.label.clone()),
-        };
-        self.leave();
-        let opened = colony
-            .open(crate::host::Which::Kept(keeper))
-            .and_then(|snapshot| {
-                let household = Household::new(snapshot.clone())
-                    .map_err(|error| anyhow::anyhow!("could not draw the household: {error}"))?;
-                Ok((snapshot, household))
-            });
-        match opened {
-            Ok((snapshot, household)) => {
-                let homes = store::RehearsalHomes::new(self.data.as_deref(), &snapshot.colony_key);
-                let host =
-                    Host::Rehearsal(crate::host::Rehearsal::new(snapshot, homes, label, colony));
-                let open = self._open.take();
-                let data = self.data.clone();
-                *self = HomeApp::new(ctx, household, host, data, open);
-                self.say(format!("Over at {name}."));
-            }
-            Err(error) => {
-                eprintln!("formiga-home: {error:#}");
-                self.next_door = None;
-                self.left = false;
-                self.say(format!("{name} could not be opened."));
-            }
-        }
-    }
-
-    /// A new keepsake for the house, from `by` and of `of`, each of them as they look now,
-    /// handed back to Desktop at once. Its id, if the house had room for it.
-    fn make_keepsake(
-        &mut self,
-        kind: MementoKind,
-        by: Option<Id>,
-        of: Vec<Id>,
-    ) -> Option<DisplayId> {
-        let of: Vec<_> = of
-            .iter()
-            .filter_map(|id| self.household.resident(*id))
-            .map(|resident| (TravelerId(resident.id), keepsakes::ink_of(resident)))
-            .collect();
-        let home = self.state.household_mut(self.keeper)?;
-        let id = keepsakes::make(home, kind, by.map(TravelerId), of, now_utc())?;
-        if let Some(memento) = home.memento(&id) {
-            self.arranging.came(self.keeper, memento);
-        }
-        self.keepsakes_changed();
-        self.keep();
-        Some(id)
     }
 
     /// Whose favourite something in the house is: "Mochi's favourite".
@@ -1127,607 +533,6 @@ impl HomeApp {
         }
     }
 
-    /// The house as a photo: everyone where they are, on the table-top light, and none of the
-    /// window's own marks.
-    fn photo(&mut self) -> Canvas {
-        let now = self.now();
-        let house = self.house_as_seen();
-        let overlay = Overlay {
-            lamps_off: self.life.lamps_off().to_vec(),
-            backdrop: true,
-            daylight: self.daylight(),
-            ..Overlay::default()
-        };
-        self.scene.compose(
-            &house,
-            &self.household.snapshot,
-            &mut self.life.actors,
-            now,
-            &overlay,
-        )
-    }
-
-    /// Ask where to save a photo of the room, and save it there, three times the size.
-    fn save_photo(&mut self) {
-        let canvas = self.photo();
-        let name = format!("{}.png", self.household.house_name());
-        let chosen = rfd::FileDialog::new()
-            .set_title("Save a picture of the room")
-            .set_file_name(&name)
-            .add_filter("PNG image", &["png"])
-            .save_file();
-        let Some(path) = chosen else { return };
-        match crate::write_png(&path, &canvas, 3) {
-            Ok(()) => {
-                // And one framed for the house, of whoever was in it.
-                let in_it: Vec<Id> = self
-                    .life
-                    .actors
-                    .iter()
-                    .filter(|actor| !actor.hidden && self.house.room_of_point(actor.pos).is_some())
-                    .map(|actor| actor.id)
-                    .collect();
-                if self
-                    .make_keepsake(MementoKind::Photo, None, in_it)
-                    .is_some()
-                {
-                    self.say("Saved a picture of the room, and framed one for the drawer.");
-                } else {
-                    self.say("Saved a picture of the room.");
-                }
-            }
-            Err(error) => self.say(format!("The picture could not be saved: {error}")),
-        }
-    }
-
-    fn live_pointer(
-        &mut self,
-        response: &egui::Response,
-        pointer: Option<(f32, f32)>,
-        released: bool,
-        now: f32,
-    ) {
-        if let Some(id) = self.carried {
-            if let Some((x, y)) = pointer {
-                let (fx, fy) = self.scene.view.floor_at(x, y + 10.0);
-                let (w, d) = (f32::from(self.house.width), f32::from(self.house.depth));
-                self.life
-                    .carry(id, (fx.clamp(0.2, w - 0.2), fy.clamp(0.2, d - 0.2)));
-            }
-            if released || response.drag_stopped() {
-                self.life.put_down(&self.house, id, now);
-                self.carried = None;
-            }
-            return;
-        }
-        if response.drag_started()
-            && let Some(Target::Resident(id)) = self.hovered.clone()
-        {
-            self.menu = None;
-            self.life.pick_up(id, now);
-            self.carried = Some(id);
-            self.selected = Some(id);
-            return;
-        }
-        // Dragged across anything else, a house seen close moves about under the pointer.
-        if response.drag_started() {
-            self.zoom.panning = self.zoom.closer_than_fits();
-            return;
-        }
-        if response.secondary_clicked()
-            && let Some(Target::Resident(id)) = self.hovered.clone()
-        {
-            self.life.pet(&self.household, id, now);
-            return;
-        }
-        if !response.clicked() {
-            return;
-        }
-        // A click away from an open menu only closes it.
-        if self.menu.take().is_some() {
-            return;
-        }
-        let Some(target) = self.hovered.clone() else {
-            self.menu = None;
-            return;
-        };
-        let at = response.interact_pointer_pos().unwrap_or_default();
-        self.click_live(target, at);
-    }
-
-    /// Asking a visitor to stay over, while it is visiting and not staying already.
-    fn stay_over_entry(&self, id: Id) -> Option<(Entry, String)> {
-        (self.household.is_visitor(id)
-            && self.life.present().contains(&id)
-            && !self.life.staying(id))
-        .then(|| {
-            (
-                Entry::StayOver(id),
-                format!("Ask {} to stay over", self.name(id)),
-            )
-        })
-    }
-
-    /// Asking a visitor to move in, once a visit, where somebody will hear of it.
-    fn move_in_entry(&self, id: Id) -> Option<(Entry, String)> {
-        (self.household.is_visitor(id)
-            && self.life.present().contains(&id)
-            && self.move_in.is_none()
-            && self.host.hears_move_ins())
-        .then(|| {
-            (
-                Entry::MoveIn(id),
-                format!("Ask {} to move in", self.name(id)),
-            )
-        })
-    }
-
-    /// A friend asked to come and live here: it says whether it would like to, and if so, Desktop
-    /// hears of it on leaving and decides.
-    fn ask_to_move_in(&mut self, visitor: Id) {
-        let name = self.name(visitor);
-        let warmth = self.household.friend_of(visitor).map_or(0.0, |friend| {
-            life::band(self.household.bond(friend.id, visitor).warmth)
-        });
-        let Some(character) = self
-            .household
-            .resident(visitor)
-            .map(|visitor| visitor.character.clone())
-        else {
-            return;
-        };
-        if !character.would_move_in(warmth) {
-            self.say(format!("{name} is happy in their own house."));
-            return;
-        }
-        self.move_in = Some(visitor);
-        self.note(HomeMoment::AskedToMoveIn {
-            visitor: TravelerId(visitor),
-        });
-        match &self.host {
-            Host::Visit(_) => self.say(format!(
-                "{name} would like that. Whether they move in is settled at home in the village."
-            )),
-            Host::Rehearsal(_) => self.say(format!(
-                "{name} would like that, but nobody moves house in a rehearsal."
-            )),
-        }
-    }
-
-    fn click_live(&mut self, target: Target, at: egui::Pos2) {
-        let now = self.now();
-        let house = self.house.clone();
-        let snapshot = &self.household.snapshot;
-        match (target, self.selected) {
-            (Target::Resident(id), Some(chosen)) if id == chosen => {
-                self.menu = Some(Menu {
-                    at,
-                    title: self.name(id),
-                    entries: {
-                        let mut entries = vec![(Entry::Pet, "Give a pat".to_owned())];
-                        entries.extend(self.stay_over_entry(id));
-                        entries.extend(self.move_in_entry(id));
-                        entries
-                    },
-                    opened: now,
-                });
-            }
-            (Target::Resident(id), None) => {
-                self.selected = Some(id);
-                self.menu = None;
-            }
-            (Target::Floor(x, y), Some(chosen)) => {
-                self.menu = None;
-                self.ask(chosen, Act::GoTo(x, y));
-            }
-            (target, Some(chosen)) => {
-                let present = self.life.present();
-                let guests = self.life.guests();
-                let acts = choices(
-                    &self.household,
-                    &house,
-                    snapshot,
-                    &present,
-                    &guests,
-                    chosen,
-                    &target,
-                );
-                let mut entries: Vec<(Entry, String)> = acts
-                    .into_iter()
-                    .map(|act| {
-                        let label = act.label(&self.household, &house, snapshot);
-                        (Entry::Ask(act), label)
-                    })
-                    .collect();
-                let title = match &target {
-                    Target::Resident(other) => {
-                        entries.extend(self.stay_over_entry(*other));
-                        entries.extend(self.move_in_entry(*other));
-                        entries.push((
-                            Entry::Choose(*other),
-                            format!("Choose {} instead", self.name(*other)),
-                        ));
-                        format!("{} and {}", self.name(chosen), self.name(*other))
-                    }
-                    Target::Shown(item) => snapshot
-                        .item(item)
-                        .map_or_else(String::new, |item| item.name.clone()),
-                    Target::Piece(uid) => house
-                        .piece(*uid)
-                        .and_then(|placed| catalog::piece(&placed.piece))
-                        .map_or_else(String::new, |piece| piece.name.to_owned()),
-                    Target::Floor(..) => String::new(),
-                };
-                if entries.is_empty() {
-                    self.say(format!("Nothing there for {} to do.", self.name(chosen)));
-                    self.menu = None;
-                } else {
-                    self.menu = Some(Menu {
-                        at,
-                        title,
-                        entries,
-                        opened: now,
-                    });
-                }
-            }
-            (_, None) => {
-                self.say("Click a resident first, to choose who to ask.");
-            }
-        }
-    }
-
-    fn arrange_pointer(
-        &mut self,
-        response: &egui::Response,
-        pointer: Option<(f32, f32)>,
-        released: bool,
-    ) {
-        if response.secondary_clicked() {
-            self.arranging.turn();
-            return;
-        }
-        // Picking something up from the house, by dragging it or by a click: a doorway first,
-        // then what is pointed at.
-        if self.arranging.carrying.is_none() && (response.drag_started() || response.clicked()) {
-            let door = pointer
-                .and_then(|point| arrange::wall_cell_at(&self.scene.view, &self.house, point))
-                .filter(|wall| wall.door)
-                .map(|wall| Carry::Door {
-                    room: wall.room,
-                    door: formiga_home_contract::Door {
-                        side: wall.side,
-                        at: wall.at,
-                    },
-                });
-            let carry = door.or_else(|| match self.hovered.clone() {
-                Some(Target::Piece(name)) => self.house.piece(name).map(|placed| Carry::Piece {
-                    name,
-                    turn: placed.turn,
-                }),
-                Some(Target::Shown(item)) => Some(Carry::Thing(item)),
-                _ => None,
-            });
-            match carry {
-                Some(carry) => {
-                    self.arranging.carrying = Some(carry);
-                    self.arranging.dragged = response.drag_started();
-                }
-                None if response.drag_started() => {
-                    self.zoom.panning = self.zoom.closer_than_fits();
-                }
-                None => {}
-            }
-            return;
-        }
-        let Some(carrying) = self.arranging.carrying.clone() else {
-            return;
-        };
-        let put_now = if self.arranging.dragged {
-            released
-        } else {
-            response.clicked()
-        };
-        if !put_now {
-            return;
-        }
-        let landing = pointer.and_then(|point| self.landing(point));
-        let house = self.house.clone();
-        let put = match landing {
-            Some((landing, Some(_))) => self.arranging.put(
-                &mut self.state,
-                self.keeper,
-                &self.household.snapshot,
-                &house,
-                landing,
-            ),
-            _ => false,
-        };
-        if put {
-            let what = match carrying {
-                Carry::Thing(_) => "Shown.",
-                Carry::Door { .. } => "The doorway is moved.",
-                _ => "Put down.",
-            };
-            self.changed(what);
-        } else if pointer.is_some() {
-            self.say("That will not go there.");
-            if self.arranging.dragged {
-                self.arranging.carrying = None;
-            }
-        } else {
-            // Let go outside the room: it goes back where it came from.
-            self.arranging.carrying = None;
-        }
-        self.arranging.dragged = false;
-    }
-
-    fn landing(&mut self, point: (f32, f32)) -> Option<(Landing, Option<Showing>)> {
-        let now = self.now();
-        let over = match &self.hovered {
-            Some(Target::Piece(uid)) => Some(*uid),
-            _ => None,
-        };
-        let over = over.or_else(|| {
-            let pixel = (point.0 as i32, point.1 as i32);
-            match self.scene.hit(
-                &self.house,
-                &self.household.snapshot,
-                &mut self.life.actors,
-                now,
-                pixel,
-            ) {
-                Some(Target::Piece(uid)) => Some(uid),
-                _ => None,
-            }
-        });
-        self.arranging.landing(
-            &self.scene.view,
-            &self.house,
-            home_of(&self.state, self.keeper),
-            &self.household.snapshot,
-            point,
-            over,
-        )
-    }
-
-    /// What is being carried, drawn where it would go: green where it fits, red where not. A
-    /// doorway is shown as the stretch of wall it would go in.
-    fn ghost(
-        &mut self,
-        pointer: Option<(f32, f32)>,
-    ) -> (Option<Ghost>, Option<(crate::house::Wall, bool)>) {
-        let Some(point) = pointer else {
-            return (None, None);
-        };
-        let Some((landing, showing)) = self.landing(point) else {
-            return (None, None);
-        };
-        let house = self.house.clone();
-        if let Landing::Wall { room, door } = landing {
-            let wall = house.wall(room, door.side, door.at).copied();
-            return (None, wall.map(|wall| (wall, showing.is_some())));
-        }
-        if let Some((piece, turn, _)) = self.arranging.carried_piece(&house) {
-            let Landing::Floor { room, x, y } = landing else {
-                return (None, None);
-            };
-            let Some(at) = house.room(room) else {
-                return (None, None);
-            };
-            let (x, y) = (at.x + x, at.y + y);
-            let (w, d) = piece.size_at(turn);
-            let sprite = self.scene.piece_sprite(piece, turn).clone();
-            return (
-                Some(Ghost {
-                    sprite,
-                    at: self.scene.view.pixel(f32::from(x), f32::from(y)),
-                    fits: showing.is_some(),
-                    footprint: Some(room::Footprint { x, y, w, d }),
-                }),
-                None,
-            );
-        }
-        let Some(Carry::Thing(id)) = &self.arranging.carrying else {
-            return (None, None);
-        };
-        let Some(item) = self.household.snapshot.item(id).cloned() else {
-            return (None, None);
-        };
-        let Landing::Spot { room, spot } = landing else {
-            return (None, None);
-        };
-        let Some(at) = house.at(room, spot) else {
-            return (None, None);
-        };
-        let place = house.place_of(at).unwrap_or(Place::Top);
-        let anchor = self
-            .scene
-            .spot_anchor(&house, at)
-            .unwrap_or((point.0 as i32, point.1 as i32));
-        let sprite = self
-            .scene
-            .thing(&item, place, showing.unwrap_or(Showing::Card))
-            .clone();
-        let footprint = match at {
-            At::Floor { x, y } => Some(room::Footprint { x, y, w: 1, d: 1 }),
-            _ => None,
-        };
-        (
-            Some(Ghost {
-                sprite,
-                at: anchor,
-                fits: showing.is_some(),
-                footprint,
-            }),
-            None,
-        )
-    }
-
-    fn menu(&mut self, ctx: &egui::Context) {
-        let Some(menu) = &self.menu else { return };
-        let mut chosen = None;
-        let mut close = false;
-        let unit = notebook::unit(ctx.pixels_per_point());
-        let area = egui::Area::new(egui::Id::new("actions"))
-            .order(egui::Order::Foreground)
-            .fixed_pos(menu.at + egui::vec2(8.0, 8.0))
-            .constrain(true)
-            .show(ctx, |ui| {
-                let dark = ui.visuals().dark_mode;
-                // A card of choices, with the notebook's stepped edge and a shadow under it.
-                let shadow = ui.painter().add(egui::Shape::Noop);
-                let shown = egui::Frame::new()
-                    .fill(notebook::ink::card(dark))
-                    .inner_margin(egui::Margin::symmetric(8, 6))
-                    .show(ui, |ui| {
-                        // As wide as its longest choice, and every row that wide.
-                        let widest = menu
-                            .entries
-                            .iter()
-                            .map(|(_, label)| {
-                                ui.painter()
-                                    .layout_no_wrap(
-                                        label.clone(),
-                                        egui::TextStyle::Button.resolve(ui.style()),
-                                        egui::Color32::WHITE,
-                                    )
-                                    .size()
-                                    .x
-                            })
-                            .fold(150.0_f32, f32::max);
-                        ui.set_width(widest + 12.0);
-                        ui.spacing_mut().item_spacing.y = 1.0;
-                        if !menu.title.is_empty() {
-                            notebook::kicker(ui, &menu.title);
-                            ui.add_space(3.0);
-                        }
-                        for (entry, label) in &menu.entries {
-                            let row = egui::Button::new(label)
-                                .frame(false)
-                                .min_size(egui::vec2(ui.available_width(), 20.0));
-                            if ui.add(row).clicked() {
-                                chosen = Some(entry.clone());
-                            }
-                        }
-                        ui.add_space(3.0);
-                        let never = egui::Button::new(
-                            egui::RichText::new("Never mind")
-                                .italics()
-                                .color(notebook::ink::muted(dark)),
-                        )
-                        .frame(false);
-                        if ui.add(never).clicked() {
-                            close = true;
-                        }
-                    });
-                let rect = shown.response.rect;
-                ui.painter().set(
-                    shadow,
-                    egui::Shape::rect_filled(
-                        rect.translate(egui::vec2(2.0 * unit, 2.0 * unit)),
-                        0.0,
-                        egui::Color32::from_black_alpha(60),
-                    ),
-                );
-                pages::stepped(
-                    ui.painter(),
-                    rect.expand(unit),
-                    unit,
-                    notebook::ink::line(dark),
-                );
-            });
-        let clicked_elsewhere = ctx.input(|input| input.pointer.any_click())
-            && !area.response.contains_pointer()
-            && self.now() - menu.opened > 0.2;
-        if let Some(entry) = chosen {
-            self.menu = None;
-            let Some(chosen_id) = self.selected else {
-                return;
-            };
-            match entry {
-                Entry::Ask(act) => self.ask(chosen_id, act),
-                Entry::Pet => {
-                    let now = self.now();
-                    self.life.pet(&self.household, chosen_id, now);
-                }
-                Entry::Choose(other) => self.selected = Some(other),
-                Entry::MoveIn(visitor) => self.ask_to_move_in(visitor),
-                Entry::StayOver(visitor) => {
-                    if !self.life.ask_to_stay(&self.household, visitor) {
-                        self.say(format!(
-                            "{} would rather go home tonight.",
-                            self.name(visitor)
-                        ));
-                    }
-                }
-            }
-        } else if close || clicked_elsewhere {
-            self.menu = None;
-        }
-    }
-}
-
-/// Where in this house a thing is shown, as the drawer says it: "on the open shelf", or in a
-/// house of rooms, "on the open shelf in the gallery".
-fn where_here(house: &House, item: &DisplayId) -> String {
-    let Some(shown) = house.shown.iter().find(|shown| &shown.item == item) else {
-        return "put away".to_owned();
-    };
-    let what = match shown.at {
-        At::On { piece, .. } => house
-            .piece(piece)
-            .and_then(|placed| catalog::piece(&placed.piece))
-            .map_or_else(
-                || "on a shelf".to_owned(),
-                |piece| format!("on the {}", piece.name.to_lowercase()),
-            ),
-        At::Wall { .. } => "on the wall".to_owned(),
-        At::Floor { .. } => "on the floor".to_owned(),
-    };
-    let room = house.spot(shown.at).map(|(room, _)| room);
-    match room.and_then(|room| house.room(room).map(|at| (room, at))) {
-        Some((index, at)) if house.rooms.len() > 1 => format!(
-            "{what} in the {}",
-            catalog::room_name(at.kind.as_ref(), index == 0).to_lowercase()
-        ),
-        _ => what,
-    }
-}
-
-/// How many screen pixels to each of the house's picture fit its page: a whole number where at
-/// least one does, so every pixel stays square.
-fn fit_pixels(page: egui::Rect, pixels_per_point: f32, size: (u32, u32)) -> f32 {
-    let fit = (page.width() * pixels_per_point / size.0 as f32)
-        .min(page.height() * pixels_per_point / size.1 as f32);
-    if fit >= 1.0 {
-        fit.floor()
-    } else {
-        fit.max(0.1)
-    }
-}
-
-impl eframe::App for HomeApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        self.frame(ui);
-    }
-
-    /// A window opened only to have its picture taken answers to nobody: whatever the pointer or
-    /// the keys do on it is let go, so a review never changes anything.
-    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
-        if self.snap.is_some() {
-            raw_input
-                .events
-                .retain(|event| matches!(event, egui::Event::Screenshot { .. }));
-        }
-    }
-
-    /// The leather, under everything, until the cover is painted over it.
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        [0.357, 0.227, 0.153, 1.0]
-    }
-}
-
-impl HomeApp {
     /// One frame of the window, from whatever input egui has gathered for it.
     pub fn frame(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
@@ -1802,9 +607,7 @@ impl HomeApp {
         self.take_snap(&ctx);
         ctx.request_repaint_after(Duration::from_millis(33));
     }
-}
 
-impl HomeApp {
     /// The line along the foot of the cover: what whoever is chosen is doing, or what has just
     /// happened; and, for a rehearsal, which one.
     fn status_line(&mut self, ui: &mut egui::Ui, layout: &notebook::Layout) {
@@ -1851,14 +654,73 @@ impl HomeApp {
     }
 }
 
+/// Where in this house a thing is shown, as the drawer says it: "on the open shelf", or in a
+/// house of rooms, "on the open shelf in the gallery".
+fn where_here(house: &House, item: &DisplayId) -> String {
+    let Some(shown) = house.shown.iter().find(|shown| &shown.item == item) else {
+        return "put away".to_owned();
+    };
+    let what = match shown.at {
+        At::On { piece, .. } => house
+            .piece(piece)
+            .and_then(|placed| catalog::piece(&placed.piece))
+            .map_or_else(
+                || "on a shelf".to_owned(),
+                |piece| format!("on the {}", piece.name.to_lowercase()),
+            ),
+        At::Wall { .. } => "on the wall".to_owned(),
+        At::Floor { .. } => "on the floor".to_owned(),
+    };
+    let room = house.spot(shown.at).map(|(room, _)| room);
+    match room.and_then(|room| house.room(room).map(|at| (room, at))) {
+        Some((index, at)) if house.rooms.len() > 1 => format!(
+            "{what} in the {}",
+            catalog::room_name(at.kind.as_ref(), index == 0).to_lowercase()
+        ),
+        _ => what,
+    }
+}
+
+impl eframe::App for HomeApp {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.frame(ui);
+    }
+
+    /// A window opened only to have its picture taken answers to nobody: whatever the pointer or
+    /// the keys do on it is let go, so a review never changes anything.
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        if self.snap.is_some() {
+            raw_input
+                .events
+                .retain(|event| matches!(event, egui::Event::Screenshot { .. }));
+        }
+    }
+
+    /// The leather, under everything, until the cover is painted over it.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.357, 0.227, 0.153, 1.0]
+    }
+}
+
 impl Drop for HomeApp {
     fn drop(&mut self) {
         self.leave();
     }
 }
 
+mod arranging;
+mod events;
+mod keys;
+mod living;
+mod menu;
 mod notebook;
 mod pages;
+mod photo;
+mod visits;
+mod zoom;
+
+use menu::{Entry, Menu};
+use zoom::{Zoom, fit_pixels};
 
 pub use notebook::frameless;
 
