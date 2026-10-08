@@ -15,6 +15,34 @@ pub(super) fn unit(pixels_per_point: f32) -> f32 {
     (1.5 * pixels_per_point).round().max(2.0) / pixels_per_point
 }
 
+/// A picture as egui takes it.
+pub(super) fn image_of(canvas: &Canvas) -> egui::ColorImage {
+    egui::ColorImage::from_rgba_unmultiplied(
+        [canvas.width() as usize, canvas.height() as usize],
+        &canvas.rgba_bytes(),
+    )
+}
+
+/// `canvas` put in the texture kept in `slot`, which is made, as `name`, the first time, and
+/// sampled to the nearest pixel so it stays crisp however far it is scaled.
+pub(super) fn show_in(
+    slot: &mut Option<egui::TextureHandle>,
+    ctx: &egui::Context,
+    name: &str,
+    canvas: &Canvas,
+) -> egui::TextureId {
+    let image = image_of(canvas);
+    match slot {
+        Some(texture) => {
+            texture.set(image, egui::TextureOptions::NEAREST);
+            texture.id()
+        }
+        None => slot
+            .insert(ctx.load_texture(name, image, egui::TextureOptions::NEAREST))
+            .id(),
+    }
+}
+
 /// The interface's colours, for what is written in the notebook rather than painted on it.
 pub(super) mod ink {
     use eframe::egui::Color32;
@@ -370,18 +398,12 @@ impl HomeApp {
             tab.hot = hot == Some(page_id(*drawer));
         }
         if self.chrome.spread.as_ref() != Some(&spread) {
-            let canvas = notebook::paint(&spread);
-            let image = egui::ColorImage::from_rgba_unmultiplied(
-                [canvas.width() as usize, canvas.height() as usize],
-                &canvas.rgba_bytes(),
+            show_in(
+                &mut self.chrome.texture,
+                &ctx,
+                "notebook",
+                &notebook::paint(&spread),
             );
-            match &mut self.chrome.texture {
-                Some(texture) => texture.set(image, egui::TextureOptions::NEAREST),
-                None => {
-                    self.chrome.texture =
-                        Some(ctx.load_texture("notebook", image, egui::TextureOptions::NEAREST));
-                }
-            }
             self.chrome.spread = Some(spread.clone());
         }
         if let Some(texture) = &self.chrome.texture {
