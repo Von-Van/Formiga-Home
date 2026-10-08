@@ -106,7 +106,11 @@ impl HomeApp {
     }
 
     /// A resident's face for the notes: its idle frame, cut down to its head and shoulders.
-    fn portrait(&mut self, ctx: &egui::Context, id: Id) -> Option<(egui::TextureId, egui::Vec2)> {
+    pub(super) fn portrait(
+        &mut self,
+        ctx: &egui::Context,
+        id: Id,
+    ) -> Option<(egui::TextureId, egui::Vec2)> {
         let resident = self.household.resident(id)?;
         let (genome, dress, face) = (
             resident.genome().clone(),
@@ -234,7 +238,13 @@ impl HomeApp {
     fn household_page(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, unit: f32) {
         let dark = ui.visuals().dark_mode;
         let present = self.life.present();
-        let residents: Vec<Id> = self.household.residents.iter().map(|r| r.id).collect();
+        let residents: Vec<Id> = self
+            .household
+            .residents
+            .iter()
+            .map(|r| r.id)
+            .filter(|id| present.contains(id))
+            .collect();
         let visiting: Vec<Id> = self
             .household
             .visitors

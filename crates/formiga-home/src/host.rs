@@ -179,6 +179,23 @@ impl Host {
         }
     }
 
+    /// Whether who is in the house can be chosen, everyone else being out on the desktop: Desktop
+    /// follows it if it offers to; a rehearsal stands in for a Desktop that does.
+    pub fn follows_indoors(&self) -> bool {
+        match self {
+            Self::Visit(visit) => visit.snapshot.offers(HomeCapability::Indoors),
+            Self::Rehearsal(_) => true,
+        }
+    }
+
+    /// Tell Desktop who is in the house just now. A rehearsal has nobody to tell.
+    pub fn say_indoors(&self, indoors: &[TravelerId]) -> Result<()> {
+        match self {
+            Self::Visit(visit) => visit.say_indoors(indoors),
+            Self::Rehearsal(_) => Ok(()),
+        }
+    }
+
     /// Whether Desktop has taken the household back already.
     pub fn recalled(&self) -> bool {
         match self {

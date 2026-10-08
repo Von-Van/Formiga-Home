@@ -13,10 +13,10 @@ publish = false
 # Formiga Desktop's shared crates, all four from the same Desktop release so their types agree:
 # the household contract among them, which is Desktop's. Move all four to a new release's tag
 # together.
-formiga-art = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.3" }
-formiga-core = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.3" }
-formiga-home-contract = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.3" }
-formiga-travel = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.3" }
+formiga-art = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.5" }
+formiga-core = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.5" }
+formiga-home-contract = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.5" }
+formiga-travel = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.5" }
 
 anyhow = "1.0.104"
 directories = "5.0.1"

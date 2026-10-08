@@ -118,6 +118,13 @@ The notebook opens in **Live Mode**, where the household is simply at home.
 - **Next door.** The household page lists the village's other houses. Click one to go over:
   Desktop closes this house and opens that one in the same place on screen. A rehearsal opens it
   itself, in the same window.
+- **Who is home.** A small card of faces sits in the corner of the house's page, one cell for
+  each resident and each friend lent for the visit, lit for whoever is in. Click a lit face to
+  send them out by the front door to the desktop, where they live in the colony as usual while
+  the house stays open; click a faded one to have them in. A resident kept out stays out the next
+  time the house opens. A friend is out on the desktop until it comes over, and again once it has
+  gone home; clicking its face has it over at once. This needs a Desktop that follows who is
+  indoors (household version 8); with an older one, everyone is in and the card is not shown.
 - **The Journal** tab in the notes shows what has happened in the house, newest first, grouped
   by day.
 - **Getting closer.** − / Fit / + in the corner of the house's page, the + and − keys, or a pinch
@@ -243,10 +250,11 @@ machines and publishes a release with every package and its checksum. Both sign 
 crates/formiga-home/src/
   main.rs          arguments, the window, and the renders
   app.rs, app/     the window: Live and Arrange Mode and the pointer in each, the keys, the
-                   zoom, the notebook round it, the notes pages, the menu, photos, visits and
-                   going next door; and its tests, which drive it headless with pointer and key
+                   zoom, the notebook round it, the notes pages, the menu, photos, visits,
+                   going next door and the cells of who is home; and its tests, which drive it headless with pointer and key
                    events
-  session.rs       Home's side of a visit: acknowledgement, result, receipt, recall
+  session.rs       Home's side of a visit: acknowledgement, result, who is indoors, receipt,
+                   recall
   host.rs          a visit from Desktop, or a rehearsal standing in for Desktop
   store.rs         the data folder: the window, the lock, rehearsals
   household.rs     the residents, ready to draw, and how they get on
@@ -276,8 +284,8 @@ packaging/, scripts/   the macOS app and the Windows installer
 ### Formiga Desktop's crates
 
 `formiga-core`, `formiga-art`, `formiga-travel` and `formiga-home-contract` all come from Formiga
-Desktop. They are taken from one release tag on GitHub, currently `v0.67.3` (travel version 4,
-household version 7), so that their types always agree with each other. Moving to a newer release
+Desktop. They are taken from one release tag on GitHub, currently `v0.67.5` (travel version 4,
+household version 8), so that their types always agree with each other. Moving to a newer release
 means changing the tag on all four together in the root `Cargo.toml`, which
 `scripts/set-version.sh <version> <tag>` does along with Home's own version and `Cargo.lock`. Each
 version's release notes are its section of [CHANGELOG.md](CHANGELOG.md).

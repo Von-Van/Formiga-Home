@@ -3,7 +3,8 @@
 //! Desktop starts Home with `--formiga-home <session directory>`. Home reads the snapshot and the
 //! state there and answers them once with an acknowledgement. While the house is open it writes
 //! its result whole whenever the owner finishes arranging, so a crash loses at most the last
-//! arrangement; on leaving it writes the result once more and then one receipt. A recall, or the
+//! arrangement; whenever who is in the house changes it says so, for a Desktop that keeps everyone
+//! else out on the desktop; on leaving it writes the result once more and then one receipt. A recall, or the
 //! session directory disappearing, ends the visit with nothing more written. Desktop never depends
 //! on any of it: whatever goes wrong, the household goes back to the desktop as it was.
 
@@ -11,9 +12,9 @@ use crate::household::Household;
 use anyhow::{Context, Result, bail};
 use formiga_home_contract::{
     ACK_FILE, AckRefusal, HOME_FORMAT_VERSION, HomeAck, HomeCapability, HomeEffect, HomeError,
-    HomeMoment, HomeReceipt, HomeResult, HomeSnapshot, HomeState, RECALL_FILE, RECEIPT_FILE,
-    RESULT_FILE, SNAPSHOT_FILE, STATE_FILE, SessionId, SessionSeal, Together, TravelerId, decode,
-    limits, read_bounded, sha256_hex, write_document,
+    HomeIndoors, HomeMoment, HomeReceipt, HomeResult, HomeSnapshot, HomeState, INDOORS_FILE,
+    RECALL_FILE, RECEIPT_FILE, RESULT_FILE, SNAPSHOT_FILE, STATE_FILE, SessionId, SessionSeal,
+    Together, TravelerId, decode, limits, read_bounded, sha256_hex, write_document,
 };
 use std::path::{Path, PathBuf};
 use time::OffsetDateTime;
@@ -201,6 +202,18 @@ impl Visit {
         Ok(())
     }
 
+    /// Tell Desktop who is in the house just now, if it offers to keep everyone else out on the
+    /// desktop. Nothing, once the visit is over.
+    pub fn say_indoors(&self, indoors: &[TravelerId]) -> Result<()> {
+        if !self.snapshot.offers(HomeCapability::Indoors) || self.recalled() || self.left {
+            return Ok(());
+        }
+        let word = HomeIndoors::new(&self.seal, OffsetDateTime::now_utc(), indoors.to_vec());
+        write_document(&self.dir.join(INDOORS_FILE), &word)
+            .context("could not say who is indoors")?;
+        Ok(())
+    }
+
     /// The owner is leaving: the homes once more, then the receipt, with the visit noted if
     /// Desktop records visits and what was lived there if it takes that in. Only once.
     pub fn leave(&mut self, state: &HomeState, lived: &Lived) -> Result<()> {
@@ -292,6 +305,38 @@ mod tests {
             receipt.effects.as_slice(),
             [HomeEffect::HomeVisit { household, .. }] if *household == snapshot.household.keeper
         ));
+        let _ = std::fs::remove_dir_all(dir.parent().unwrap());
+    }
+
+    #[test]
+    fn who_is_indoors_is_said_only_to_a_desktop_that_follows_it_and_only_while_the_visit_lasts() {
+        let snapshot = sample::snapshot();
+        let state = sample::state();
+        let dir = visit_dir("indoors", &snapshot, &state);
+        let (mut visit, household) = arrive(&dir, false).unwrap();
+        let keeper = snapshot.household.keeper;
+        visit.say_indoors(&[keeper]).unwrap();
+        let (said, _) = read_document::<HomeIndoors>(&dir.join(INDOORS_FILE)).unwrap();
+        assert!(said.answers(&visit.seal));
+        assert_eq!(said.for_visit(&snapshot), Some(vec![keeper]));
+        visit
+            .leave(&visit.state.clone(), &Lived::default())
+            .unwrap();
+        visit
+            .say_indoors(&[keeper, household.residents[1].traveler.id])
+            .unwrap();
+        let (after, _) = read_document::<HomeIndoors>(&dir.join(INDOORS_FILE)).unwrap();
+        assert_eq!(after, said, "nothing more once the owner has left");
+        let _ = std::fs::remove_dir_all(dir.parent().unwrap());
+
+        let mut older = snapshot.clone();
+        older
+            .capabilities
+            .retain(|capability| *capability != HomeCapability::Indoors);
+        let dir = visit_dir("indoors-older", &older, &state);
+        let (visit, _) = arrive(&dir, false).unwrap();
+        visit.say_indoors(&[keeper]).unwrap();
+        assert!(!dir.join(INDOORS_FILE).exists(), "not offered, not said");
         let _ = std::fs::remove_dir_all(dir.parent().unwrap());
     }
 
