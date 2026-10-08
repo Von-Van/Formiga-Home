@@ -4,14 +4,17 @@ This page records what changed in each version of Formiga Home. Each version's s
 its release notes: `.github/workflows/release.yml` publishes it alongside the downloads when the
 version is tagged.
 
-## Unreleased
+## 0.67.5 (2026-10-08)
+
+Home is built on Formiga Desktop 0.67.5 and reads household version 8, which lets it tell Desktop
+who is in the house. It still reads travel version 4 and opens the same houses as before.
 
 - A small card of faces in the corner of the house says who is home, one cell for each resident
   and each friend lent for the visit. Click a face to send them out to the desktop, where they
   live in the colony as usual while the house stays open, and click it again to have them in. A
   resident kept out stays out the next time the house opens. A friend is out on the desktop until
-  it comes over and again once it has gone home. This needs household version 8, from the Formiga
-  Desktop this version is built on.
+  it comes over and again once it has gone home. With an older Formiga Desktop, everyone is in and
+  the card is not shown.
 
 ## 0.67.3 (2026-10-06)
 

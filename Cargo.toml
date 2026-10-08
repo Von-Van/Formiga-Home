@@ -12,12 +12,11 @@ publish = false
 [workspace.dependencies]
 # Formiga Desktop's shared crates, all four from the same Desktop release so their types agree:
 # the household contract among them, which is Desktop's. Move all four to a new release's tag
-# together. For now they are taken from the Desktop commit that adds household version 8, until
-# the Desktop release that carries it is tagged.
-formiga-art = { git = "https://github.com/Von-Van/Formiga-Desktop", rev = "1fd412b574b05a2ef0bc9162fa0692666bf8cd58" }
-formiga-core = { git = "https://github.com/Von-Van/Formiga-Desktop", rev = "1fd412b574b05a2ef0bc9162fa0692666bf8cd58" }
-formiga-home-contract = { git = "https://github.com/Von-Van/Formiga-Desktop", rev = "1fd412b574b05a2ef0bc9162fa0692666bf8cd58" }
-formiga-travel = { git = "https://github.com/Von-Van/Formiga-Desktop", rev = "1fd412b574b05a2ef0bc9162fa0692666bf8cd58" }
+# together.
+formiga-art = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.5" }
+formiga-core = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.5" }
+formiga-home-contract = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.5" }
+formiga-travel = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.67.5" }
 
 anyhow = "1.0.104"
 directories = "5.0.1"
