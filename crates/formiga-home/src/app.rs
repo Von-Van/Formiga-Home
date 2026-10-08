@@ -131,7 +131,7 @@ impl HomeApp {
             _ => egui::ThemePreference::System,
         });
         notebook::style(ctx);
-        ctx.set_zoom_factor(f32::from(presentation.text_scale_percent.clamp(100, 150)) / 100.0);
+        ctx.set_zoom_factor(household.text_scale());
         let mut state = host.state().clone();
         arrange::ensure_home(&mut state, &household.snapshot);
         let keeper = household.snapshot.household.keeper;
