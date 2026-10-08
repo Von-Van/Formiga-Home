@@ -33,7 +33,8 @@ use std::path::{Path, PathBuf};
 
 const USAGE: &str = "\
 Usage: formiga-home [--sample | --formiga-home <VISIT DIRECTORY> | --from-save <FILE> [--house <N>]]
-                    [--render-room <PNG> | --render-catalog <PNG> | --render-finds <PNG>]
+                    [--render-room <PNG> | --render-catalog <PNG> | --render-finds <PNG>
+                     | --render-poses <PNG>]
 
   --sample                 Open Desktop's sample household (the default): a rehearsal, kept in
                            Home's own data folder as Desktop would keep it
