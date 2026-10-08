@@ -1234,7 +1234,7 @@ dependencies = [
 
 [[package]]
 name = "formiga-home"
-version = "0.67.3"
+version = "0.67.5"
 dependencies = [
  "anyhow",
  "directories",

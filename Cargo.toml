@@ -3,7 +3,7 @@ members = ["crates/formiga-home"]
 resolver = "2"
 
 [workspace.package]
-version = "0.67.3"
+version = "0.67.5"
 edition = "2024"
 rust-version = "1.97"
 authors = ["Formiga contributors"]
