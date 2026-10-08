@@ -511,7 +511,7 @@ mod tests {
         let dir = visit_dir("recalled", &snapshot, &sample::state());
         let (mut visit, _) = arrive(&dir, false).unwrap();
         let recall = HomeRecall::new(
-            snapshot.session_id.clone(),
+            snapshot.session_id,
             OffsetDateTime::now_utc(),
             RecallReason::OwnerAsked,
         );
