@@ -192,7 +192,6 @@ receipt holds sixteen effects at most:
   `household` keeps. Desktop opens that house next, in a new session, if it can and will: it must
   be another house of the village the snapshot named, and `HomeReceipt::next_door` returns it only
   then. Home has already left this one; nothing else about the visit changes.
-
 - `move_in { resident, household }`, for `roommates`, at most once: the owner asked `resident`,
   a friend lent for the visit, to come and live in the house visited, whose keeper is
   `household`, and it would like to. A request only: Desktop grants it or not by its own rules,
