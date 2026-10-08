@@ -33,7 +33,8 @@ use std::path::{Path, PathBuf};
 
 const USAGE: &str = "\
 Usage: formiga-home [--sample | --formiga-home <VISIT DIRECTORY> | --from-save <FILE> [--house <N>]]
-                    [--render-room <PNG> | --render-catalog <PNG> | --render-finds <PNG>]
+                    [--render-room <PNG> | --render-catalog <PNG> | --render-finds <PNG>
+                     | --render-poses <PNG>]
 
   --sample                 Open Desktop's sample household (the default): a rehearsal, kept in
                            Home's own data folder as Desktop would keep it
@@ -330,13 +331,7 @@ fn main() -> Result<()> {
     };
     let open = open.and_then(Result::ok);
     let place = data.as_deref().and_then(store::WindowPlace::load);
-    let text_scale = f32::from(
-        household
-            .snapshot
-            .presentation
-            .text_scale_percent
-            .clamp(100, 150),
-    ) / 100.0;
+    let text_scale = household.text_scale();
     let mut viewport = app::frameless(eframe::egui::ViewportBuilder::default())
         .with_title(format!("Formiga Home \u{2014} {}", household.house_name()))
         .with_inner_size(

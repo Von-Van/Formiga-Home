@@ -1306,12 +1306,11 @@ impl Life {
                 .is_some_and(|p| p.asked && p.part == Part::Leads)
         {
             self.end(o, now, false);
-            let mut free = seats.clone();
+            let mut free = seats;
             if let Some(mine) = seat {
                 free.retain(|other| *other != mine);
             }
-            let joined = self.join_spot(house, floor, &act, tile, seat, &free);
-            let (their_tile, their_seat) = joined.unwrap_or((tile, None));
+            let (their_tile, their_seat) = Self::join_spot(house, floor, &act, tile, seat, &free);
             let other = &mut self.actors[o];
             let route = way(floor, other, their_tile);
             match their_seat {
@@ -1321,7 +1320,7 @@ impl Life {
                 None => other.walk(route),
             }
             self.minds[o].plan = Some(Plan {
-                act: act.clone(),
+                act,
                 part: Part::Joins(id),
                 asked: false,
                 stage: Stage::Going,
@@ -1511,14 +1510,13 @@ impl Life {
 
     /// Where whoever joins an act goes: beside the leader, or to the other seat.
     fn join_spot(
-        &self,
         house: &House,
         floor: &Floor,
         act: &Act,
         leader: (i32, i32),
         leader_seat: Option<Seat>,
         seats: &[Seat],
-    ) -> Option<((i32, i32), Option<Seat>)> {
+    ) -> ((i32, i32), Option<Seat>) {
         let settles = matches!(act, Act::SitTogether(_) | Act::InviteLittle(..));
         if settles {
             let near = |uid: u16| {
@@ -1543,11 +1541,11 @@ impl Life {
                 .or_else(|| seats.first())
                 .copied();
             if let Some(seat) = seat {
-                return Some((near(seat.piece).unwrap_or(leader), Some(seat)));
+                return (near(seat.piece).unwrap_or(leader), Some(seat));
             }
         }
         let around = floor.beside(leader.0 as u8, leader.1 as u8, 1, 1, (1, 0));
-        Some((*around.first().unwrap_or(&leader), None))
+        (*around.first().unwrap_or(&leader), None)
     }
 
     /// There: settle on the seat, turn to what it is about, and, after any little flourish its
