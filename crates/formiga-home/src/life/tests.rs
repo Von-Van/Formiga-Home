@@ -1017,3 +1017,71 @@ fn a_seat_someone_was_patted_on_is_not_offered_to_anyone_else() {
         "the place it is on is offered while it is still there"
     );
 }
+
+#[test]
+fn a_resident_sent_out_walks_out_of_the_door_and_comes_back_in_when_asked() {
+    let (household, layout) = home();
+    let mut life = Life::new(&household, &layout);
+    let keeper = household.keeper().id;
+    let little = household.residents[1].id;
+    let now = run(&mut life, &household, &layout, 0.0, 2.0);
+    assert!(life.send_out(&layout, keeper, now));
+    assert!(!life.send_out(&layout, keeper, now), "on the way already");
+    assert!(
+        life.indoors().contains(&keeper),
+        "still in sight on the way to the door"
+    );
+    assert_eq!(life.inside(keeper), Some(Inside::Out));
+    let now = run(&mut life, &household, &layout, now, 20.0);
+    assert!(life.actor(keeper).unwrap().hidden, "out of the door");
+    assert!(!life.indoors().contains(&keeper) && !life.present().contains(&keeper));
+    assert_eq!(
+        life.ask(keeper, Act::GoTo(2, 2), now),
+        Asked::Full,
+        "nothing is asked of someone out"
+    );
+    assert!(life.indoors().contains(&little), "the others carry on");
+    assert!(life.bring_in(&household, &layout, keeper, now));
+    assert!(!life.actor(keeper).unwrap().hidden);
+    assert_eq!(life.inside(keeper), Some(Inside::Here));
+    let now = run(&mut life, &household, &layout, now, 10.0);
+    assert!(life.present().contains(&keeper));
+    assert!(
+        life.take_events()
+            .iter()
+            .all(|event| !matches!(event, Event::Arrived(id) if *id == keeper)),
+        "a resident coming home is not a visitor arriving"
+    );
+    // Turned back on the way out, it never leaves.
+    assert!(life.send_out(&layout, little, now));
+    assert!(life.bring_in(&household, &layout, little, now + 0.1));
+    run(&mut life, &household, &layout, now + 0.1, 20.0);
+    assert!(!life.actor(little).unwrap().hidden);
+    assert_eq!(life.inside(little), Some(Inside::Here));
+}
+
+#[test]
+fn residents_kept_out_start_out_and_a_friend_can_be_had_in_early_or_kept_away() {
+    let (household, layout) = home();
+    let mut life = Life::new(&household, &layout);
+    let little = household.residents[1].id;
+    life.start_out(&[little]);
+    assert!(life.actor(little).unwrap().hidden);
+    assert_eq!(life.inside(little), Some(Inside::Out));
+    let (early, away) = (household.visitors[0].id, household.visitors[1].id);
+    assert_eq!(life.inside(early), Some(Inside::Coming));
+    assert!(
+        !life.indoors().contains(&early),
+        "out on the desktop until it comes over"
+    );
+    assert!(life.bring_in(&household, &layout, early, 1.0));
+    assert_eq!(life.inside(early), Some(Inside::Here));
+    assert!(life.indoors().contains(&early));
+    assert!(
+        life.send_out(&layout, away, 1.0),
+        "kept away before it knocks"
+    );
+    run(&mut life, &household, &layout, 1.0, 120.0);
+    assert_eq!(life.inside(away), Some(Inside::Out), "it never comes over");
+    assert!(!life.indoors().contains(&away) && !life.indoors().contains(&little));
+}

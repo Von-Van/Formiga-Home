@@ -94,6 +94,8 @@ pub struct HomeApp {
     next_door: Option<TravelerId>,
     /// A friend asked to move in this visit, who would like to.
     move_in: Option<Id>,
+    /// Who Desktop was last told is in the house.
+    indoors_said: Option<Vec<Id>>,
     _open: Option<store::Open>,
     /// For review: a picture of the window itself to save, and when, after which it closes; and
     /// how many steps closer than fits to show the house in it.
@@ -140,9 +142,17 @@ impl HomeApp {
         let house = House::of(&home_of(&state, keeper).rooms);
         let mut scene = Scene::new(&house);
         scene.set_pictures(keepsakes::pictures(home_of(&state, keeper)));
-        let life = Life::new(&household, &house);
+        let mut life = Life::new(&household, &house);
+        if host.follows_indoors() {
+            let out: Vec<Id> = home_of(&state, keeper)
+                .stays_out
+                .iter()
+                .map(|id| id.0)
+                .collect();
+            life.start_out(&out);
+        }
         Self {
-            selected: household.residents.first().map(|resident| resident.id),
+            selected: life.present().first().copied(),
             household,
             host,
             state,
@@ -176,6 +186,7 @@ impl HomeApp {
             opened_at_utc: now_utc(),
             next_door: None,
             move_in: None,
+            indoors_said: None,
             _open: open,
             snap: None,
             snap_zoom: 0,
@@ -581,6 +592,7 @@ impl HomeApp {
             );
             self.events();
         }
+        self.say_who_is_indoors();
         if self
             .notice
             .as_ref()
@@ -597,6 +609,7 @@ impl HomeApp {
                     self.room_view(ui, &ctx);
                 });
                 self.zoom_controls(ui, page, layout.unit);
+                self.cells(ui, page, layout.unit);
                 ui.scope_builder(egui::UiBuilder::new().max_rect(layout.notes), |ui| {
                     self.notes(ui, &ctx, layout.unit);
                 });
@@ -709,6 +722,7 @@ impl Drop for HomeApp {
 }
 
 mod arranging;
+mod cells;
 mod events;
 mod keys;
 mod living;

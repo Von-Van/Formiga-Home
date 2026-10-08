@@ -391,12 +391,34 @@ enum Presence {
     Leaving,
     /// A visitor gone home.
     Gone,
+    /// Sent out to the desktop by the owner, and on the way to the door.
+    SteppingOut,
+    /// Out on the desktop, until the owner has them in again.
+    Out,
 }
 
 impl Presence {
     fn in_house(self) -> bool {
         matches!(self, Self::Home | Self::Visiting { .. })
     }
+
+    /// Somewhere in the house where they can be seen, if only on the way out of it.
+    fn seen(self) -> bool {
+        self.in_house() || matches!(self, Self::Leaving | Self::SteppingOut)
+    }
+}
+
+/// Where someone is, as the household's cells show it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Inside {
+    /// In the house.
+    Here,
+    /// A friend who has not come over yet.
+    Coming,
+    /// A friend who has gone home again.
+    GoneHome,
+    /// Sent out to the desktop.
+    Out,
 }
 
 /// One person's inner life.
@@ -698,6 +720,97 @@ impl Life {
             .collect()
     }
 
+    /// Everyone who can be seen in the house, on the way out of it included: whom Desktop keeps
+    /// indoors. Everyone else is out on the desktop.
+    pub fn indoors(&self) -> Vec<Id> {
+        self.minds
+            .iter()
+            .filter(|mind| mind.presence.seen())
+            .map(|mind| mind.id)
+            .collect()
+    }
+
+    /// Where someone is, for the household's cells.
+    pub fn inside(&self, id: Id) -> Option<Inside> {
+        Some(match self.minds[self.index(id)?].presence {
+            Presence::Home | Presence::Visiting { .. } => Inside::Here,
+            Presence::Expected { .. } => Inside::Coming,
+            Presence::Leaving | Presence::Gone => Inside::GoneHome,
+            Presence::SteppingOut | Presence::Out => Inside::Out,
+        })
+    }
+
+    /// Residents the owner keeps out on the desktop, from the moment the house opens.
+    pub fn start_out(&mut self, ids: &[Id]) {
+        for index in 0..self.minds.len() {
+            if self.minds[index].presence == Presence::Home && ids.contains(&self.minds[index].id) {
+                self.minds[index].presence = Presence::Out;
+                self.actors[index].hidden = true;
+            }
+        }
+    }
+
+    /// The owner sends someone in the house out to the desktop: whatever it was doing it leaves,
+    /// and out it goes by the front door. A friend still to come stays where it is. Whether
+    /// anything changed.
+    pub fn send_out(&mut self, house: &House, id: Id, now: f32) -> bool {
+        let Some(index) = self.index(id) else {
+            return false;
+        };
+        match self.minds[index].presence {
+            Presence::Home | Presence::Visiting { .. } => {}
+            Presence::Expected { .. } => {
+                self.minds[index].presence = Presence::Out;
+                return true;
+            }
+            _ => return false,
+        }
+        self.drop_everything(index, now);
+        self.minds[index].handled = None;
+        self.minds[index].queue.clear();
+        self.minds[index].staying = false;
+        let floor = Floor::of(house);
+        let (outside, inside) = door(house, &floor);
+        let actor = &mut self.actors[index];
+        actor.get_down();
+        actor.lift = 0.0;
+        let mut route = way(&floor, actor, inside);
+        route.push(outside);
+        actor.walk(route);
+        self.minds[index].presence = Presence::SteppingOut;
+        true
+    }
+
+    /// The owner has someone in from the desktop: in it comes by the front door, or turns back
+    /// if it was on its way out. A friend comes in as a visitor would. Whether anything changed.
+    pub fn bring_in(&mut self, household: &Household, house: &House, id: Id, now: f32) -> bool {
+        let Some(index) = self.index(id) else {
+            return false;
+        };
+        let floor = Floor::of(house);
+        match self.minds[index].presence {
+            Presence::Out | Presence::Gone | Presence::Expected { .. } => {
+                self.knock(household, house, &floor, index, now);
+                true
+            }
+            Presence::SteppingOut | Presence::Leaving => {
+                let (_, inside) = door(house, &floor);
+                let stay = self.minds[index].dice.between(150.0, 210.0);
+                self.minds[index].presence = if household.is_visitor(id) {
+                    Presence::Visiting { until: now + stay }
+                } else {
+                    Presence::Home
+                };
+                self.minds[index].dawdle_until = now + 1.0;
+                let actor = &mut self.actors[index];
+                let route = way(&floor, actor, inside);
+                actor.walk(route);
+                true
+            }
+            Presence::Home | Presence::Visiting { .. } => false,
+        }
+    }
+
     pub fn lamps_off(&self) -> &[u16] {
         &self.lamps_off
     }
@@ -923,6 +1036,8 @@ impl Life {
             .map_or("Someone", |r| r.name.as_str());
         match (&mind.presence, &mind.handled, &mind.plan) {
             (Presence::Leaving, ..) => format!("{name} is on the way home."),
+            (Presence::SteppingOut, ..) => format!("{name} is off out to the desktop."),
+            (Presence::Out, ..) => format!("{name} is out on the desktop."),
             (Presence::Expected { .. } | Presence::Gone, ..) => String::new(),
             (_, Some(Handled::Held), _) => format!("{name} is being carried."),
             (_, Some(Handled::Petted { .. }), _) => format!("{name} is enjoying a pat."),
@@ -966,7 +1081,15 @@ impl Life {
                 Presence::Expected { at } if now >= at => {
                     self.knock(household, house, &floor, index, now);
                 }
-                Presence::Expected { .. } | Presence::Gone => continue,
+                Presence::Expected { .. } | Presence::Gone | Presence::Out => continue,
+                Presence::SteppingOut => {
+                    self.actors[index].advance(dt);
+                    if !self.actors[index].walking() {
+                        self.actors[index].hidden = true;
+                        self.minds[index].presence = Presence::Out;
+                    }
+                    continue;
+                }
                 Presence::Leaving => {
                     self.actors[index].advance(dt);
                     if !self.actors[index].walking() {
@@ -1064,7 +1187,8 @@ impl Life {
         }
     }
 
-    /// A visitor at the door: in it comes, and the household answers in character.
+    /// Someone at the door: in it comes. A visitor is answered by the household in character;
+    /// a resident back from the desktop is simply home.
     fn knock(
         &mut self,
         household: &Household,
@@ -1075,20 +1199,31 @@ impl Life {
     ) {
         let (outside, inside) = door(house, floor);
         let mind = &mut self.minds[index];
-        let stay = mind.dice.between(150.0, 210.0);
-        mind.presence = Presence::Visiting { until: now + stay };
-        mind.dawdle_until = now + 3.0;
         let visitor = mind.id;
+        let visiting = household.is_visitor(visitor);
+        let stay = mind.dice.between(150.0, 210.0);
+        mind.presence = if visiting {
+            Presence::Visiting { until: now + stay }
+        } else {
+            Presence::Home
+        };
+        mind.dawdle_until = now + 3.0;
         let actor = &mut self.actors[index];
         actor.hidden = false;
         actor.pos = outside;
         actor.walk([(inside.0 as f32 + 0.5, inside.1 as f32 + 0.5)]);
+        if !visiting {
+            return;
+        }
         self.events.push(Event::Arrived(visitor));
         let snapshot = &household.snapshot;
         for resident in &household.residents {
             let Some(r) = self.index(resident.id) else {
                 continue;
             };
+            if !self.minds[r].presence.in_house() {
+                continue;
+            }
             let busy = self.minds[r].handled.is_some()
                 || self.minds[r].plan.as_ref().is_some_and(|plan| {
                     plan.asked || matches!(plan.act, Act::Sleep(_) | Act::InviteLittle(..))

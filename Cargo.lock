@@ -1193,11 +1193,12 @@ dependencies = [
 [[package]]
 name = "formiga-art"
 version = "0.67.3"
-source = "git+https://github.com/Von-Van/Formiga-Desktop?tag=v0.67.3#e7e68e4003df1486ae1f3666512448f876ba47bf"
+source = "git+https://github.com/Von-Van/Formiga-Desktop?rev=1fd412b574b05a2ef0bc9162fa0692666bf8cd58#1fd412b574b05a2ef0bc9162fa0692666bf8cd58"
 dependencies = [
  "epaint",
  "formiga-core",
  "gif",
+ "png",
  "rand",
  "rand_chacha",
  "time",
@@ -1206,7 +1207,7 @@ dependencies = [
 [[package]]
 name = "formiga-core"
 version = "0.67.3"
-source = "git+https://github.com/Von-Van/Formiga-Desktop?tag=v0.67.3#e7e68e4003df1486ae1f3666512448f876ba47bf"
+source = "git+https://github.com/Von-Van/Formiga-Desktop?rev=1fd412b574b05a2ef0bc9162fa0692666bf8cd58#1fd412b574b05a2ef0bc9162fa0692666bf8cd58"
 dependencies = [
  "getrandom 0.4.3",
  "rand",
@@ -1222,7 +1223,7 @@ dependencies = [
 [[package]]
 name = "formiga-expansion-rulebook"
 version = "0.67.3"
-source = "git+https://github.com/Von-Van/Formiga-Desktop?tag=v0.67.3#e7e68e4003df1486ae1f3666512448f876ba47bf"
+source = "git+https://github.com/Von-Van/Formiga-Desktop?rev=1fd412b574b05a2ef0bc9162fa0692666bf8cd58#1fd412b574b05a2ef0bc9162fa0692666bf8cd58"
 dependencies = [
  "getrandom 0.4.3",
  "serde",
@@ -1252,7 +1253,7 @@ dependencies = [
 [[package]]
 name = "formiga-home-contract"
 version = "0.67.3"
-source = "git+https://github.com/Von-Van/Formiga-Desktop?tag=v0.67.3#e7e68e4003df1486ae1f3666512448f876ba47bf"
+source = "git+https://github.com/Von-Van/Formiga-Desktop?rev=1fd412b574b05a2ef0bc9162fa0692666bf8cd58#1fd412b574b05a2ef0bc9162fa0692666bf8cd58"
 dependencies = [
  "formiga-art",
  "formiga-core",
@@ -1268,7 +1269,7 @@ dependencies = [
 [[package]]
 name = "formiga-travel"
 version = "0.67.3"
-source = "git+https://github.com/Von-Van/Formiga-Desktop?tag=v0.67.3#e7e68e4003df1486ae1f3666512448f876ba47bf"
+source = "git+https://github.com/Von-Van/Formiga-Desktop?rev=1fd412b574b05a2ef0bc9162fa0692666bf8cd58#1fd412b574b05a2ef0bc9162fa0692666bf8cd58"
 dependencies = [
  "formiga-art",
  "formiga-core",

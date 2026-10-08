@@ -40,6 +40,7 @@ only through the files in that directory:
 | `state.json` | Desktop | `HomeState`: every household's home as Desktop last accepted it |
 | `ack.json` | Home | `HomeAck`, written once: accepted, or refused as `UnsupportedVersion { reads }`, `Invalid` or `Busy` |
 | `result-state.json` | Home | `HomeResult`: every home, whole, as Home would have it. Written each time the owner leaves Arrange Mode, after every change, and again on leaving; the last one written is the answer |
+| `indoors.json` | Home | `HomeIndoors`, since version 8 and only if the snapshot offers `indoors`: everyone in the house just now, written whenever that changes; the last one written stands |
 | `receipt.json` | Home | `HomeReceipt`, written once on leaving: what the visit brings home, only as far as the snapshot offers to take it |
 | `recall.json` | Desktop | `HomeRecall`, if Desktop needs to end the visit first |
 
@@ -48,7 +49,12 @@ else. Every file is written whole under a temporary name and then renamed into p
 app ever reads a half-written file.
 
 While the session is open, the household's residents and any visitors Desktop lent are "indoors":
-Desktop keeps them off the desktop, and every other companion carries on as usual. When Home
+Desktop keeps them off the desktop, and every other companion carries on as usual. Since version 8,
+a Desktop that offers `indoors` keeps indoors only whoever Home says is in the house, and everyone
+else it lent out on the desktop: a resident the owner has sent out from the house's cells, a
+resident its home `stays_out`, and a friend until it comes over and once it has gone home again.
+Desktop looks for Home's word at most once a second, and someone in the owner's hand on the
+desktop goes in once put down. When Home
 exits, however it exits, Desktop reads the answers, keeps what [`accept_result`] allows, and lets
 the household back out through its ordinary village life. Everything is designed to fail toward
 home. If Home is missing, refuses, crashes, or writes something that does not check out, the
@@ -66,7 +72,9 @@ The steps Home takes are all in `crates/formiga-home/src/session.rs`:
 2. **Live.** Once a second, Home checks for `recall.json`, or for `snapshot.json` having
    disappeared. Either one ends the visit with nothing more written.
 3. **Arrange.** Every change hands back the whole state as `result-state.json`, so a crash loses
-   nothing that was arranged.
+   nothing that was arranged. For a Desktop that offers `indoors`, whenever who is in the house
+   changes, Home says so in `indoors.json`: anyone who can be seen in the house, on the way out
+   of it included.
 4. **Leave.** The result is written once more, followed by `receipt.json` (see
    [The receipt](#the-receipt)).
 
@@ -120,8 +128,9 @@ The snapshot is everything Home is allowed to know about the visit.
 - **Capabilities**: what Desktop is willing to take back from a visit. `visit_record` offers a
   `HomeVisit`; since version 4, `bond_nudges` offers time spent together and
   `journal_moments` offers moments; since version 5, `next_door` offers to open another house
-  next; and since version 6, `roommates` offers to consider a friend asked to move in. Home sends
-  nothing Desktop has not offered.
+  next; since version 6, `roommates` offers to consider a friend asked to move in; and since
+  version 8, `indoors` offers to keep out on the desktop whoever Home says is not in the house.
+  Home sends nothing Desktop has not offered.
 - **The colony key** is a one-way digest of the colony's seed under Home's own label. It is
   intentionally different from a trip's colony id, so the two apps' records cannot be matched up.
 
@@ -165,6 +174,11 @@ Since version 4 a home may also keep two things of its own, which Desktop stores
   that came to the house, a resident's new `favourite` (a seat, a bed, a toy or a find), a
   `room` the house grew, since version 5 a friend who `stayed_over`, and since version 6 a friend
   `asked_to_move_in`. Home words these on its Journal page, and nothing else reads them.
+
+Since version 8 a home may also keep **`stays_out`**: up to twelve residents its owner keeps out on
+the desktop when the house opens, each once. Only residents of the house visited are kept; a
+visitor comes or not with each visit, and whoever has moved out of the house is let go. A Desktop
+that offers `indoors` lends them for the visit but leaves them out until Home says they are in.
 
 Pieces and finishes are named by Home's catalogue identifiers. Desktop only checks that each is
 written as a valid identifier, never what it names, which lets Home's catalogue grow without
@@ -228,6 +242,7 @@ one wrote.
 | 5 | The receipt's `next_door` effect and the `next_door` capability that offers it; a `stayed_over` moment. An older reader reads the effect as one it does not support and the moment as `unknown` |
 | 6 | The receipt's `move_in` effect and the `roommates` capability that offers it; an `asked_to_move_in` moment. Read by an older reader as before |
 | 7 | Desktop 0.67.0, which adopted the contract. No new fields: residents are written in travel version 4, Formiga Hill's Fairground souvenirs may be shown, and a snapshot offers only the capabilities Desktop applies |
+| 8 | `indoors.json` and the `indoors` capability that offers to follow it: who is in the house, said as it changes, so whoever is not is out on the desktop; `stays_out` in each home. An older reader reads the capability as `unknown` and ignores `stays_out` |
 
 ## Finding Home
 

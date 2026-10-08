@@ -819,3 +819,50 @@ fn dragging_the_leather_moves_the_window_and_a_double_click_opens_it_wide() {
     );
     let _ = std::fs::remove_dir_all(&data);
 }
+
+#[test]
+fn a_cell_sends_someone_out_to_the_desktop_and_the_house_remembers_who_stays_out() {
+    let data = scratch("cells");
+    let mut window = Harness::open(&data);
+    let keeper = window.app.household.keeper().id;
+    let friend = window.app.household.visitors[0].id;
+    assert_eq!(window.app.indoors_said, Some(window.app.life.indoors()));
+    assert!(
+        !window.app.life.indoors().contains(&friend),
+        "a friend is out on the desktop until it comes over"
+    );
+    window.click_id(egui::Id::new(("cell", keeper)));
+    assert_eq!(
+        window.app.life.inside(keeper),
+        Some(crate::life::Inside::Out)
+    );
+    let stays_out = |window: &Harness| {
+        home_of(&window.app.state, window.app.keeper)
+            .stays_out
+            .clone()
+    };
+    assert_eq!(stays_out(&window), vec![TravelerId(keeper)]);
+    window.wait(20.0);
+    assert!(!window.app.life.indoors().contains(&keeper));
+    assert_eq!(window.app.indoors_said, Some(window.app.life.indoors()));
+    // A friend had in early is in, and is not remembered: it comes or not with each visit.
+    window.click_id(egui::Id::new(("cell", friend)));
+    assert!(window.app.life.indoors().contains(&friend));
+    assert_eq!(stays_out(&window), vec![TravelerId(keeper)]);
+    window.app.leave();
+
+    // Opened again, the keeper is still out, until it is had in.
+    let mut window = Harness::open(&data);
+    assert_eq!(
+        window.app.life.inside(keeper),
+        Some(crate::life::Inside::Out)
+    );
+    assert!(!window.app.life.indoors().contains(&keeper));
+    window.click_id(egui::Id::new(("cell", keeper)));
+    assert_eq!(
+        window.app.life.inside(keeper),
+        Some(crate::life::Inside::Here)
+    );
+    assert!(stays_out(&window).is_empty());
+    let _ = std::fs::remove_dir_all(&data);
+}
