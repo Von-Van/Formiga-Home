@@ -122,6 +122,17 @@ impl Household {
         self.snapshot.presentation.reduce_motion
     }
 
+    /// How large the owner's text is, from 1.0 to 1.5: the notebook is scaled by it, and its
+    /// window sized by it.
+    pub fn text_scale(&self) -> f32 {
+        f32::from(
+            self.snapshot
+                .presentation
+                .text_scale_percent
+                .clamp(100, 150),
+        ) / 100.0
+    }
+
     /// Anyone in the house by id, whether they live here or are visiting.
     pub fn resident(&self, id: Id) -> Option<&Resident> {
         self.everyone().find(|resident| resident.id == id)

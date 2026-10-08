@@ -263,6 +263,7 @@ crates/formiga-home/src/
                    visitors coming and going; and its tests
   keepsakes.rs     gifts, drawings and framed photos the household comes by at home
   journal.rs       how the Journal page words what has happened
+  daylight.rs      the time of day and of year by the owner's clock: the light, lamps, seasons
   actor.rs         a resident in the room: walking, poses, cached frames
   house.rs         the rooms set out as one house: walls, doorways, which walls are cut down
   path.rs          finding the way across the house, room to room through the doorways

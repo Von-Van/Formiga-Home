@@ -133,7 +133,7 @@ impl HomeApp {
             _ => egui::ThemePreference::System,
         });
         notebook::style(ctx);
-        ctx.set_zoom_factor(f32::from(presentation.text_scale_percent.clamp(100, 150)) / 100.0);
+        ctx.set_zoom_factor(household.text_scale());
         let mut state = host.state().clone();
         arrange::ensure_home(&mut state, &household.snapshot);
         let keeper = household.snapshot.household.keeper;
@@ -319,12 +319,11 @@ impl HomeApp {
         draw: impl FnOnce() -> Canvas,
     ) -> (egui::TextureId, egui::Vec2) {
         let texture = self.thumbnails.entry(key.clone()).or_insert_with(|| {
-            let canvas = draw();
-            let image = egui::ColorImage::from_rgba_unmultiplied(
-                [canvas.width() as usize, canvas.height() as usize],
-                &canvas.rgba_bytes(),
-            );
-            ctx.load_texture(key, image, egui::TextureOptions::NEAREST)
+            ctx.load_texture(
+                key,
+                notebook::image_of(&draw()),
+                egui::TextureOptions::NEAREST,
+            )
         });
         let size = texture.size_vec2();
         (texture.id(), size)
@@ -421,22 +420,7 @@ impl HomeApp {
         let canvas = self
             .scene
             .compose(&house, &snapshot, &mut self.life.actors, now, &overlay);
-        let image = egui::ColorImage::from_rgba_unmultiplied(
-            [canvas.width() as usize, canvas.height() as usize],
-            &canvas.rgba_bytes(),
-        );
-        let texture = match &mut self.texture {
-            Some(texture) => {
-                texture.set(image, egui::TextureOptions::NEAREST);
-                texture.id()
-            }
-            None => {
-                let texture = ctx.load_texture("room", image, egui::TextureOptions::NEAREST);
-                let id = texture.id();
-                self.texture = Some(texture);
-                id
-            }
-        };
+        let texture = notebook::show_in(&mut self.texture, ctx, "room", &canvas);
         self.zoom_input(&response, ctx, page);
         let painter = ui.painter_at(page);
         painter.image(
