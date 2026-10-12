@@ -4,6 +4,16 @@ This page records what changed in each version of Formiga Home. Each version's s
 its release notes: `.github/workflows/release.yml` publishes it alongside the downloads when the
 version is tagged.
 
+## 0.67.6 (2026-10-12)
+
+Home is built on Formiga Desktop 0.67.6 and reads household version 9 and travel version 5, so a
+household in Desktop's Echo Fox Mode comes in as foxes. It opens the same houses as before.
+
+- A household that comes in while Desktop's Echo Fox Mode is on is a skulk of foxes here too: each
+  resident and friend Desktop draws as the Echo Fox is drawn as it in every room, doing everything
+  it would do as itself. Its name, likings and home are its own, and it comes in as itself the next
+  time the house opens after the mode is switched off.
+
 ## 0.67.5 (2026-10-08)
 
 Home is built on Formiga Desktop 0.67.5 and reads household version 8, which lets it tell Desktop
