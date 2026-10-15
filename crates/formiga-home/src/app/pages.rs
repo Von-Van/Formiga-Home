@@ -13,14 +13,14 @@ use formiga_home_contract::DisplayItem;
 
 /// How big a picture can be drawn inside `fit` points, whole screen pixels to each of its own,
 /// and never more than `most` of them.
-fn crisp(ui: &egui::Ui, pixels: egui::Vec2, fit: egui::Vec2, most: f32) -> egui::Vec2 {
+pub(super) fn crisp(ui: &egui::Ui, pixels: egui::Vec2, fit: egui::Vec2, most: f32) -> egui::Vec2 {
     let ppp = ui.ctx().pixels_per_point();
     let across = (fit.x * ppp / pixels.x.max(1.0)).min(fit.y * ppp / pixels.y.max(1.0));
     pixels * across.floor().clamp(1.0, most) / ppp
 }
 
 /// A picture cut down to what is drawn in it, so it is shown as big as its tile allows.
-fn cropped(canvas: Canvas) -> Canvas {
+pub(super) fn cropped(canvas: Canvas) -> Canvas {
     let Some((l, t, r, b)) = canvas.alpha_bounds() else {
         return canvas;
     };
@@ -59,7 +59,7 @@ pub(super) fn stepped(painter: &egui::Painter, rect: egui::Rect, unit: f32, colo
 
 /// A square of the page to put a picture in, which can be clicked and dragged: a slip of card
 /// with a stepped edge, lit when it is pointed at or chosen.
-fn tile(
+pub(super) fn tile(
     ui: &mut egui::Ui,
     id: egui::Id,
     size: egui::Vec2,
@@ -92,6 +92,9 @@ impl HomeApp {
             .auto_shrink([false, false])
             .show(ui, |ui| match self.mode {
                 Mode::Live if self.live_page == Drawer::Journal => self.journal_page(ui, unit),
+                Mode::Live if self.live_page == Drawer::Projects => {
+                    self.projects_page(ui, ctx, unit);
+                }
                 Mode::Live => self.household_page(ui, ctx, unit),
                 Mode::Arrange => {
                     match self.drawer {
@@ -726,11 +729,12 @@ impl HomeApp {
 
     fn furniture_page(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, unit: f32) {
         let dark = ui.visuals().dark_mode;
+        let made = home_of(&self.state, self.keeper).projects.clone();
         let snapshot = &self.household.snapshot;
-        let (days, things) = (
-            snapshot.days_lived,
-            crate::keepsakes::colony_things(snapshot).count(),
-        );
+        let now = catalog::Arrived {
+            made: &made,
+            ..catalog::Arrived::of(snapshot, home_of(&self.state, self.keeper))
+        };
         let house = self.house.clone();
         let size = egui::vec2(30.0 * unit, 30.0 * unit);
         // The sets, to look at one at a time.
@@ -738,7 +742,9 @@ impl HomeApp {
             ui.selectable_value(&mut self.set_shown, None, "All");
             for set in catalog::Set::ALL {
                 ui.selectable_value(&mut self.set_shown, Some(set), set.name())
-                    .on_hover_text(if set.arrives().come(days, things) {
+                    .on_hover_text(if set == catalog::Set::Made {
+                        "Made by the household, as it finishes its projects"
+                    } else if set.arrives().come(&now) {
                         "Here to use"
                     } else {
                         "Arrives in time"
@@ -759,7 +765,7 @@ impl HomeApp {
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(2.0 * unit, 2.0 * unit);
                 for piece in pieces {
-                    let available = piece.available(days, things);
+                    let available = piece.available(&now);
                     let carried = matches!(
                         self.arranging.carrying,
                         Some(Carry::New { piece: carrying, .. }) if carrying.id == piece.id
@@ -805,12 +811,16 @@ impl HomeApp {
                     let set = piece.set;
                     let response = response.on_hover_ui(|ui| {
                         ui.strong(name);
-                        if set != catalog::Set::Home {
+                        if set == catalog::Set::Made {
+                            ui.label(egui::RichText::new("Made at home").small());
+                        } else if set != catalog::Set::Home {
                             ui.label(
                                 egui::RichText::new(format!("From the {} set", set.name())).small(),
                             );
                         }
-                        if !available {
+                        if !available && set == catalog::Set::Made {
+                            ui.label(egui::RichText::new("Made by finishing a project").small());
+                        } else if !available {
                             ui.label(egui::RichText::new("Arrives in time").small());
                         } else if count > 0 {
                             ui.label(egui::RichText::new(format!("{count} in the house")).small());
@@ -852,11 +862,10 @@ impl HomeApp {
         let layout = home.rooms[room].clone();
         let mut floor = None;
         let mut wall = None;
-        let snapshot = &self.household.snapshot;
-        let (days, things) = (
-            snapshot.days_lived,
-            crate::keepsakes::colony_things(snapshot).count(),
-        );
+        let now = catalog::Arrived {
+            made: &home.projects,
+            ..catalog::Arrived::of(&self.household.snapshot, &home)
+        };
         kicker(ui, "Floor");
         let size = egui::vec2(34.0 * unit, 22.0 * unit);
         ui.horizontal_wrapped(|ui| {
@@ -869,7 +878,7 @@ impl HomeApp {
                     shell::floor_swatch(finish.id)
                 });
                 let shown = crisp(ui, pixels, size - egui::vec2(4.0, 4.0) * unit, 4.0);
-                let arrived = finish.set.arrives().come(days, things);
+                let arrived = finish.available(&now);
                 ui.painter().image(
                     texture,
                     egui::Rect::from_center_size(rect.center(), shown),
@@ -883,6 +892,8 @@ impl HomeApp {
                 let name = finish.name;
                 let response = response.on_hover_text(if arrived {
                     name.to_owned()
+                } else if finish.set == catalog::Set::Made {
+                    format!("{name}: made by finishing a project")
                 } else {
                     format!("{name}: arrives in time")
                 });
@@ -907,7 +918,7 @@ impl HomeApp {
                     shell::wall_swatch(finish.id)
                 });
                 let shown = crisp(ui, pixels, size - egui::vec2(4.0, 4.0) * unit, 4.0);
-                let arrived = finish.set.arrives().come(days, things);
+                let arrived = finish.available(&now);
                 ui.painter().image(
                     texture,
                     egui::Rect::from_center_size(rect.center(), shown),
@@ -921,6 +932,8 @@ impl HomeApp {
                 let name = finish.name;
                 let response = response.on_hover_text(if arrived {
                     name.to_owned()
+                } else if finish.set == catalog::Set::Made {
+                    format!("{name}: made by finishing a project")
                 } else {
                     format!("{name}: arrives in time")
                 });
@@ -1085,7 +1098,7 @@ fn plan_of(painter: &egui::Painter, rect: egui::Rect, size: (u8, u8), unit: f32,
 }
 
 /// "the armchair", "the armchair and the shell", "the armchair, the rug and the shell".
-fn and_list(things: &[String]) -> String {
+pub(super) fn and_list(things: &[String]) -> String {
     match things {
         [] => String::new(),
         [one] => one.clone(),

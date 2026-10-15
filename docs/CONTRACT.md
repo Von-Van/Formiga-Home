@@ -185,6 +185,24 @@ written as a valid identifier, never what it names, which lets Home's catalogue 
 Desktop having to change. A piece that a newer Home has and an older one does not is kept in place
 and left alone.
 
+Since version 10 a home may also keep two things for its **projects**, which Desktop stores but
+never reads:
+
+- **`projects`**: up to twelve `{ project, stages }`, each a project Home's board has shown the
+  owner, by Home's catalogue identifier, and every stage of it finished, in order, as
+  `{ at_utc }`. A stage once finished is never let go: this is the house's own history, where the
+  journal keeps only its latest forty lines. A `project` journal moment notes each stage finished.
+- **`tallies`**: up to sixteen `{ what, count }`, how often things worth counting have happened in
+  the house, by Home's identifiers, only ever counted up. Home's projects count towards them.
+
+A result from a Home that predates version 10 leaves a household's projects and tallies as they
+were, so going back to an older Home loses none of them. Home shows its project board only to a
+Desktop that writes version 10 or newer, since an older one would set them aside on every visit.
+
+Formiga Hill's discoveries reach a project only as Desktop already sends them: every souvenir the
+colony has kept is in the snapshot's inventory, with when it came home, so every household counts
+them alike, while what each household makes of them stays its own.
+
 ## The receipt
 
 The receipt is the only place Home can say anything about a visit beyond the layouts, so it is
@@ -242,6 +260,8 @@ one wrote.
 | 6 | The receipt's `move_in` effect and the `roommates` capability that offers it; an `asked_to_move_in` moment. Read by an older reader as before |
 | 7 | Desktop 0.67.0, which adopted the contract. No new fields: residents are written in travel version 4, Formiga Hill's Fairground souvenirs may be shown, and a snapshot offers only the capabilities Desktop applies |
 | 8 | `indoors.json` and the `indoors` capability that offers to follow it: who is in the house, said as it changes, so whoever is not is out on the desktop; `stays_out` in each home. An older reader reads the capability as `unknown` and ignores `stays_out` |
+| 9 | Desktop 0.67.6. No new fields: residents are written in travel version 5 |
+| 10 | `projects` and `tallies` in each home, and a `project` moment. An older reader ignores both and reads the moment as `unknown`; Desktop keeps both as they were when an older Home answers |
 
 ## Finding Home
 

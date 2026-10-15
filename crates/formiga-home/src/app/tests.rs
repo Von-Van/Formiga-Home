@@ -777,7 +777,10 @@ fn the_notebook_answers_to_its_keys() {
     window.key(Key::N);
     assert_ne!(window.app.selected, Some(first), "and then the next");
     window.key(Key::CloseBracket);
+    assert_eq!(window.app.live_page, Drawer::Projects);
+    window.key(Key::CloseBracket);
     assert_eq!(window.app.live_page, Drawer::Journal);
+    window.key(Key::OpenBracket);
     window.key(Key::OpenBracket);
     assert_eq!(window.app.live_page, Drawer::Household);
     window.key(Key::H);
@@ -865,4 +868,71 @@ fn a_cell_sends_someone_out_to_the_desktop_and_the_house_remembers_who_stays_out
     );
     assert!(stays_out(&window).is_empty());
     let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn a_souvenir_from_formiga_hill_is_said_to_count_once() {
+    let data = scratch("souvenir-news");
+    let window = Harness::open(&data);
+    let (notice, _) = window.app.notice.clone().expect("something was said");
+    assert_eq!(
+        notice,
+        "The fairground ticket from Formiga Hill counts towards the puppet theatre."
+    );
+    let mut window = window;
+    window.app.leave();
+    let again = Harness::open(&data);
+    assert!(
+        again
+            .app
+            .notice
+            .as_ref()
+            .is_none_or(|(notice, _)| !notice.contains("counts towards")),
+        "news only once"
+    );
+}
+
+#[test]
+fn a_ready_project_is_finished_from_the_board_and_stays_finished() {
+    let data = scratch("projects");
+    let mut window = Harness::open(&data);
+    let hearth = crate::projects::project("project.hearth").unwrap();
+    // The sample colony has lived forty days: a keepsake is all the hearth still wants.
+    assert!(window.app.board_wants_a_look(), "every project is new");
+    window.turn_to(Drawer::Projects);
+    window.wait(0.1);
+    window.click_text("The hearth");
+    window.wait(0.1);
+    assert_eq!(window.app.project_chosen, Some(hearth.id));
+    assert!(window.text("Build it").is_none(), "not ready yet");
+    window
+        .app
+        .make_keepsake(MementoKind::Pebble, None, Vec::new())
+        .unwrap();
+    window.wait(0.1);
+    assert!(window.app.board_wants_a_look(), "something is ready");
+    window.click_text("Build it");
+    window.wait(0.1);
+    let has_hearth = |app: &HomeApp| {
+        home_of(&app.state, app.keeper).rooms.iter().any(|room| {
+            room.pieces
+                .iter()
+                .any(|placed| placed.piece.as_str() == "hearth")
+        })
+    };
+    assert!(has_hearth(&window.app), "the hearth stands in the house");
+    assert_eq!(
+        hearth.done(home_of(&window.app.state, window.app.keeper)),
+        1
+    );
+    assert!(
+        window.text("MADE AT HOME").is_some(),
+        "kept for good on the board"
+    );
+    assert!(!window.app.board_wants_a_look());
+
+    window.app.leave();
+    let again = Harness::open(&data);
+    assert!(has_hearth(&again.app));
+    assert_eq!(hearth.done(home_of(&again.app.state, again.app.keeper)), 1);
 }

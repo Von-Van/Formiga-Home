@@ -32,6 +32,18 @@ fn drawn(piece: &Piece, away: bool) -> (Sprite, Vec<Block>) {
         "driftwood_bed" => bed(&mut easel, flip, away, &SEASIDE_BEDDING),
         "moss_bed" => bed(&mut easel, flip, away, &WOODLAND_BEDDING),
         "night_bed" => bed(&mut easel, flip, away, &STARLIT_BEDDING),
+        "quilt_bed" => bed(&mut easel, flip, away, &QUILTED_BEDDING),
+        "feather_bed" => bed(&mut easel, flip, away, &FEATHER_BEDDING),
+        "canopy_bed" => over = Some(canopy_bed(&mut easel, piece, away)),
+        "gingham_table" => family_table(&mut easel, false),
+        "harvest_table" => family_table(&mut easel, true),
+        "window_box" => window_box(&mut easel, false),
+        "window_box_bloom" => window_box(&mut easel, true),
+        "puppet_theatre" => puppet_theatre(&mut easel, false, away),
+        "puppet_theatre_fair" => puppet_theatre(&mut easel, true, away),
+        "hearth" => hearth(&mut easel, 1, away),
+        "hearth_mantel" => hearth(&mut easel, 2, away),
+        "hearth_garland" => hearth(&mut easel, 3, away),
         "cabinet" => over = Some(cabinet(&mut easel, piece)),
         "plinth" => over = Some(plinth(&mut easel, piece)),
         "counter" => over = Some(counter(&mut easel, piece)),
@@ -211,6 +223,8 @@ struct Bedding {
     sheet: Ramp,
     blanket: Ramp,
     pattern: Pattern,
+    /// Two plump feather pillows, one on the other, rather than one.
+    plump: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -223,6 +237,8 @@ enum Pattern {
     Leaves,
     /// Gold stars on the night sky.
     Stars,
+    /// A patchwork of squares in the house's own colours, stitched between.
+    Patchwork,
 }
 
 const BEDDING: Bedding = Bedding {
@@ -231,6 +247,7 @@ const BEDDING: Bedding = Bedding {
     sheet: LINEN,
     blanket: ROSE,
     pattern: Pattern::Hem,
+    plump: false,
 };
 
 const SEASIDE_BEDDING: Bedding = Bedding {
@@ -239,6 +256,7 @@ const SEASIDE_BEDDING: Bedding = Bedding {
     sheet: LINEN,
     blanket: SEA,
     pattern: Pattern::Stripes,
+    plump: false,
 };
 
 const WOODLAND_BEDDING: Bedding = Bedding {
@@ -247,6 +265,7 @@ const WOODLAND_BEDDING: Bedding = Bedding {
     sheet: MOSS,
     blanket: SAGE,
     pattern: Pattern::Leaves,
+    plump: false,
 };
 
 const STARLIT_BEDDING: Bedding = Bedding {
@@ -255,6 +274,21 @@ const STARLIT_BEDDING: Bedding = Bedding {
     sheet: LINEN,
     blanket: NIGHT,
     pattern: Pattern::Stars,
+    plump: false,
+};
+
+const QUILTED_BEDDING: Bedding = Bedding {
+    head: WALNUT,
+    frame: OAK,
+    sheet: LINEN,
+    blanket: ROSE,
+    pattern: Pattern::Patchwork,
+    plump: false,
+};
+
+const FEATHER_BEDDING: Bedding = Bedding {
+    plump: true,
+    ..QUILTED_BEDDING
 };
 
 fn bed(easel: &mut Easel, flip: impl Fn(Block) -> Block, away: bool, bedding: &Bedding) {
@@ -274,6 +308,20 @@ fn bed(easel: &mut Easel, flip: impl Fn(Block) -> Block, away: bool, bedding: &B
     let head = if away { 1.62 } else { 0.38 };
     easel.disc((0.5, head), 8.0, 11.5, LINEN.light);
     easel.disc((0.46, head - 0.03), 5.0, 12.5, LINEN.shine);
+    if bedding.plump {
+        // A second pillow on the first, plumper still, with a feather's quill at its corner.
+        easel.disc((0.5, head), 8.5, 13.5, LINEN.base);
+        easel.disc((0.5, head), 7.5, 14.5, LINEN.light);
+        easel.disc((0.45, head - 0.03), 4.5, 15.5, LINEN.shine);
+        let (qx, qy) = easel.pixel(0.78, head, 14.0);
+        paint::line(
+            &mut easel.canvas,
+            (qx, qy),
+            (qx + 3, qy - 2),
+            DRIFTWOOD.light,
+        );
+        paint::put(&mut easel.canvas, qx + 2, qy - 2, DRIFTWOOD.base);
+    }
     let hem = if away { 1.18 } else { 0.76 };
     let (a, b) = (easel.pixel(0.14, hem, 12.0), easel.pixel(0.86, hem, 12.0));
     paint::line(&mut easel.canvas, a, b, bedding.blanket.shine);
@@ -294,20 +342,454 @@ fn bed(easel: &mut Easel, flip: impl Fn(Block) -> Block, away: bool, bedding: &B
     paint::fill_polygon(&top, |px, py| {
         let (fx, fy) = floor_of(anchor, px, py + 12);
         let mark = match bedding.pattern {
+            Pattern::Patchwork => Some(patch(fx, fy, px, py, salt)),
             Pattern::Stripes => ((fy * 7.0).floor() as i32 % 2 == 0).then_some(LINEN.light),
             Pattern::Leaves => (paint::chance(px, py, salt, 30) && (px + py) % 2 == 0)
                 .then_some(if fx < 0.5 { MOSS.light } else { MOSS.base }),
             Pattern::Stars => paint::chance(px, py, salt, 9).then_some(BRASS.shine),
             Pattern::Hem => None,
         };
+        let inside = if bedding.pattern == Pattern::Patchwork {
+            (0.13..0.87).contains(&fx)
+        } else {
+            (0.18..0.82).contains(&fx)
+        };
         if let Some(mark) = mark
-            && (0.18..0.82).contains(&fx)
+            && inside
         {
             canvas.set(px, py, mark);
         } else if bedding.pattern == Pattern::Stars && paint::chance(px, py, salt + 1, 6) {
             canvas.set(px, py, ramp.light);
         }
     });
+}
+
+/// A patchwork square's colour at a point of a quilt: squares a fifth of a tile across, each
+/// one of the house's own colours, with a pale stitch between them and a little shade at the
+/// stitch's lower side.
+fn patch(fx: f32, fy: f32, px: i32, py: i32, salt: u32) -> formiga_art::Rgba {
+    let (u, v) = (fx * 5.0, fy * 5.0);
+    if u.fract() < 0.12 || v.fract() < 0.12 {
+        return LINEN.shine;
+    }
+    const PATCHES: [Ramp; 5] = [ROSE, SAGE, CORNFLOWER, PEACH, BRASS];
+    let pick = paint::noise(u.floor() as i32, v.floor() as i32, 211) as usize % PATCHES.len();
+    let ramp = PATCHES[pick];
+    if u.fract() > 0.88 || v.fract() > 0.88 {
+        ramp.base
+    } else if paint::chance(px, py, salt + 3, 14) {
+        ramp.shine
+    } else {
+        ramp.light
+    }
+}
+
+/// A feather bed with four posts and a canopy over it, its valance fringed. The near posts stand
+/// in front of whoever is asleep in it.
+fn canopy_bed(easel: &mut Easel, piece: &Piece, away: bool) -> Easel {
+    let flip = |block: Block| if away { block.facing_away(2.0) } else { block };
+    bed(easel, flip, away, &FEATHER_BEDDING);
+    let post = |x: f32, y: f32| Block::new((x, x + 0.09), (y, y + 0.09), (0.0, 42.0), WALNUT);
+    // The far posts and the canopy are behind the sleeper; the canopy is above them anyway.
+    easel.blocks(vec![post(0.06, 0.05), post(0.85, 0.05)]);
+    let canopy = Block::new((0.04, 0.96), (0.03, 1.97), (40.0, 44.0), ROSE);
+    easel.block(canopy);
+    // Its valance hangs down the two near sides, scalloped, with a fringe of brass.
+    let mut front = Easel::new(
+        piece.size.0,
+        piece.size.1,
+        piece.height.max(8) + 4,
+        easel.salt,
+    );
+    front.blocks(vec![post(0.06, 1.86), post(0.85, 1.86)]);
+    for (from, to) in [((0.04, 1.97), (0.96, 1.97)), ((0.96, 0.03), (0.96, 1.97))] {
+        let steps = 24;
+        for step in 0..=steps {
+            let t = step as f32 / steps as f32;
+            let (x, y) = (from.0 + (to.0 - from.0) * t, from.1 + (to.1 - from.1) * t);
+            let drop = 3.0 + ((t * 6.0 * std::f32::consts::PI).sin().abs() * 2.0);
+            let (px, top) = easel.pixel(x, y, 40.0);
+            let canvas = &mut easel.canvas;
+            for down in 0..drop as i32 {
+                paint::put(canvas, px, top + down, ROSE.base);
+            }
+            paint::put(canvas, px, top + drop as i32, BRASS.light);
+        }
+    }
+    front
+}
+
+/// The low table, dressed: a gingham cloth over it, hanging over its edges, and for a harvest
+/// supper a bowl of acorns and apples in the middle and a candle behind it.
+fn family_table(easel: &mut Easel, harvest: bool) {
+    low_table(easel);
+    // The cloth: a skin over the top, and a drop down the two faces that can be seen.
+    let cloth = Block::new((0.06, 1.94), (0.1, 0.9), (7.0, 11.5), LINEN);
+    easel.block(cloth);
+    let (anchor, salt) = (easel.anchor, easel.salt);
+    let top = [
+        easel.at(0.06, 0.1, 11.5),
+        easel.at(1.94, 0.1, 11.5),
+        easel.at(1.94, 0.9, 11.5),
+        easel.at(0.06, 0.9, 11.5),
+    ];
+    let canvas = &mut easel.canvas;
+    paint::fill_polygon(&top, |px, py| {
+        let (fx, fy) = floor_of(anchor, px, py + 11);
+        canvas.set(px, py, gingham(fx * 6.0, fy * 6.0, px, py, salt, false));
+    });
+    let drop = [
+        easel.at(0.06, 0.9, 11.5),
+        easel.at(1.94, 0.9, 11.5),
+        easel.at(1.94, 0.9, 7.0),
+        easel.at(0.06, 0.9, 7.0),
+    ];
+    let canvas = &mut easel.canvas;
+    paint::fill_polygon(&drop, |px, py| {
+        let (fx, _) = floor_of(anchor, px, py);
+        canvas.set(
+            px,
+            py,
+            gingham(fx * 6.0, py as f32 / 3.0, px, py, salt, false),
+        );
+    });
+    let side = [
+        easel.at(1.94, 0.1, 11.5),
+        easel.at(1.94, 0.9, 11.5),
+        easel.at(1.94, 0.9, 7.0),
+        easel.at(1.94, 0.1, 7.0),
+    ];
+    let canvas = &mut easel.canvas;
+    paint::fill_polygon(&side, |px, py| {
+        let (_, fy) = floor_of(anchor, px, py);
+        canvas.set(
+            px,
+            py,
+            gingham(fy * 6.0, py as f32 / 3.0, px, py, salt, true),
+        );
+    });
+    if !harvest {
+        return;
+    }
+    // A candle, behind the bowl, lit.
+    easel.cylinder((1.0, 0.3), (1.5, 1.5), (11.5, 19.0), LINEN);
+    let (cx, cy) = easel.pixel(1.0, 0.3, 19.0);
+    paint::put(&mut easel.canvas, cx, cy - 1, WALNUT.edge);
+    paint::put(&mut easel.canvas, cx, cy - 2, BRASS.shine);
+    paint::put(&mut easel.canvas, cx, cy - 3, rgb(0xfff4c8));
+    paint::put(&mut easel.canvas, cx - 1, cy - 2, TERRACOTTA.light);
+    // The bowl of acorns and apples, low in the middle, clear of the table's two places.
+    easel.cylinder((1.0, 0.5), (3.0, 4.5), (11.5, 14.0), WICKER);
+    easel.disc((1.0, 0.5), 4.5, 14.0, WICKER.light);
+    let (bx, by) = easel.pixel(1.0, 0.5, 14.0);
+    for (dx, dy, apple) in [
+        (-2, -1, true),
+        (1, -2, false),
+        (2, 0, true),
+        (-1, 0, false),
+        (0, -2, true),
+    ] {
+        let ramp = if apple { BERRY } else { BARK };
+        paint::put(&mut easel.canvas, bx + dx, by + dy, ramp.base);
+        paint::put(&mut easel.canvas, bx + dx, by + dy - 1, ramp.light);
+        if !apple {
+            // An acorn's cap.
+            paint::put(&mut easel.canvas, bx + dx, by + dy - 2, WICKER.shadow);
+        }
+    }
+}
+
+/// Red gingham, as the picnic ribbon is: where a red band crosses a red band it is deepest, where
+/// it crosses white it is pink. `shade` for a face turned from the light.
+fn gingham(u: f32, v: f32, px: i32, py: i32, salt: u32, shade: bool) -> formiga_art::Rgba {
+    let (a, b) = (u.floor() as i32 % 2 == 0, v.floor() as i32 % 2 == 0);
+    let tone = match (a, b) {
+        (true, true) => BERRY.base,
+        (true, false) | (false, true) => BERRY.shine,
+        (false, false) => LINEN.shine,
+    };
+    let tone = if paint::chance(px, py, salt + 5, 18) {
+        paint::mix(tone, LINEN.base, 0.3)
+    } else {
+        tone
+    };
+    if shade {
+        paint::mix(tone, BERRY.edge, 0.28)
+    } else {
+        tone
+    }
+}
+
+/// A wooden window box on little feet, its soil sown: seedlings at first, and in bloom, daisies
+/// and pinks spilling over its edge.
+fn window_box(easel: &mut Easel, bloom: bool) {
+    easel.shadow((0.08, 1.92), (0.22, 0.8), 55);
+    let mut blocks = feet((0.12, 1.88), (0.26, 0.76), 3.0, 0.02);
+    blocks.push(Block::new((0.1, 1.9), (0.24, 0.78), (3.0, 12.0), OAK));
+    easel.blocks(blocks);
+    // Planks along its front, and its soil.
+    for z in [6.0, 9.0] {
+        let (a, b) = (easel.pixel(0.12, 0.78, z), easel.pixel(1.88, 0.78, z));
+        paint::line(&mut easel.canvas, a, b, OAK.shadow);
+    }
+    let soil = [
+        easel.at(0.16, 0.3, 12.0),
+        easel.at(1.84, 0.3, 12.0),
+        easel.at(1.84, 0.72, 12.0),
+        easel.at(0.16, 0.72, 12.0),
+    ];
+    let salt = easel.salt;
+    let canvas = &mut easel.canvas;
+    paint::fill_polygon(&soil, |px, py| {
+        let tone = if paint::chance(px, py, salt + 7, 40) {
+            BARK.light
+        } else {
+            BARK.shadow
+        };
+        canvas.set(px, py, tone);
+    });
+    let plants = 7;
+    for plant in 0..plants {
+        let x = 0.24 + plant as f32 * (1.52 / (plants - 1) as f32);
+        let y = if plant % 2 == 0 { 0.42 } else { 0.6 };
+        let (cx, cy) = easel.pixel(x, y, 12.0);
+        let tall = if bloom { 7 + plant % 3 } else { 3 + plant % 2 };
+        let canvas = &mut easel.canvas;
+        paint::vline(canvas, cx, cy - tall, tall, FERN.shadow);
+        paint::put(canvas, cx - 1, cy - tall / 2, FERN.base);
+        paint::put(canvas, cx + 1, cy - tall / 2 - 1, FERN.light);
+        paint::put(canvas, cx - 1, cy - tall + 1, FERN.light);
+        if !bloom {
+            paint::put(canvas, cx + 1, cy - tall, FERN.base);
+            continue;
+        }
+        let (petal, heart) = if plant % 3 == 1 {
+            (ROSE.light, ROSE.shadow)
+        } else {
+            (LINEN.shine, BRASS.light)
+        };
+        let top = (cx, cy - tall - 1);
+        for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+            paint::put(canvas, top.0 + dx, top.1 + dy, petal);
+        }
+        paint::put(canvas, top.0, top.1, heart);
+    }
+    if bloom {
+        // Trailing leaves over the front edge.
+        for along in [0.3, 0.75, 1.2, 1.65] {
+            let (cx, cy) = easel.pixel(along, 0.78, 12.0);
+            let canvas = &mut easel.canvas;
+            for down in 0..4 {
+                paint::put(canvas, cx + (down % 2), cy + down, FERN.base);
+            }
+            paint::put(canvas, cx + 1, cy + 4, FERN.light);
+        }
+    }
+}
+
+/// A puppet theatre: a painted booth with a stage opening, its curtains drawn back to the sides,
+/// and two little puppets on the sill. At the Fairground, its curtains are striped and bunting is
+/// strung along its top. From behind, it is the backdrop and the little door the puppeteer uses.
+fn puppet_theatre(easel: &mut Easel, fair: bool, away: bool) {
+    easel.shadow((0.08, 1.92), (0.16, 0.86), 60);
+    let wood = if fair { BERRY } else { CORNFLOWER };
+    let flip = |block: Block| if away { block.facing_away(1.0) } else { block };
+    // The booth below the stage, the backdrop at the back of the stage, the two sides of the
+    // opening, and the board over it.
+    let blocks = vec![
+        Block::new((0.1, 1.9), (0.2, 0.84), (0.0, 16.0), wood),
+        Block::new((0.32, 1.68), (0.22, 0.3), (16.0, 30.0), VELVET),
+        Block::new((0.1, 0.32), (0.24, 0.8), (16.0, 36.0), wood),
+        Block::new((1.68, 1.9), (0.24, 0.8), (16.0, 36.0), wood),
+        Block::new((0.06, 1.94), (0.22, 0.82), (30.0, 37.0), wood),
+    ];
+    easel.blocks(blocks.into_iter().map(flip).collect());
+    if away {
+        // The puppeteer's little door, low in the back of the booth.
+        let door = [
+            easel.at(0.82, 0.84, 13.0),
+            easel.at(1.18, 0.84, 13.0),
+            easel.at(1.18, 0.84, 1.0),
+            easel.at(0.82, 0.84, 1.0),
+        ];
+        paint::polygon(&mut easel.canvas, &door, wood.shadow);
+        let (kx, ky) = easel.pixel(1.1, 0.84, 7.0);
+        paint::put(&mut easel.canvas, kx, ky, BRASS.light);
+        return;
+    }
+    // The dark of the stage, seen through the opening.
+    let opening = [
+        easel.at(0.32, 0.4, 30.0),
+        easel.at(1.68, 0.4, 30.0),
+        easel.at(1.68, 0.4, 16.0),
+        easel.at(0.32, 0.4, 16.0),
+    ];
+    paint::polygon(&mut easel.canvas, &opening, VELVET.shadow);
+    // The curtains, gathered either side.
+    let curtain = if fair { LINEN } else { VELVET };
+    for (x0, x1) in [(0.32, 0.6), (1.4, 1.68)] {
+        let steps = 10;
+        for step in 0..steps {
+            let x = x0 + (x1 - x0) * step as f32 / steps as f32;
+            let striped = fair && (step / 2) % 2 == 0;
+            let ramp = if striped { BERRY } else { curtain };
+            let tone = if step % 3 == 0 {
+                ramp.shadow
+            } else {
+                ramp.light
+            };
+            let (px, top) = easel.pixel(x, 0.6, 30.0);
+            // Gathered: it hangs full near its side and tied back towards the middle.
+            let tied = (x - (x0 + x1) / 2.0).abs() / (x1 - x0);
+            let length = (14.0 - tied * 4.0) as i32;
+            paint::vline(&mut easel.canvas, px, top, length, tone);
+        }
+    }
+    // A painted scallop under the board, and two puppets on the sill.
+    for step in 0..14 {
+        let x = 0.12 + step as f32 * 0.13;
+        let (px, py) = easel.pixel(x, 0.82, 30.0);
+        paint::put(&mut easel.canvas, px, py + 1, BRASS.light);
+        if step % 2 == 0 {
+            paint::put(&mut easel.canvas, px, py + 2, BRASS.base);
+        }
+    }
+    for (x, head, body) in [(0.8, PEACH, SAGE), (1.2, LINEN, ROSE)] {
+        let (px, py) = easel.pixel(x, 0.5, 16.0);
+        let canvas = &mut easel.canvas;
+        for dy in 0..4 {
+            paint::hline(canvas, px - 1, py - dy, 3, body.base);
+        }
+        paint::hline(canvas, px - 1, py - 6, 3, head.light);
+        paint::hline(canvas, px - 1, py - 5, 3, head.base);
+        paint::put(canvas, px, py - 7, head.shadow);
+    }
+    // Stars painted on the front of the booth.
+    for x in [0.5, 1.0, 1.5] {
+        let (cx, cy) = easel.pixel(x, 0.84, 8.0);
+        for (dx, dy) in [(0, -1), (-1, 0), (0, 0), (1, 0), (0, 1)] {
+            paint::put(&mut easel.canvas, cx + dx, cy + dy, BRASS.shine);
+        }
+    }
+    if !fair {
+        return;
+    }
+    // Bunting along the top, and a pennant flying from it.
+    let colours = [BERRY.light, BRASS.light, SEA.light, SAGE.light];
+    for flag in 0..9 {
+        let x = 0.12 + flag as f32 * 0.21;
+        let (px, py) = easel.pixel(x, 0.82, 37.0);
+        let colour = colours[flag % colours.len()];
+        paint::hline(&mut easel.canvas, px - 1, py + 1, 3, colour);
+        paint::put(&mut easel.canvas, px, py + 2, colour);
+    }
+    let (px, py) = easel.pixel(1.0, 0.5, 37.0);
+    paint::vline(&mut easel.canvas, px, py - 8, 8, WALNUT.base);
+    for row in 0..3 {
+        paint::hline(
+            &mut easel.canvas,
+            px + 1,
+            py - 8 + row,
+            4 - row,
+            BERRY.light,
+        );
+    }
+}
+
+/// Field stone, warm grey, for a hearth.
+const STONE: Ramp = Ramp::new(0x4e4843, 0x77706a, 0x9b948b, 0xbdb6ab, 0xdbd5ca);
+
+/// The hearth: a chimney breast of field stone with a fire in it and a stone slab before it.
+/// From its second stage it has an oak mantel, with room on it for two things; from its third, a
+/// garland across the mantel with ribbons in the house's colours.
+fn hearth(easel: &mut Easel, stage: u8, away: bool) {
+    easel.shadow((0.08, 1.92), (0.04, 0.96), 60);
+    let flip = |block: Block| if away { block.facing_away(1.0) } else { block };
+    let mut blocks = vec![
+        Block::new((0.06, 1.94), (0.42, 0.96), (0.0, 2.0), STONE),
+        Block::new((0.2, 1.8), (0.04, 0.46), (0.0, 36.0), STONE),
+    ];
+    if stage >= 2 {
+        blocks.push(Block::new((0.1, 1.9), (0.02, 0.58), (31.0, 34.0), OAK));
+    }
+    easel.blocks(blocks.into_iter().map(flip).collect());
+    // Courses of stone across the breast's face: its front, or from behind, its back.
+    let face = if away { 0.96 } else { 0.46 };
+    let salt = easel.salt;
+    for course in 0..6 {
+        let z = 4.0 + course as f32 * 5.5;
+        if stage >= 2 && z > 30.0 {
+            continue;
+        }
+        let (a, b) = (easel.pixel(0.22, face, z), easel.pixel(1.78, face, z));
+        paint::line(&mut easel.canvas, a, b, STONE.shadow);
+        let offset = if course % 2 == 0 { 0.0 } else { 0.18 };
+        let mut x = 0.3 + offset;
+        while x < 1.75 {
+            let (px, py) = easel.pixel(x, face, z + 2.0);
+            paint::vline(&mut easel.canvas, px, py - 2, 4, STONE.shadow);
+            x += 0.36;
+        }
+    }
+    if away {
+        return;
+    }
+    // The fireplace's mouth, and the fire in it.
+    let mouth = [
+        easel.at(0.62, 0.46, 15.0),
+        easel.at(1.38, 0.46, 15.0),
+        easel.at(1.38, 0.46, 2.0),
+        easel.at(0.62, 0.46, 2.0),
+    ];
+    paint::polygon(&mut easel.canvas, &mouth, rgb(0x2a1a14));
+    let (fx, fy) = easel.pixel(1.0, 0.46, 2.0);
+    for (dx, height, tone) in [
+        (-4, 4, rgb(0xc8502c)),
+        (-2, 8, rgb(0xe8843a)),
+        (0, 10, rgb(0xf4b04c)),
+        (2, 7, rgb(0xe8843a)),
+        (4, 4, rgb(0xc8502c)),
+    ] {
+        paint::vline(&mut easel.canvas, fx + dx, fy - height, height, tone);
+        paint::vline(
+            &mut easel.canvas,
+            fx + dx + 1,
+            fy - height + 2,
+            height - 2,
+            tone,
+        );
+        if paint::chance(fx + dx, fy, salt, 128) {
+            paint::put(&mut easel.canvas, fx + dx, fy - height - 1, rgb(0xfff1c4));
+        }
+    }
+    // Logs across the fire's foot.
+    paint::hline(&mut easel.canvas, fx - 5, fy - 1, 11, WALNUT.base);
+    paint::hline(&mut easel.canvas, fx - 4, fy - 2, 9, WALNUT.light);
+    if stage < 3 {
+        return;
+    }
+    // A garland of leaves swagged along the mantel's front, ribbons tied where it is caught up.
+    let ribbons = [BERRY, SEA, BRASS, ROSE];
+    let swags = 4;
+    for swag in 0..swags {
+        let (x0, x1) = (0.12 + swag as f32 * 0.44, 0.12 + (swag + 1) as f32 * 0.44);
+        for step in 0..=12 {
+            let t = step as f32 / 12.0;
+            let x = x0 + (x1 - x0) * t;
+            let sag = (t * std::f32::consts::PI).sin() * 4.0;
+            let (px, py) = easel.pixel(x, 0.58, 31.0 - sag);
+            let tone = if step % 3 == 0 { FERN.light } else { FERN.base };
+            paint::put(&mut easel.canvas, px, py, tone);
+            paint::put(&mut easel.canvas, px, py + 1, FERN.shadow);
+        }
+        let (px, py) = easel.pixel(x1.min(1.88), 0.58, 31.0);
+        let ribbon = ribbons[swag % ribbons.len()];
+        paint::put(&mut easel.canvas, px - 1, py, ribbon.light);
+        paint::put(&mut easel.canvas, px + 1, py, ribbon.light);
+        paint::put(&mut easel.canvas, px, py, ribbon.base);
+        paint::put(&mut easel.canvas, px, py + 1, ribbon.shadow);
+        paint::put(&mut easel.canvas, px, py + 2, ribbon.base);
+    }
 }
 
 /// A guest's bedroll: a quilted mat rolled out on the floor, a pillow at its head and the end of

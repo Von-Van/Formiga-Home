@@ -69,6 +69,8 @@ pub fn home(snapshot: &HomeSnapshot) -> HouseholdHome {
         mementos: Vec::new(),
         journal: Vec::new(),
         stays_out: Vec::new(),
+        projects: Vec::new(),
+        tallies: Vec::new(),
     }
 }
 

@@ -88,6 +88,24 @@ pub fn line(moment: &HomeMoment, snapshot: &HomeSnapshot) -> String {
             let name = catalog::room_name(Some(room), false).to_lowercase();
             format!("The house grew a {name}.")
         }
+        HomeMoment::Project { project, stage } => {
+            match crate::projects::project(project.as_str()) {
+                Some(project) if usize::from(*stage) >= project.stages.len() => {
+                    format!(
+                        "The {} was finished, for good.",
+                        project.name.to_lowercase()
+                    )
+                }
+                Some(project) => {
+                    let name = project
+                        .stages
+                        .get(usize::from(*stage).saturating_sub(1))
+                        .map_or("A project", |stage| stage.name);
+                    format!("{name}: done, for the {}.", project.name.to_lowercase())
+                }
+                None => "A project was finished.".to_owned(),
+            }
+        }
         HomeMoment::Unknown => "Something happened.".to_owned(),
     }
 }

@@ -180,8 +180,9 @@ pub(super) const PAGES: [(Drawer, &str); 3] = [
 ];
 
 /// The pages of the notes when living in the house.
-pub(super) const LIVE_PAGES: [(Drawer, &str); 2] = [
+pub(super) const LIVE_PAGES: [(Drawer, &str); 3] = [
     (Drawer::Household, "Household"),
+    (Drawer::Projects, "Projects"),
     (Drawer::Journal, "Journal"),
 ];
 
@@ -543,11 +544,19 @@ impl HomeApp {
                 ink::muted(dark)
             };
             let galley = ui.painter().layout_job(label_job(name, LABEL, colour));
-            ui.painter().galley(
-                rect.center() - galley.size() / 2.0 + egui::vec2(0.0, layout.unit),
-                galley,
-                colour,
-            );
+            let label_at = rect.center() - galley.size() / 2.0 + egui::vec2(0.0, layout.unit);
+            // A small mark on the board's tab while it has something new or ready on it.
+            if drawer == Drawer::Projects && self.board_wants_a_look() {
+                ui.painter().circle_filled(
+                    egui::pos2(
+                        label_at.x + galley.size().x + 2.5 * layout.unit,
+                        label_at.y + 1.5 * layout.unit,
+                    ),
+                    1.5 * layout.unit,
+                    ink::stamp(dark),
+                );
+            }
+            ui.painter().galley(label_at, galley, colour);
             if response.clicked() {
                 match self.mode {
                     Mode::Live => self.live_page = drawer,

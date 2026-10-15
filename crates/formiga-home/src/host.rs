@@ -13,6 +13,14 @@ use formiga_home_contract::{
 use std::path::PathBuf;
 use time::OffsetDateTime;
 
+/// The first household version whose Desktop keeps a household's projects.
+const PROJECTS_SINCE: u32 = 10;
+
+/// Whether the Desktop that wrote `snapshot` keeps a household's projects.
+fn kept_by(snapshot: &HomeSnapshot) -> bool {
+    snapshot.version >= PROJECTS_SINCE
+}
+
 pub enum Host {
     Visit(Visit),
     Rehearsal(Rehearsal),
@@ -188,6 +196,15 @@ impl Host {
         }
     }
 
+    /// Whether the household's projects are kept: by a Desktop that reads household version 10,
+    /// since an older one sets them aside. A rehearsal keeps them as this build's Desktop would.
+    pub fn keeps_projects(&self) -> bool {
+        match self {
+            Self::Visit(visit) => kept_by(&visit.snapshot),
+            Self::Rehearsal(_) => true,
+        }
+    }
+
     /// Tell Desktop who is in the house just now. A rehearsal has nobody to tell.
     pub fn say_indoors(&self, indoors: &[TravelerId]) -> Result<()> {
         match self {
@@ -218,6 +235,14 @@ mod tests {
     use super::*;
     use crate::household::Household;
     use formiga_home_contract::sample;
+
+    #[test]
+    fn only_a_desktop_that_keeps_projects_is_given_them() {
+        let mut snapshot = sample::snapshot();
+        assert!(kept_by(&snapshot));
+        snapshot.version = 9;
+        assert!(!kept_by(&snapshot), "Desktop 0.67.6 would set them aside");
+    }
 
     #[test]
     fn a_rehearsal_keeps_an_arrangement_across_closing_and_opening_again() {

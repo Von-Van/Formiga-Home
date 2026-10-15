@@ -4,6 +4,34 @@ This page records what changed in each version of Formiga Home. Each version's s
 its release notes: `.github/workflows/release.yml` publishes it alongside the downloads when the
 version is tagged.
 
+## Unreleased
+
+Home is built on Formiga Desktop's household version 10, which keeps a household's projects with
+its home. With an older Desktop, the project board says Desktop needs updating, and nothing else
+changes.
+
+- A project board, on its own page of the notebook while living in the house. Five projects to
+  begin with: a window garden and a puppet theatre to build, cosier beds and a family table to
+  improve stage by stage, and a hearth that grows with the household's history. The board lists
+  each in a line, with where it stands; choosing one shows what its next stage asks for, how far
+  along each thing is, and what finishing it gives.
+- A project's stage comes from what happens at home anyway (snacks shared, naps, games, plants
+  tended, finds looked over, friends come over and staying over), from the days the colony has
+  lived and the keepsakes the house has, and from souvenirs anyone in the colony has brought home
+  from Formiga Hill, which count alike for every house. What each house makes is its own. Nothing
+  costs anything, runs down or waits on you.
+- Finishing a stage, whenever you like, gives the house something for good: a piece the household
+  made, set in the house where there is room; pieces already there made better where they stand,
+  with whatever is on them; or a new floor or wall. Each stage finished goes in the journal, and
+  the board keeps a list of everything made at home, with when.
+- Twelve new pieces, all made by households: a window box and the window box in bloom, a puppet
+  theatre and its Fairground curtains, quilted, feather and canopy beds, gingham and harvest
+  tables, and a hearth, with a mantel for keepsakes and then a garland. Three new finishes come
+  with them (hearthstone floors, trellis and gingham papers), and two more arrive with the days
+  for every house: oak parquet and a sage wainscot.
+- A small mark on the board's tab when something on it is new or ready, a quiet line when a
+  stage becomes ready, and one when a new souvenir from Formiga Hill counts towards a project.
+
 ## 0.67.6 (2026-10-12)
 
 Home is built on Formiga Desktop 0.67.6 and reads household version 9 and travel version 5, so a

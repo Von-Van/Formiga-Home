@@ -20,6 +20,7 @@ mod life;
 mod paint;
 mod path;
 mod placement;
+mod projects;
 mod scene;
 mod session;
 mod show_house;
@@ -54,7 +55,7 @@ Usage: formiga-home [--sample | --formiga-home <VISIT DIRECTORY> | --from-save <
   --snap <PNG>             Open the window, and after --at seconds (3 if not given) save a
                            picture of the window itself and close, for review
   --page <PAGE>            With --snap: open arranging, on finds, furniture or rooms; or the
-                           journal
+                           journal, or the project board
   --theme <THEME>          With --snap: the notebook light or dark, whatever the household's
                            own preference
   --zoom <STEPS>           With --snap: the house that many whole pixels closer than fits

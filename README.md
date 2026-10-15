@@ -35,6 +35,13 @@ simply get on with their own lives.
   what someone took a liking to, when a room was built.
 - **A house that grows.** Over time a house can gain a second and third room, all seen together
   in one cutaway, with doorways between them.
+- **Household projects.** A project board in the notebook lists a few things the household can
+  make of its home: a window garden, a puppet theatre, cosier beds, a family table and a hearth
+  that grows with the household's history. Each comes a stage at a time, from what happens at
+  home anyway (snacks shared, naps, games, plants tended, friends come over), from the days lived
+  and keepsakes made, and from souvenirs anyone in the colony has brought home from Formiga Hill.
+  Finishing a stage is up to you, whenever you like, and what it makes stands in the house for
+  good, with its own pieces, floors and walls to use. Each house's projects are its own.
 - **Day and night.** The house follows your own clock: as drawn by day, warm as the light goes,
   and blue at night but for the pools of its lamps, when everyone tires sooner and sleeps longer.
   The garden through the front door, and what comes in on the doormat, follow the year.
@@ -263,6 +270,8 @@ crates/formiga-home/src/
                    visitors coming and going; and its tests
   keepsakes.rs     gifts, drawings and framed photos the household comes by at home
   journal.rs       how the Journal page words what has happened
+  projects.rs      household projects: what each stage asks for and gives, and what a household
+                   has made
   daylight.rs      the time of day and of year by the owner's clock: the light, lamps, seasons
   actor.rs         a resident in the room: walking, poses, cached frames
   house.rs         the rooms set out as one house: walls, doorways, which walls are cut down

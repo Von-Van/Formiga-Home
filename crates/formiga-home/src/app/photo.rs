@@ -17,6 +17,10 @@ impl HomeApp {
                 self.live_page = Drawer::Journal;
                 None
             }
+            Some("projects") => {
+                self.live_page = Drawer::Projects;
+                None
+            }
             _ => None,
         };
         if let Some(page) = page {

@@ -11,7 +11,9 @@ impl HomeApp {
     pub(super) fn events(&mut self) {
         for event in self.life.take_events() {
             match event {
+                Event::Did(_, count) => self.count(count),
                 Event::Arrived(id) => {
+                    self.count(crate::projects::Count::Visits);
                     let notice = match self.household.friend_of(id) {
                         Some(friend) => {
                             format!("{} has come over to see {}.", self.name(id), friend.name)
@@ -40,6 +42,7 @@ impl HomeApp {
                     }
                 }
                 Event::StayingOver(id) => {
+                    self.count(crate::projects::Count::Sleepovers);
                     self.say(format!("{} is staying over.", self.name(id)));
                     self.note(HomeMoment::StayedOver {
                         visitor: TravelerId(id),
@@ -111,13 +114,14 @@ impl HomeApp {
     pub(super) fn lived(&self) -> Lived {
         let home = home_of(&self.state, self.keeper);
         let worth = |moment: &HomeMoment| match moment {
-            HomeMoment::Memento { .. } => 0,
-            HomeMoment::AskedToMoveIn { .. } => 1,
-            HomeMoment::StayedOver { .. } => 2,
-            HomeMoment::Room { .. } => 3,
-            HomeMoment::Favourite { .. } => 4,
-            HomeMoment::Visit { .. } => 5,
-            HomeMoment::Unknown => 6,
+            HomeMoment::Project { .. } => 0,
+            HomeMoment::Memento { .. } => 1,
+            HomeMoment::AskedToMoveIn { .. } => 2,
+            HomeMoment::StayedOver { .. } => 3,
+            HomeMoment::Room { .. } => 4,
+            HomeMoment::Favourite { .. } => 5,
+            HomeMoment::Visit { .. } => 6,
+            HomeMoment::Unknown => 7,
         };
         let mut moments: Vec<_> = home
             .journal

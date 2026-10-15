@@ -1,12 +1,12 @@
 //! Everything Home can put in a room, by the identifier a layout keeps.
 //!
 //! Nothing here costs anything. The starter pieces are there from the first visit; a few more
-//! arrive as the colony lives, or as it finds things worth a case, and once they have arrived they
-//! stay. An identifier is never reused for something else, so a layout always means what it meant
+//! arrive as the colony lives, or as it finds things worth a case, and a few are made by the
+//! household itself, as it finishes its projects. Once they have arrived they stay. An identifier is never reused for something else, so a layout always means what it meant
 //! when it was arranged; a piece a newer Home has, and this one does not, is kept in its place and
 //! left alone.
 
-use formiga_home_contract::{CatalogId, HouseStyle};
+use formiga_home_contract::{CatalogId, HomeSnapshot, HouseStyle, HouseholdHome, Project};
 
 /// What a piece of furniture is for, as a companion sees it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -69,6 +69,35 @@ pub enum Arrival {
     AfterDays(u32),
     /// Once the colony has this many things to show.
     AfterFinds(usize),
+    /// Once the household has finished this many stages of one of its projects.
+    Made(&'static str, usize),
+}
+
+/// What has come to one household so far, which decides what it has to use: the days the colony
+/// has lived, the things it has to show, and the stages of its projects the household has made.
+#[derive(Clone, Copy, Debug)]
+pub struct Arrived<'a> {
+    pub days: u32,
+    pub things: usize,
+    pub made: &'a [Project],
+}
+
+impl<'a> Arrived<'a> {
+    pub fn of(snapshot: &HomeSnapshot, home: &'a HouseholdHome) -> Self {
+        Self {
+            days: snapshot.days_lived,
+            things: crate::keepsakes::colony_things(snapshot).count(),
+            made: &home.projects,
+        }
+    }
+
+    /// The very start: nothing lived, found or made.
+    #[cfg(test)]
+    pub const FIRST: Arrived<'static> = Arrived {
+        days: 0,
+        things: 0,
+        made: &[],
+    };
 }
 
 /// How the catalogue groups what it has.
@@ -113,18 +142,26 @@ impl Family {
     }
 }
 
-/// The sets furniture and finishes come in: the house's own, always there, and three that are
-/// made to go together and arrive with time, each in its own colours and motifs.
+/// The sets furniture and finishes come in: the house's own, always there; three that are made
+/// to go together and arrive with time, each in its own colours and motifs; and what the
+/// household makes for itself, piece by piece, as it finishes its projects.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Set {
     Home,
     Seaside,
     Woodland,
     Starlit,
+    Made,
 }
 
 impl Set {
-    pub const ALL: [Self; 4] = [Self::Home, Self::Seaside, Self::Woodland, Self::Starlit];
+    pub const ALL: [Self; 5] = [
+        Self::Home,
+        Self::Seaside,
+        Self::Woodland,
+        Self::Starlit,
+        Self::Made,
+    ];
 
     pub const fn name(self) -> &'static str {
         match self {
@@ -132,13 +169,15 @@ impl Set {
             Self::Seaside => "Seaside",
             Self::Woodland => "Woodland",
             Self::Starlit => "Starlit",
+            Self::Made => "Made at home",
         }
     }
 
-    /// When a set's pieces and finishes arrive: slowly, a set at a time.
+    /// When a set's pieces and finishes arrive: slowly, a set at a time. What the household
+    /// makes arrives piece by piece, each as its project's stage is finished.
     pub const fn arrives(self) -> Arrival {
         match self {
-            Self::Home => Arrival::Always,
+            Self::Home | Self::Made => Arrival::Always,
             Self::Seaside => Arrival::AfterDays(5),
             Self::Woodland => Arrival::AfterDays(12),
             Self::Starlit => Arrival::AfterDays(24),
@@ -147,11 +186,15 @@ impl Set {
 }
 
 impl Arrival {
-    pub fn come(self, days_lived: u32, things: usize) -> bool {
+    pub fn come(self, now: &Arrived) -> bool {
         match self {
             Self::Always => true,
-            Self::AfterDays(days) => days_lived >= days,
-            Self::AfterFinds(finds) => things >= finds,
+            Self::AfterDays(days) => now.days >= days,
+            Self::AfterFinds(finds) => now.things >= finds,
+            Self::Made(project, stages) => now
+                .made
+                .iter()
+                .any(|made| made.project.as_str() == project && made.stages.len() >= stages),
         }
     }
 }
@@ -213,8 +256,8 @@ impl Piece {
         self.height >= 30
     }
 
-    pub fn available(&self, days_lived: u32, things: usize) -> bool {
-        self.arrives.come(days_lived, things)
+    pub fn available(&self, now: &Arrived) -> bool {
+        self.arrives.come(now)
     }
 
     /// For a light, how high its bulb glows above the floor, in pixels.
@@ -224,6 +267,7 @@ impl Piece {
             "shell_lamp" => Some(21),
             "mushroom_lamp" => Some(17),
             "moon_lamp" => Some(28),
+            "hearth" | "hearth_mantel" | "hearth_garland" => Some(10),
             _ => (self.family == Family::Lights).then_some(self.height / 2),
         }
     }
@@ -255,7 +299,39 @@ pub fn front(turn: u8) -> (i32, i32) {
 
 const SEAT: [Use; 2] = [Use::Sit { seats: 1 }, Use::Nap];
 
-pub static PIECES: [Piece; 32] = [
+/// The low table's top, two places along it: a table made from it keeps them.
+const LOW_TABLE_TOP: [Surface; 2] = [
+    Surface {
+        at: (0.55, 0.5),
+        height: 11,
+        holds: Holds::Top,
+        cover: None,
+    },
+    Surface {
+        at: (1.45, 0.5),
+        height: 11,
+        holds: Holds::Top,
+        cover: None,
+    },
+];
+
+/// A mantel over a hearth: two places on its shelf, either side of the chimney breast.
+const MANTEL: [Surface; 2] = [
+    Surface {
+        at: (0.42, 0.3),
+        height: 34,
+        holds: Holds::Shelf,
+        cover: None,
+    },
+    Surface {
+        at: (1.58, 0.3),
+        height: 34,
+        holds: Holds::Shelf,
+        cover: None,
+    },
+];
+
+pub static PIECES: [Piece; 44] = [
     Piece {
         id: "cushion",
         name: "Floor cushion",
@@ -360,20 +436,7 @@ pub static PIECES: [Piece; 32] = [
         height: 11,
         flat: false,
         uses: &[],
-        surfaces: &[
-            Surface {
-                at: (0.55, 0.5),
-                height: 11,
-                holds: Holds::Top,
-                cover: None,
-            },
-            Surface {
-                at: (1.45, 0.5),
-                height: 11,
-                holds: Holds::Top,
-                cover: None,
-            },
-        ],
+        surfaces: &LOW_TABLE_TOP,
         arrives: Arrival::Always,
         lift: 0,
         set: Set::Home,
@@ -774,10 +837,174 @@ pub static PIECES: [Piece; 32] = [
         lift: 0,
         set: Set::Starlit,
     },
+    // What households make for themselves, as they finish their projects' stages. An improved
+    // piece stands on the footprint of the one it was made from, with the same surfaces, so it
+    // can be made in place with whatever is on it.
+    Piece {
+        id: "window_box",
+        name: "Window box",
+        family: Family::Plants,
+        size: (2, 1),
+        height: 15,
+        flat: false,
+        uses: &[],
+        surfaces: &[],
+        arrives: Arrival::Made("project.window_garden", 1),
+        lift: 0,
+        set: Set::Made,
+    },
+    Piece {
+        id: "window_box_bloom",
+        name: "Window box in bloom",
+        family: Family::Plants,
+        size: (2, 1),
+        height: 22,
+        flat: false,
+        uses: &[],
+        surfaces: &[],
+        arrives: Arrival::Made("project.window_garden", 2),
+        lift: 0,
+        set: Set::Made,
+    },
+    Piece {
+        id: "puppet_theatre",
+        name: "Puppet theatre",
+        family: Family::Toys,
+        size: (2, 1),
+        height: 40,
+        flat: false,
+        uses: &[Use::Play],
+        surfaces: &[],
+        arrives: Arrival::Made("project.puppet_theatre", 1),
+        lift: 0,
+        set: Set::Made,
+    },
+    Piece {
+        id: "puppet_theatre_fair",
+        name: "Fairground theatre",
+        family: Family::Toys,
+        size: (2, 1),
+        height: 44,
+        flat: false,
+        uses: &[Use::Play],
+        surfaces: &[],
+        arrives: Arrival::Made("project.puppet_theatre", 2),
+        lift: 0,
+        set: Set::Made,
+    },
+    Piece {
+        id: "quilt_bed",
+        name: "Quilted bed",
+        family: Family::Beds,
+        size: (1, 2),
+        height: 16,
+        flat: false,
+        uses: &[Use::Sleep, Use::Nap],
+        surfaces: &[],
+        arrives: Arrival::Made("project.cosy_beds", 1),
+        lift: 6,
+        set: Set::Made,
+    },
+    Piece {
+        id: "feather_bed",
+        name: "Feather bed",
+        family: Family::Beds,
+        size: (1, 2),
+        height: 18,
+        flat: false,
+        uses: &[Use::Sleep, Use::Nap],
+        surfaces: &[],
+        arrives: Arrival::Made("project.cosy_beds", 2),
+        lift: 7,
+        set: Set::Made,
+    },
+    Piece {
+        id: "canopy_bed",
+        name: "Canopy bed",
+        family: Family::Beds,
+        size: (1, 2),
+        height: 44,
+        flat: false,
+        uses: &[Use::Sleep, Use::Nap],
+        surfaces: &[],
+        arrives: Arrival::Made("project.cosy_beds", 3),
+        lift: 7,
+        set: Set::Made,
+    },
+    Piece {
+        id: "gingham_table",
+        name: "Gingham table",
+        family: Family::Tables,
+        size: (2, 1),
+        height: 11,
+        flat: false,
+        uses: &[],
+        surfaces: &LOW_TABLE_TOP,
+        arrives: Arrival::Made("project.family_table", 1),
+        lift: 0,
+        set: Set::Made,
+    },
+    Piece {
+        id: "harvest_table",
+        name: "Harvest table",
+        family: Family::Tables,
+        size: (2, 1),
+        height: 11,
+        flat: false,
+        uses: &[],
+        surfaces: &LOW_TABLE_TOP,
+        arrives: Arrival::Made("project.family_table", 2),
+        lift: 0,
+        set: Set::Made,
+    },
+    Piece {
+        id: "hearth",
+        name: "Hearth",
+        family: Family::Lights,
+        size: (2, 1),
+        height: 36,
+        flat: false,
+        uses: &[],
+        surfaces: &[],
+        arrives: Arrival::Made("project.hearth", 1),
+        lift: 0,
+        set: Set::Made,
+    },
+    Piece {
+        id: "hearth_mantel",
+        name: "Hearth with a mantel",
+        family: Family::Lights,
+        size: (2, 1),
+        height: 40,
+        flat: false,
+        uses: &[],
+        surfaces: &MANTEL,
+        arrives: Arrival::Made("project.hearth", 2),
+        lift: 0,
+        set: Set::Made,
+    },
+    Piece {
+        id: "hearth_garland",
+        name: "Household hearth",
+        family: Family::Lights,
+        size: (2, 1),
+        height: 40,
+        flat: false,
+        uses: &[],
+        surfaces: &MANTEL,
+        arrives: Arrival::Made("project.hearth", 3),
+        lift: 0,
+        set: Set::Made,
+    },
 ];
 
 pub fn piece(id: &CatalogId) -> Option<&'static Piece> {
     PIECES.iter().find(|piece| piece.id == id.as_str())
+}
+
+/// A floor or a wall, by its identifier.
+pub fn finish(id: &str) -> Option<&'static Finish> {
+    FLOORS.iter().chain(&WALLS).find(|finish| finish.id == id)
 }
 
 /// A floor or a wall the owner can choose.
@@ -786,81 +1013,132 @@ pub struct Finish {
     pub id: &'static str,
     pub name: &'static str,
     pub set: Set,
+    pub arrives: Arrival,
 }
 
-pub static FLOORS: [Finish; 7] = [
+impl Finish {
+    pub fn available(&self, now: &Arrived) -> bool {
+        self.arrives.come(now)
+    }
+}
+
+pub static FLOORS: [Finish; 9] = [
     Finish {
         id: "floor.boards",
         name: "Honey boards",
         set: Set::Home,
+        arrives: Set::Home.arrives(),
     },
     Finish {
         id: "floor.checks",
         name: "Sage checks",
         set: Set::Home,
+        arrives: Set::Home.arrives(),
     },
     Finish {
         id: "floor.straw",
         name: "Woven straw",
         set: Set::Home,
+        arrives: Set::Home.arrives(),
     },
     Finish {
         id: "floor.rose",
         name: "Rose carpet",
         set: Set::Home,
+        arrives: Set::Home.arrives(),
     },
     Finish {
         id: "floor.sand",
         name: "Driftwood boards",
         set: Set::Seaside,
+        arrives: Set::Seaside.arrives(),
     },
     Finish {
         id: "floor.moss",
         name: "Moss carpet",
         set: Set::Woodland,
+        arrives: Set::Woodland.arrives(),
     },
     Finish {
         id: "floor.night",
         name: "Midnight tiles",
         set: Set::Starlit,
+        arrives: Set::Starlit.arrives(),
+    },
+    Finish {
+        id: "floor.parquet",
+        name: "Oak parquet",
+        set: Set::Home,
+        arrives: Arrival::AfterDays(4),
+    },
+    Finish {
+        id: "floor.hearthstone",
+        name: "Hearthstone",
+        set: Set::Made,
+        arrives: Arrival::Made("project.hearth", 1),
     },
 ];
 
-pub static WALLS: [Finish; 7] = [
+pub static WALLS: [Finish; 10] = [
     Finish {
         id: "wall.plaster",
         name: "Cream plaster",
         set: Set::Home,
+        arrives: Set::Home.arrives(),
     },
     Finish {
         id: "wall.stripes",
         name: "Mint stripes",
         set: Set::Home,
+        arrives: Set::Home.arrives(),
     },
     Finish {
         id: "wall.leafy",
         name: "Leafy paper",
         set: Set::Home,
+        arrives: Set::Home.arrives(),
     },
     Finish {
         id: "wall.timber",
         name: "Timber",
         set: Set::Home,
+        arrives: Set::Home.arrives(),
     },
     Finish {
         id: "wall.waves",
         name: "Sea stripes",
         set: Set::Seaside,
+        arrives: Set::Seaside.arrives(),
     },
     Finish {
         id: "wall.birch",
         name: "Birch panels",
         set: Set::Woodland,
+        arrives: Set::Woodland.arrives(),
     },
     Finish {
         id: "wall.stars",
         name: "Starry paper",
         set: Set::Starlit,
+        arrives: Set::Starlit.arrives(),
+    },
+    Finish {
+        id: "wall.wainscot",
+        name: "Wainscot",
+        set: Set::Home,
+        arrives: Arrival::AfterDays(4),
+    },
+    Finish {
+        id: "wall.trellis",
+        name: "Trellis paper",
+        set: Set::Made,
+        arrives: Arrival::Made("project.window_garden", 2),
+    },
+    Finish {
+        id: "wall.gingham",
+        name: "Gingham paper",
+        set: Set::Made,
+        arrives: Arrival::Made("project.family_table", 1),
     },
 ];
 
@@ -972,7 +1250,7 @@ mod tests {
     fn the_starter_catalogue_furnishes_a_room() {
         let starter: Vec<_> = PIECES
             .iter()
-            .filter(|piece| piece.available(0, 0))
+            .filter(|piece| piece.available(&Arrived::FIRST))
             .collect();
         assert!((10..=15).contains(&starter.len()), "{}", starter.len());
         for wanted in [Use::Sit { seats: 1 }, Use::Sleep, Use::Play, Use::Snack] {
@@ -1038,7 +1316,7 @@ mod tests {
             // A set's pieces come with it, and none before the set does.
             for piece in PIECES
                 .iter()
-                .filter(|piece| piece.set == set && set != Set::Home)
+                .filter(|piece| piece.set == set && !matches!(set, Set::Home | Set::Made))
             {
                 assert_eq!(piece.arrives, set.arrives(), "{}", piece.id);
             }

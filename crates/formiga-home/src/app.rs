@@ -42,6 +42,7 @@ enum Drawer {
     Finds,
     Room,
     Household,
+    Projects,
     Journal,
 }
 
@@ -96,6 +97,8 @@ pub struct HomeApp {
     move_in: Option<Id>,
     /// Who Desktop was last told is in the house.
     indoors_said: Option<Vec<Id>>,
+    /// The project opened on the project board, if one is.
+    project_chosen: Option<&'static str>,
     _open: Option<store::Open>,
     /// For review: a picture of the window itself to save, and when, after which it closes; and
     /// how many steps closer than fits to show the house in it.
@@ -151,7 +154,7 @@ impl HomeApp {
                 .collect();
             life.start_out(&out);
         }
-        Self {
+        let mut app = Self {
             selected: life.present().first().copied(),
             household,
             host,
@@ -187,11 +190,14 @@ impl HomeApp {
             next_door: None,
             move_in: None,
             indoors_said: None,
+            project_chosen: None,
             _open: open,
             snap: None,
             snap_zoom: 0,
             fixed_daylight: None,
-        }
+        };
+        app.hear_of_souvenirs();
+        app
     }
 
     /// For review only: the house at this hour and month, whatever the clock says.
@@ -714,6 +720,7 @@ mod menu;
 mod notebook;
 mod pages;
 mod photo;
+mod projects;
 mod visits;
 mod zoom;
 
