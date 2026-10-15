@@ -9,6 +9,9 @@ mod art;
 mod catalog;
 mod character;
 mod daylight;
+// The gallery is not on a page of the window yet.
+#[allow(dead_code)]
+mod designs;
 mod host;
 mod house;
 mod household;
