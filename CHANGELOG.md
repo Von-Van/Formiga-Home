@@ -4,11 +4,11 @@ This page records what changed in each version of Formiga Home. Each version's s
 its release notes: `.github/workflows/release.yml` publishes it alongside the downloads when the
 version is tagged.
 
-## Unreleased
+## 0.67.7 (2026-10-15)
 
-Home is built on Formiga Desktop's household version 10, which keeps a household's projects with
-its home. With an older Desktop, the project board says Desktop needs updating, and nothing else
-changes.
+Home is built on Formiga Desktop 0.67.7 and reads household version 10, which keeps a household's
+projects with its home, and travel version 5. With an older Desktop, the project board says
+Desktop needs updating, and nothing else changes.
 
 - A project board, on its own page of the notebook while living in the house. Five projects to
   begin with: a window garden and a puppet theatre to build, cosier beds and a family table to
@@ -31,6 +31,9 @@ changes.
   for every house: oak parquet and a sage wainscot.
 - A small mark on the board's tab when something on it is new or ready, a quiet line when a
   stage becomes ready, and one when a new souvenir from Formiga Hill counts towards a project.
+- The finds on shelves and tables and what residents wear are drawn in what they are made of, so
+  an acorn is brown and a teacup china, each with a few tones of shade. They are drawn by Formiga
+  Desktop, so this comes with Desktop 0.67.7.
 - The notes page's ruled lines scroll with what is written on it. They were painted with the cover,
   so scrolling a long page slid its words across lines that stayed put; now each line stays under
   whatever it was under, worn in the same places as it goes.
