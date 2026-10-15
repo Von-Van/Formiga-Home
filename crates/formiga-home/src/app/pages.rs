@@ -38,6 +38,39 @@ fn cropped(canvas: Canvas) -> Canvas {
     cut
 }
 
+/// The notes page's ruled lines, for writing whose top is at `top` (above the page once it has
+/// scrolled), drawn only within `within`: a line every `RULE_PITCH` of the notebook's pixels down
+/// the writing, each a row of the notebook's pixels on whole screen pixels, so the lines stay
+/// crisp and stay with the words they are under.
+fn ruling(ui: &egui::Ui, page: egui::Rect, top: f32, within: egui::Rect, unit: f32) -> egui::Shape {
+    use crate::art::notebook::{FIRST_RULE, RULE_PITCH, palette, rule_runs};
+    let colour = palette(ui.visuals().dark_mode).rule;
+    let colour = egui::Color32::from_rgba_unmultiplied(colour.r, colour.g, colour.b, colour.a);
+    let ppp = ui.ctx().pixels_per_point();
+    let width = (page.width() / unit).round() as i32;
+    let pitch = RULE_PITCH as f32 * unit;
+    let first = top + FIRST_RULE as f32 * unit;
+    let mut line = ((within.top() - first) / pitch).ceil().max(0.0) as i32;
+    let mut mesh = egui::Mesh::default();
+    loop {
+        let y = ((first + line as f32 * pitch) * ppp).round() / ppp;
+        if y + unit > within.bottom() {
+            break;
+        }
+        for (start, length) in rule_runs(line, width) {
+            mesh.add_colored_rect(
+                egui::Rect::from_min_size(
+                    egui::pos2(page.left() + start as f32 * unit, y),
+                    egui::vec2(length as f32 * unit, unit),
+                ),
+                colour,
+            );
+        }
+        line += 1;
+    }
+    egui::Shape::mesh(mesh)
+}
+
 /// What was asked of a thing from its menu on the found things page.
 enum Tapped {
     PutAway(DisplayId),
@@ -86,9 +119,25 @@ fn tile(
 }
 
 impl HomeApp {
-    /// The notes page, as it is for the mode and the page turned to.
-    pub(super) fn notes(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, unit: f32) {
-        egui::ScrollArea::vertical()
+    /// The notes page, as it is for the mode and the page turned to, written on the ruled
+    /// `page`. Each page keeps how far it was scrolled, and its ruled lines scroll with it.
+    pub(super) fn notes(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        page: egui::Rect,
+        unit: f32,
+    ) {
+        // The ruling goes under the writing, so its place is kept before the writing is laid
+        // out, and filled once the scroll says where the writing is.
+        let ruled = egui::Rect::from_min_max(
+            egui::pos2(page.left(), ui.max_rect().top()),
+            egui::pos2(page.right(), page.bottom() - 4.0 * unit),
+        );
+        let painter = ui.ctx().layer_painter(ui.layer_id()).with_clip_rect(ruled);
+        let slot = painter.add(egui::Shape::Noop);
+        let scrolled = egui::ScrollArea::vertical()
+            .id_salt(("notes", self.mode as u8, self.page() as u8))
             .auto_shrink([false, false])
             .show(ui, |ui| match self.mode {
                 Mode::Live if self.live_page == Drawer::Journal => self.journal_page(ui, unit),
@@ -103,6 +152,8 @@ impl HomeApp {
                     self.arranging_foot(ui);
                 }
             });
+        let top = scrolled.inner_rect.top() - scrolled.state.offset.y;
+        painter.set(slot, ruling(ui, page, top, ruled, unit));
     }
 
     /// A resident's face for the notes: its idle frame, cut down to its head and shoulders.

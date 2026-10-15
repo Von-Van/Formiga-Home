@@ -4,6 +4,17 @@ This page records what changed in each version of Formiga Home. Each version's s
 its release notes: `.github/workflows/release.yml` publishes it alongside the downloads when the
 version is tagged.
 
+## Unreleased
+
+- The notes page's ruled lines scroll with what is written on it. They were painted with the cover,
+  so scrolling a long page slid its words across lines that stayed put; now each line stays under
+  whatever it was under, worn in the same places as it goes.
+- Each page of the notes keeps its own place: scrolling down the furniture, turning to the rooms
+  and back finds the furniture where it was, and a short page is never opened part of the way down
+  because a long one was.
+- Quieter words on the notes read as easily as the rest, darker by daylight and lighter after dark,
+  and the mode tab not chosen is lettered more brightly on the leather.
+
 ## 0.67.6 (2026-10-12)
 
 Home is built on Formiga Desktop 0.67.6 and reads household version 9 and travel version 5, so a

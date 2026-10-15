@@ -103,8 +103,6 @@ pub struct Spread {
     pub modes: Vec<Tab>,
     pub page_tabs: Vec<Tab>,
     pub studs: Vec<Stud>,
-    /// Ruled lines on the notes page: how far down the first is, and how far apart.
-    pub rules: (i32, i32),
     pub dark: bool,
 }
 
@@ -134,7 +132,7 @@ pub fn paint(spread: &Spread) -> Canvas {
         paper(&mut canvas, page, &colours, outer_left);
     }
     binding(&mut canvas, spread.left, spread.right, &colours);
-    ruled(&mut canvas, spread.right, spread.rules, &colours);
+    margin(&mut canvas, spread.right, &colours);
     for tab in &spread.page_tabs {
         page_tab(&mut canvas, tab, &colours);
     }
@@ -295,21 +293,35 @@ fn binding(canvas: &mut Canvas, left: Area, right: Area, colours: &Palette) {
     }
 }
 
-/// The notes page's ruling, and its margin line.
-fn ruled(canvas: &mut Canvas, (x, y, w, h): Area, (first, pitch): (i32, i32), colours: &Palette) {
-    if pitch > 0 {
-        let mut line = y + first;
-        while line < y + h - 4 {
-            for px in x + 3..x + w - 3 {
-                if !paint::chance(px, line, 223, 18) {
-                    canvas.set(px, line, colours.rule);
-                }
-            }
-            line += pitch;
+/// The notes page's margin line. Its ruled lines are not painted here but drawn with the writing
+/// on the page (`rule_runs`), so that they scroll with it.
+fn margin(canvas: &mut Canvas, (x, y, _, h): Area, colours: &Palette) {
+    paint::vline(canvas, x + MARGIN, y + 1, h - 2, colours.margin);
+}
+
+/// How far in from the notes page's left edge its margin line is, in the notebook's pixels.
+pub const MARGIN: i32 = 16;
+/// How far below the top of the notes' writing the first ruled line is, and how far apart the
+/// lines are, in the notebook's pixels.
+pub const FIRST_RULE: i32 = 14;
+pub const RULE_PITCH: i32 = 12;
+
+/// Where the `line`th ruled line down the notes page is drawn across a page `width` wide: runs of
+/// (first pixel, length) from the page's left edge, inset from both edges, worn through here and
+/// there, and leaving the margin line whole. A line is worn in the same places however far the
+/// page is scrolled, since it is numbered down the page, not the window.
+pub fn rule_runs(line: i32, width: i32) -> Vec<(i32, i32)> {
+    let mut runs: Vec<(i32, i32)> = Vec::new();
+    for px in 3..width - 3 {
+        if px == MARGIN || paint::chance(px, line, 223, 18) {
+            continue;
+        }
+        match runs.last_mut() {
+            Some((start, length)) if *start + *length == px => *length += 1,
+            _ => runs.push((px, 1)),
         }
     }
-    let margin = x + 16;
-    paint::vline(canvas, margin, y + 1, h - 2, colours.margin);
+    runs
 }
 
 /// The cloth patch on the cover the house's name is written on: a woven green, stitched down.
@@ -543,9 +555,26 @@ mod tests {
                 hot: false,
                 down: false,
             }],
-            rules: (24, 12),
             dark,
         }
+    }
+
+    #[test]
+    fn a_ruled_line_is_worn_in_a_few_places_and_leaves_the_margin_whole() {
+        let runs = rule_runs(5, 180);
+        let drawn: i32 = runs.iter().map(|(_, length)| length).sum();
+        assert!(drawn > 150 && drawn < 174, "{drawn}");
+        assert!(
+            runs.iter()
+                .all(|&(start, length)| start >= 3 && start + length <= 177)
+        );
+        assert!(
+            runs.iter()
+                .all(|&(start, length)| !(start..start + length).contains(&MARGIN))
+        );
+        // The same line is worn in the same places every time it is drawn.
+        assert_eq!(runs, rule_runs(5, 180));
+        assert_ne!(runs, rule_runs(6, 180));
     }
 
     #[test]

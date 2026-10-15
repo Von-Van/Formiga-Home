@@ -64,12 +64,13 @@ pub(super) mod ink {
         }
     }
 
-    /// Present, but not asking for attention.
+    /// Present, but not asking for attention: quieter than the page's ink, and still read easily,
+    /// at better than 4.5:1 on the page, a card, or whatever is chosen, as in Desktop's notebook.
     pub fn muted(dark: bool) -> Color32 {
         if dark {
-            Color32::from_rgb(150, 162, 148)
+            Color32::from_rgb(184, 194, 180)
         } else {
-            Color32::from_rgb(110, 119, 108)
+            Color32::from_rgb(80, 90, 79)
         }
     }
 
@@ -114,9 +115,9 @@ pub(super) mod ink {
         Color32::from_rgb(243, 230, 196)
     }
 
-    /// Lettering pressed into the leather.
+    /// Lettering pressed into the leather, still a tab to read: about 5:1 on it.
     pub fn deboss(_dark: bool) -> Color32 {
-        Color32::from_rgb(178, 149, 112)
+        Color32::from_rgb(210, 184, 148)
     }
 }
 
@@ -297,7 +298,6 @@ pub(super) fn lay_out(ui: &egui::Ui, house: &str, mode: Mode) -> (Layout, Spread
         modes: Vec::new(),
         page_tabs: Vec::new(),
         studs: Vec::new(),
-        rules: (22, 12),
         dark,
     };
     let notes = to_points(right);
