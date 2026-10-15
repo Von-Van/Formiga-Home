@@ -777,7 +777,10 @@ fn the_notebook_answers_to_its_keys() {
     window.key(Key::N);
     assert_ne!(window.app.selected, Some(first), "and then the next");
     window.key(Key::CloseBracket);
+    assert_eq!(window.app.live_page, Drawer::Projects);
+    window.key(Key::CloseBracket);
     assert_eq!(window.app.live_page, Drawer::Journal);
+    window.key(Key::OpenBracket);
     window.key(Key::OpenBracket);
     assert_eq!(window.app.live_page, Drawer::Household);
     window.key(Key::H);
@@ -864,5 +867,147 @@ fn a_cell_sends_someone_out_to_the_desktop_and_the_house_remembers_who_stays_out
         Some(crate::life::Inside::Here)
     );
     assert!(stays_out(&window).is_empty());
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn a_souvenir_from_formiga_hill_is_said_to_count_once() {
+    let data = scratch("souvenir-news");
+    let window = Harness::open(&data);
+    let (notice, _) = window.app.notice.clone().expect("something was said");
+    assert_eq!(
+        notice,
+        "The fairground ticket from Formiga Hill counts towards the puppet theatre."
+    );
+    let mut window = window;
+    window.app.leave();
+    let again = Harness::open(&data);
+    assert!(
+        again
+            .app
+            .notice
+            .as_ref()
+            .is_none_or(|(notice, _)| !notice.contains("counts towards")),
+        "news only once"
+    );
+}
+
+#[test]
+fn a_ready_project_is_finished_from_the_board_and_stays_finished() {
+    let data = scratch("projects");
+    let mut window = Harness::open(&data);
+    let hearth = crate::projects::project("project.hearth").unwrap();
+    // The sample colony has lived forty days: a keepsake is all the hearth still wants.
+    assert!(window.app.board_wants_a_look(), "every project is new");
+    window.turn_to(Drawer::Projects);
+    window.wait(0.1);
+    window.click_text("The hearth");
+    window.wait(0.1);
+    assert_eq!(window.app.project_chosen, Some(hearth.id));
+    assert!(window.text("Build it").is_none(), "not ready yet");
+    window
+        .app
+        .make_keepsake(MementoKind::Pebble, None, Vec::new())
+        .unwrap();
+    window.wait(0.1);
+    assert!(window.app.board_wants_a_look(), "something is ready");
+    window.click_text("Build it");
+    window.wait(0.1);
+    let has_hearth = |app: &HomeApp| {
+        home_of(&app.state, app.keeper).rooms.iter().any(|room| {
+            room.pieces
+                .iter()
+                .any(|placed| placed.piece.as_str() == "hearth")
+        })
+    };
+    assert!(has_hearth(&window.app), "the hearth stands in the house");
+    assert_eq!(
+        hearth.done(home_of(&window.app.state, window.app.keeper)),
+        1
+    );
+    assert!(
+        window.text("MADE AT HOME").is_some(),
+        "kept for good on the board"
+    );
+    assert!(!window.app.board_wants_a_look());
+
+    window.app.leave();
+    let again = Harness::open(&data);
+    assert!(has_hearth(&again.app));
+    assert_eq!(hearth.done(home_of(&again.app.state, again.app.keeper)), 1);
+}
+
+impl Harness {
+    /// Turns the mouse wheel down by `points` over `at`, and lets the scroll settle.
+    fn scroll(&mut self, at: Pos2, points: f32) {
+        self.step(vec![Event::PointerMoved(at)]);
+        self.step(vec![Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -points),
+            phase: egui::TouchPhase::Move,
+            modifiers: Modifiers::NONE,
+        }]);
+        self.wait(1.0);
+    }
+
+    /// The tops of the notes page's ruled lines, last frame.
+    fn ruled_lines(&self) -> Vec<f32> {
+        let dark = self.ctx.global_style().visuals.dark_mode;
+        let rule = crate::art::notebook::palette(dark).rule;
+        let rule = egui::Color32::from_rgb(rule.r, rule.g, rule.b);
+        let mut tops: Vec<f32> = Vec::new();
+        for clipped in &self.output.as_ref().expect("a frame").shapes {
+            if let egui::Shape::Mesh(mesh) = &clipped.shape {
+                for vertex in &mesh.vertices {
+                    if vertex.color == rule
+                        && !tops.iter().any(|top| (top - vertex.pos.y).abs() < 0.5)
+                    {
+                        tops.push(vertex.pos.y);
+                    }
+                }
+            }
+        }
+        tops.sort_by(f32::total_cmp);
+        // Each line is a row of rectangles, a top and a bottom edge apiece: keep the tops.
+        tops.into_iter().step_by(2).collect()
+    }
+}
+
+#[test]
+fn the_notes_ruling_scrolls_with_the_writing_and_each_page_keeps_its_place() {
+    let data = scratch("ruling");
+    let mut window = Harness::open(&data);
+    window.arrange();
+    window.turn_to(Drawer::Furniture);
+    window.wait(0.2);
+    let heading = window
+        .text("TABLES")
+        .expect("the furniture page has tables");
+    let lines = window.ruled_lines();
+    assert!(lines.len() > 10, "{lines:?}");
+    // How far below the heading the next line is: it stays so, however far the page scrolls.
+    let gap = |heading: Pos2, lines: &[f32]| {
+        lines
+            .iter()
+            .map(|line| line - heading.y)
+            .find(|gap| *gap > 0.0)
+            .expect("a line under the heading")
+    };
+    let before = gap(heading, &lines);
+    window.scroll(heading, 100.0);
+    let scrolled = window.text("TABLES").expect("still on the page");
+    assert!(scrolled.y < heading.y - 50.0, "{heading:?} → {scrolled:?}");
+    let after = gap(scrolled, &window.ruled_lines());
+    assert!((after - before).abs() <= 1.0, "{before} → {after}");
+    // Another page has a place of its own, and the furniture is where it was left.
+    window.turn_to(Drawer::Room);
+    window.wait(0.2);
+    window.turn_to(Drawer::Furniture);
+    window.wait(0.2);
+    let back = window.text("TABLES").expect("back on the furniture page");
+    assert!(
+        (back.y - scrolled.y).abs() <= 1.0,
+        "{scrolled:?} → {back:?}"
+    );
     let _ = std::fs::remove_dir_all(&data);
 }

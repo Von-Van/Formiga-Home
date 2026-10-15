@@ -24,6 +24,7 @@ use crate::household::{Household, Id, Resident};
 use crate::keepsakes;
 use crate::path::Floor;
 use crate::placement;
+use crate::projects::Count;
 use formiga_art::{AccessoryArt, ExpressionKind};
 use formiga_core::{Accessory, ActionKind, Gesture, Habit, TemperamentKind};
 use formiga_home_contract::limits::MAX_TOGETHER;
@@ -159,6 +160,26 @@ impl Act {
             }
             Self::Comfort(_) => Some(Together::Care),
             Self::Tease(_) => Some(Together::Squabble),
+            _ => None,
+        }
+    }
+
+    /// What it counts as for the household's projects, if anything.
+    fn counts(&self) -> Option<Count> {
+        match self {
+            Self::Snack(_) | Self::Share(..) => Some(Count::Snacks),
+            Self::Nap(_) | Self::Sleep(_) | Self::CurlUp(_) | Self::InviteLittle(..) => {
+                Some(Count::Rests)
+            }
+            Self::Play(_)
+            | Self::PlayWith(..)
+            | Self::ShowOffToy(_)
+            | Self::PlayWithFind(_)
+            | Self::PlayTogether(_) => Some(Count::Games),
+            Self::Tend(_) => Some(Count::Tending),
+            Self::Inspect(_) | Self::Remember(_) | Self::ShowTo(..) | Self::Browse(_) => {
+                Some(Count::Looks)
+            }
             _ => None,
         }
     }
@@ -323,6 +344,8 @@ pub enum Event {
     /// A resident has used something in its home once more: a piece, by its name in the house,
     /// or something shown.
     Used(Id, Used),
+    /// Someone has done something the household's projects count.
+    Did(Id, Count),
 }
 
 /// What was used.
@@ -1864,6 +1887,11 @@ impl Life {
                     mind.drew = true;
                 }
                 self.events.push(Event::Drew(id, of));
+            }
+            if plan.part == Part::Leads
+                && let Some(count) = plan.act.counts()
+            {
+                self.events.push(Event::Did(id, count));
             }
             if plan.part == Part::Leads
                 && let Some((how, other)) = plan.act.together().zip(plan.act.partner())

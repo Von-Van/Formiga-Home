@@ -90,6 +90,8 @@ fn floor_ramp(floor: &str) -> Ramp {
         "floor.sand" => Ramp::new(0x7e7668, 0xa49c8c, 0xc4bcaa, 0xdcd6c6, 0xeeeade),
         "floor.moss" => Ramp::new(0x3a5426, 0x52722f, 0x6a8f3c, 0x88ab52, 0xaecb78),
         "floor.night" => Ramp::new(0x161c3c, 0x242d5c, 0x34407c, 0x4c5c9a, 0x6c7cba),
+        "floor.parquet" => Ramp::new(0x5e3820, 0x8a5732, 0xab7444, 0xc8925e, 0xe0b27e),
+        "floor.hearthstone" => Ramp::new(0x4e4843, 0x7a736b, 0x9d958b, 0xbcb4a8, 0xd8d1c4),
         _ => Ramp::new(0x7a4a2a, 0xa86a3c, 0xc98d52, 0xe0ad72, 0xf2cf98),
     }
 }
@@ -188,6 +190,54 @@ fn floor_tone(floor: &str, ramp: Ramp, fx: f32, fy: f32, px: i32, py: i32) -> Rg
             };
             if paint::chance(px, py, 157, 5) {
                 ramp.shine
+            } else {
+                tone
+            }
+        }
+        "floor.parquet" => {
+            // Oak blocks laid in squares, a half tile each, their grain turned at every other.
+            let (bx, by) = ((fx * 2.0).floor() as i32, (fy * 2.0).floor() as i32);
+            let (ux, uy) = ((fx * 2.0).fract(), (fy * 2.0).fract());
+            if ux < 0.05 || uy < 0.05 {
+                return ramp.edge;
+            }
+            let across = if (bx + by) % 2 == 0 { ux } else { uy };
+            let strip = (across * 3.0).floor() as i32;
+            if (across * 3.0).fract() < 0.08 {
+                return ramp.shadow;
+            }
+            let tone = match paint::noise(bx * 3 + strip, by, 173) % 3 {
+                0 => ramp.base,
+                1 => paint::mix(ramp.base, ramp.light, 0.4),
+                _ => paint::mix(ramp.base, ramp.shadow, 0.25),
+            };
+            if paint::chance(px, py, 175, 14) {
+                paint::mix(tone, ramp.shadow, 0.35)
+            } else {
+                tone
+            }
+        }
+        "floor.hearthstone" => {
+            // Flagstones of field stone, two to a tile in staggered rows, each a little its own
+            // shade, with mortar between.
+            let row = (fy * 2.0).floor() as i32;
+            let shift = if row % 2 == 0 { 0.0 } else { 0.25 };
+            let along = fx * 2.0 * 0.75 + shift;
+            let (ux, uy) = (along.fract(), (fy * 2.0).fract());
+            if ux < 0.06 || uy < 0.08 {
+                return ramp.edge;
+            }
+            let stone = paint::noise(along.floor() as i32, row, 177) % 4;
+            let tone = match stone {
+                0 => ramp.base,
+                1 => paint::mix(ramp.base, ramp.light, 0.35),
+                2 => paint::mix(ramp.base, rgb(0xb09078), 0.25),
+                _ => paint::mix(ramp.base, ramp.shadow, 0.2),
+            };
+            if uy > 0.9 || ux > 0.95 {
+                paint::mix(tone, ramp.shadow, 0.35)
+            } else if paint::chance(px, py, 179, 22) {
+                paint::mix(tone, ramp.shine, 0.3)
             } else {
                 tone
             }
@@ -291,6 +341,18 @@ fn wall_ramp(wall: &str) -> (Ramp, Rgba) {
             Ramp::new(0x10163a, 0x1c2554, 0x2a3570, 0x3e4c8e, 0x5c6cae),
             rgb(0xe8c25a),
         ),
+        "wall.wainscot" => (
+            Ramp::new(0x9a8466, 0xd2bd98, 0xf0e2c4, 0xf8eed8, 0xfffaec),
+            rgb(0x6f8a63),
+        ),
+        "wall.trellis" => (
+            Ramp::new(0x8a8468, 0xd4d0b0, 0xeeecd4, 0xf6f4e4, 0xfdfcf4),
+            rgb(0x6f8a63),
+        ),
+        "wall.gingham" => (
+            Ramp::new(0x8c7c62, 0xe6d9b8, 0xfaf4e6, 0xfdf8ee, 0xfffcf6),
+            rgb(0xe07c86),
+        ),
         _ => (
             Ramp::new(0x9a8466, 0xd2bd98, 0xf0e2c4, 0xf8eed8, 0xfffaec),
             rgb(0xe2d0ae),
@@ -379,6 +441,75 @@ fn wall_tone(wall: &str, ramp: Ramp, second: Rgba, along: f32, up: f32, px: i32,
                 ramp.shine
             } else {
                 ramp.base
+            }
+        }
+        "wall.wainscot" => {
+            // Sage-painted panelling to a rail a third of the way up, plaster above.
+            let rail = 22.0;
+            if (rail..rail + 2.0).contains(&up) {
+                return if up >= rail + 1.0 {
+                    rgb(0xb0c99d)
+                } else {
+                    rgb(0x4a6142)
+                };
+            }
+            if up >= rail {
+                return if paint::chance(px, py, 181, 18) {
+                    ramp.light
+                } else {
+                    ramp.base
+                };
+            }
+            let (ux, uy) = ((along * 2.0).fract(), (up - 6.0) / 16.0);
+            let frame = !(0.12..=0.88).contains(&ux) || !(0.14..=0.86).contains(&uy);
+            if ux < 0.04 {
+                rgb(0x4a6142)
+            } else if frame {
+                second
+            } else if ux < 0.16 || uy > 0.82 {
+                rgb(0x5d7652)
+            } else {
+                rgb(0x8fae7e)
+            }
+        }
+        "wall.trellis" => {
+            // A green trellis on cream, crossing on the diagonal, with daisies where it crosses.
+            let (u, v) = (along * 2.0, (up - 6.0) / 16.0);
+            let (a, b) = ((u + v).rem_euclid(1.0), (u - v).rem_euclid(1.0));
+            let (near_a, near_b) = (!(0.07..=0.95).contains(&a), !(0.07..=0.95).contains(&b));
+            if near_a && near_b {
+                return if paint::noise((u + v).floor() as i32, (u - v).floor() as i32, 183)
+                    .is_multiple_of(3)
+                {
+                    rgb(0xf4c84a)
+                } else {
+                    rgb(0xfdfcf4)
+                };
+            }
+            if near_a || near_b {
+                second
+            } else if paint::chance(px, py, 185, 10) {
+                ramp.light
+            } else {
+                ramp.base
+            }
+        }
+        "wall.gingham" => {
+            // Red gingham, like the picnic ribbon, in a paler wash than the cloth.
+            let (a, b) = (
+                (along * 6.0).floor() as i32 % 2 == 0,
+                ((up - 6.0) / 5.0).floor() as i32 % 2 == 0,
+            );
+            match (a, b) {
+                (true, true) => second,
+                (true, false) | (false, true) => paint::mix(second, ramp.base, 0.55),
+                (false, false) => {
+                    if paint::chance(px, py, 187, 12) {
+                        ramp.light
+                    } else {
+                        ramp.base
+                    }
+                }
             }
         }
         "wall.timber" => {

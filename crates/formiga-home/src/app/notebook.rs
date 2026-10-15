@@ -64,12 +64,13 @@ pub(super) mod ink {
         }
     }
 
-    /// Present, but not asking for attention.
+    /// Present, but not asking for attention: quieter than the page's ink, and still read easily,
+    /// at better than 4.5:1 on the page, a card, or whatever is chosen, as in Desktop's notebook.
     pub fn muted(dark: bool) -> Color32 {
         if dark {
-            Color32::from_rgb(150, 162, 148)
+            Color32::from_rgb(184, 194, 180)
         } else {
-            Color32::from_rgb(110, 119, 108)
+            Color32::from_rgb(80, 90, 79)
         }
     }
 
@@ -114,9 +115,9 @@ pub(super) mod ink {
         Color32::from_rgb(243, 230, 196)
     }
 
-    /// Lettering pressed into the leather.
+    /// Lettering pressed into the leather, still a tab to read: about 5:1 on it.
     pub fn deboss(_dark: bool) -> Color32 {
-        Color32::from_rgb(178, 149, 112)
+        Color32::from_rgb(210, 184, 148)
     }
 }
 
@@ -142,7 +143,7 @@ pub(super) fn label_job(text: &str, size: f32, color: egui::Color32) -> egui::te
 /// A section's printed label on a page.
 pub(super) fn kicker(ui: &mut egui::Ui, text: &str) {
     let dark = ui.visuals().dark_mode;
-    ui.label(label_job(text, LABEL, ink::forest(dark)));
+    super::lines::write(ui, label_job(text, LABEL, ink::forest(dark)));
 }
 
 /// The painted cover, kept until the window changes size or a control on it changes.
@@ -180,8 +181,9 @@ pub(super) const PAGES: [(Drawer, &str); 3] = [
 ];
 
 /// The pages of the notes when living in the house.
-pub(super) const LIVE_PAGES: [(Drawer, &str); 2] = [
+pub(super) const LIVE_PAGES: [(Drawer, &str); 3] = [
     (Drawer::Household, "Household"),
+    (Drawer::Projects, "Projects"),
     (Drawer::Journal, "Journal"),
 ];
 
@@ -285,7 +287,9 @@ pub(super) fn lay_out(ui: &egui::Ui, house: &str, mode: Mode) -> (Layout, Spread
     // Clear of the mode tabs, too, where the notebook is narrow for its text.
     let mut along = (right.0 + 6).max(along + 4);
     for &(drawer, name) in pages(mode) {
-        let wide = width_of(label_job(name, LABEL, ink::page(dark))) + 6;
+        // The project board's tab keeps room at its end for the mark it may carry.
+        let mark = if drawer == Drawer::Projects { 4 } else { 0 };
+        let wide = width_of(label_job(name, LABEL, ink::page(dark))) + 6 + mark;
         page_tabs.push((drawer, (along, top - 7, wide, 7)));
         along += wide + 1;
     }
@@ -297,7 +301,6 @@ pub(super) fn lay_out(ui: &egui::Ui, house: &str, mode: Mode) -> (Layout, Spread
         modes: Vec::new(),
         page_tabs: Vec::new(),
         studs: Vec::new(),
-        rules: (22, 12),
         dark,
     };
     let notes = to_points(right);
@@ -543,11 +546,23 @@ impl HomeApp {
                 ink::muted(dark)
             };
             let galley = ui.painter().layout_job(label_job(name, LABEL, colour));
-            ui.painter().galley(
-                rect.center() - galley.size() / 2.0 + egui::vec2(0.0, layout.unit),
-                galley,
-                colour,
-            );
+            let mut label_at = rect.center() - galley.size() / 2.0 + egui::vec2(0.0, layout.unit);
+            if drawer == Drawer::Projects {
+                label_at.x -= 2.0 * layout.unit;
+                // A small mark at the end of the board's tab while it has something new or
+                // ready on it.
+                if self.board_wants_a_look() {
+                    ui.painter().circle_filled(
+                        egui::pos2(
+                            label_at.x + galley.size().x + 2.5 * layout.unit,
+                            rect.center().y,
+                        ),
+                        1.2 * layout.unit,
+                        ink::stamp(dark),
+                    );
+                }
+            }
+            ui.painter().galley(label_at, galley, colour);
             if response.clicked() {
                 match self.mode {
                     Mode::Live => self.live_page = drawer,
@@ -697,6 +712,21 @@ pub(super) fn style(ctx: &egui::Context) {
             widgets.active.bg_stroke = egui::Stroke::new(1.0, ink::forest(dark));
             style.spacing.button_padding = egui::vec2(6.0, 2.0);
             style.spacing.item_spacing = egui::vec2(6.0, 4.0);
+            // The notes are set as Desktop's notebook sets its pages: body text a size that
+            // reads at a glance, and small print a step under it rather than a squint.
+            for (text_style, size) in [
+                (egui::TextStyle::Body, 14.0),
+                (egui::TextStyle::Button, 13.5),
+                (egui::TextStyle::Heading, 20.0),
+                (egui::TextStyle::Small, 12.0),
+            ] {
+                style
+                    .text_styles
+                    .insert(text_style, egui::FontId::proportional(size));
+            }
+            style
+                .text_styles
+                .insert(egui::TextStyle::Monospace, egui::FontId::monospace(13.0));
         });
     }
 }

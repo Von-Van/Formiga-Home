@@ -4,6 +4,7 @@
 //! and the rooms, each a page of small pictures rather than a list, with what each one is kept
 //! for when it is pointed at.
 
+use super::lines;
 use super::notebook::{LABEL, ink, kicker, label_job};
 use super::*;
 use crate::art::{displays, shell};
@@ -13,14 +14,14 @@ use formiga_home_contract::DisplayItem;
 
 /// How big a picture can be drawn inside `fit` points, whole screen pixels to each of its own,
 /// and never more than `most` of them.
-fn crisp(ui: &egui::Ui, pixels: egui::Vec2, fit: egui::Vec2, most: f32) -> egui::Vec2 {
+pub(super) fn crisp(ui: &egui::Ui, pixels: egui::Vec2, fit: egui::Vec2, most: f32) -> egui::Vec2 {
     let ppp = ui.ctx().pixels_per_point();
     let across = (fit.x * ppp / pixels.x.max(1.0)).min(fit.y * ppp / pixels.y.max(1.0));
     pixels * across.floor().clamp(1.0, most) / ppp
 }
 
 /// A picture cut down to what is drawn in it, so it is shown as big as its tile allows.
-fn cropped(canvas: Canvas) -> Canvas {
+pub(super) fn cropped(canvas: Canvas) -> Canvas {
     let Some((l, t, r, b)) = canvas.alpha_bounds() else {
         return canvas;
     };
@@ -36,6 +37,39 @@ fn cropped(canvas: Canvas) -> Canvas {
         }
     }
     cut
+}
+
+/// The notes page's ruled lines, for writing whose top is at `top` (above the page once it has
+/// scrolled), drawn only within `within`: a line every `RULE_PITCH` of the notebook's pixels down
+/// the writing, each a row of the notebook's pixels on whole screen pixels, so the lines stay
+/// crisp and stay with the words they are under.
+fn ruling(ui: &egui::Ui, page: egui::Rect, top: f32, within: egui::Rect, unit: f32) -> egui::Shape {
+    use crate::art::notebook::{FIRST_RULE, RULE_PITCH, palette, rule_runs};
+    let colour = palette(ui.visuals().dark_mode).rule;
+    let colour = egui::Color32::from_rgba_unmultiplied(colour.r, colour.g, colour.b, colour.a);
+    let ppp = ui.ctx().pixels_per_point();
+    let width = (page.width() / unit).round() as i32;
+    let pitch = RULE_PITCH as f32 * unit;
+    let first = top + FIRST_RULE as f32 * unit;
+    let mut line = ((within.top() - first) / pitch).ceil().max(0.0) as i32;
+    let mut mesh = egui::Mesh::default();
+    loop {
+        let y = ((first + line as f32 * pitch) * ppp).round() / ppp;
+        if y + unit > within.bottom() {
+            break;
+        }
+        for (start, length) in rule_runs(line, width) {
+            mesh.add_colored_rect(
+                egui::Rect::from_min_size(
+                    egui::pos2(page.left() + start as f32 * unit, y),
+                    egui::vec2(length as f32 * unit, unit),
+                ),
+                colour,
+            );
+        }
+        line += 1;
+    }
+    egui::Shape::mesh(mesh)
 }
 
 /// What was asked of a thing from its menu on the found things page.
@@ -59,7 +93,7 @@ pub(super) fn stepped(painter: &egui::Painter, rect: egui::Rect, unit: f32, colo
 
 /// A square of the page to put a picture in, which can be clicked and dragged: a slip of card
 /// with a stepped edge, lit when it is pointed at or chosen.
-fn tile(
+pub(super) fn tile(
     ui: &mut egui::Ui,
     id: egui::Id,
     size: egui::Vec2,
@@ -86,23 +120,54 @@ fn tile(
 }
 
 impl HomeApp {
-    /// The notes page, as it is for the mode and the page turned to.
-    pub(super) fn notes(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, unit: f32) {
-        egui::ScrollArea::vertical()
+    /// The notes page, as it is for the mode and the page turned to, written on the ruled
+    /// `page`. Each page keeps how far it was scrolled, and its ruled lines scroll with it.
+    pub(super) fn notes(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        page: egui::Rect,
+        unit: f32,
+    ) {
+        // The ruling goes under the writing, so its place is kept before the writing is laid
+        // out, and filled once the scroll says where the writing is.
+        let ruled = egui::Rect::from_min_max(
+            egui::pos2(page.left(), ui.max_rect().top()),
+            egui::pos2(page.right(), page.bottom() - 4.0 * unit),
+        );
+        let painter = ui.ctx().layer_painter(ui.layer_id()).with_clip_rect(ruled);
+        let slot = painter.add(egui::Shape::Noop);
+        let scrolled = egui::ScrollArea::vertical()
+            .id_salt(("notes", self.mode as u8, self.page() as u8))
             .auto_shrink([false, false])
-            .show(ui, |ui| match self.mode {
-                Mode::Live if self.live_page == Drawer::Journal => self.journal_page(ui, unit),
-                Mode::Live => self.household_page(ui, ctx, unit),
-                Mode::Arrange => {
-                    match self.drawer {
-                        Drawer::Furniture => self.furniture_page(ui, ctx, unit),
-                        Drawer::Room => self.rooms_page(ui, ctx, unit),
-                        _ => self.finds_page(ui, ctx, unit),
+            .show(ui, |ui| {
+                // What is written on the page finds its ruled lines through the grid.
+                use crate::art::notebook::{FIRST_RULE, RULE_PITCH};
+                lines::RuleGrid {
+                    top: ui.max_rect().top() + (FIRST_RULE - RULE_PITCH) as f32 * unit,
+                    pitch: RULE_PITCH as f32 * unit,
+                }
+                .keep(ui.ctx());
+                match self.mode {
+                    Mode::Live if self.live_page == Drawer::Journal => self.journal_page(ui, unit),
+                    Mode::Live if self.live_page == Drawer::Projects => {
+                        self.projects_page(ui, ctx, unit);
                     }
-                    ui.add_space(10.0);
-                    self.arranging_foot(ui);
+                    Mode::Live => self.household_page(ui, ctx, unit),
+                    Mode::Arrange => {
+                        match self.drawer {
+                            Drawer::Furniture => self.furniture_page(ui, ctx, unit),
+                            Drawer::Room => self.rooms_page(ui, ctx, unit),
+                            _ => self.finds_page(ui, ctx, unit),
+                        }
+                        ui.add_space(10.0);
+                        self.arranging_foot(ui);
+                    }
                 }
             });
+        lines::RuleGrid::forget(ui.ctx());
+        let top = scrolled.inner_rect.top() - scrolled.state.offset.y;
+        painter.set(slot, ruling(ui, page, top, ruled, unit));
     }
 
     /// A resident's face for the notes: its idle frame, cut down to its head and shoulders.
@@ -156,7 +221,8 @@ impl HomeApp {
         let journal = home_of(&self.state, self.keeper).journal.clone();
         kicker(ui, "Journal");
         if journal.is_empty() {
-            ui.label(
+            lines::write(
+                ui,
                 egui::RichText::new(
                     "Nothing written yet. Friends who come over, keepsakes, new rooms and \
                      favourites are noted here.",
@@ -172,19 +238,21 @@ impl HomeApp {
             let day = crate::journal::day_of(entry.at_utc);
             if last != Some(day) {
                 if last.is_some() {
+                    // A line left blank between days.
                     ui.add_space(3.0 * unit);
                 }
-                ui.label(
+                lines::write(
+                    ui,
                     egui::RichText::new(crate::journal::heading(day, today))
                         .small()
                         .color(ink::forest(dark)),
                 );
                 last = Some(day);
             }
-            ui.label(crate::journal::line(
-                &entry.moment,
-                &self.household.snapshot,
-            ));
+            lines::write(
+                ui,
+                crate::journal::line(&entry.moment, &self.household.snapshot),
+            );
         }
     }
 
@@ -208,22 +276,19 @@ impl HomeApp {
         kicker(ui, "Next door");
         let dark = ui.visuals().dark_mode;
         let mut going = None;
-        ui.horizontal_wrapped(|ui| {
+        lines::ruled_row(ui, |ui| {
             // A house's name moves to the next line whole rather than breaking.
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             ui.spacing_mut().item_spacing.x = 10.0;
             for (keeper, name) in &houses {
-                let link = ui
-                    .add(
-                        egui::Label::new(
-                            egui::RichText::new(name.as_str())
-                                .underline()
-                                .color(ink::forest(dark)),
-                        )
-                        .sense(egui::Sense::click()),
-                    )
-                    .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    .on_hover_text(format!("Go over to {name}"));
+                let link = lines::write_with(
+                    ui,
+                    egui::RichText::new(name.as_str())
+                        .underline()
+                        .color(ink::forest(dark)),
+                    egui::Sense::click(),
+                )
+                .on_hover_text(format!("Go over to {name}"));
                 if link.clicked() {
                     going = Some(*keeper);
                 }
@@ -257,7 +322,6 @@ impl HomeApp {
                 continue;
             }
             kicker(ui, heading);
-            ui.add_space(2.0);
             for id in ids {
                 self.resident_row(ui, ctx, id, unit);
                 if self.selected == Some(id) {
@@ -271,7 +335,8 @@ impl HomeApp {
             Some(_) => "Click something in the house to see what they could do.",
             None => "Choose someone, then something in the house.",
         };
-        ui.label(
+        lines::write(
+            ui,
             egui::RichText::new(hint)
                 .small()
                 .italics()
@@ -284,20 +349,18 @@ impl HomeApp {
     /// mouse and keys can do.
     fn help_button(&mut self, ui: &mut egui::Ui) {
         let dark = ui.visuals().dark_mode;
-        ui.add_space(4.0);
         let word = if self.help {
             "Put the note away"
         } else {
             "How to\u{2026}"
         };
-        let response = ui.add(
-            egui::Label::new(
-                egui::RichText::new(word)
-                    .small()
-                    .underline()
-                    .color(ink::forest(dark)),
-            )
-            .sense(egui::Sense::click()),
+        let response = lines::write_with(
+            ui,
+            egui::RichText::new(word)
+                .small()
+                .underline()
+                .color(ink::forest(dark)),
+            egui::Sense::click(),
         );
         if response.clicked() {
             self.help = !self.help;
@@ -385,8 +448,8 @@ impl HomeApp {
         let name = resident.name.clone();
         let little = resident.is_little();
         let visitor = self.household.is_visitor(id);
-        let size = egui::vec2(ui.available_width(), 22.0 * unit);
-        let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+        // Two lines of the page: the portrait stands on the lower one, and the name rests on it.
+        let rect = lines::band(ui, 2.0, 22.0 * unit);
         let response = ui.interact(rect, egui::Id::new(("resident", id)), egui::Sense::click());
         let chosen = self.selected == Some(id);
         if chosen {
@@ -397,7 +460,10 @@ impl HomeApp {
                 .rect_filled(rect, 0.0, ink::mint(dark).gamma_multiply(0.3));
         }
         if let Some((texture, pixels)) = self.portrait(ctx, id) {
-            let frame = egui::Rect::from_min_size(rect.min, egui::vec2(22.0 * unit, 22.0 * unit));
+            let frame = egui::Rect::from_min_max(
+                egui::pos2(rect.left(), rect.bottom() - 22.0 * unit),
+                egui::pos2(rect.left() + 22.0 * unit, rect.bottom()),
+            );
             let shown = pixels * unit;
             let at = egui::Rect::from_min_size(
                 egui::pos2(frame.center().x - shown.x / 2.0, frame.bottom() - shown.y),
@@ -416,7 +482,7 @@ impl HomeApp {
             egui::FontId::proportional(14.0),
             ink::page(dark),
         );
-        let y = rect.center().y - galley.size().y / 2.0;
+        let y = lines::on_rule(&galley, rect.bottom());
         let name_width = galley.size().x;
         ui.painter()
             .galley(egui::pos2(text_left, y), galley, ink::page(dark));
@@ -437,7 +503,7 @@ impl HomeApp {
                 egui::FontId::proportional(11.5),
                 ink::muted(dark),
             );
-            let y = rect.center().y - galley.size().y / 2.0 + 1.0;
+            let y = lines::on_rule(&galley, rect.bottom());
             ui.painter().galley(
                 egui::pos2(text_left + name_width + 6.0, y),
                 galley,
@@ -490,18 +556,22 @@ impl HomeApp {
         let house = self.house.clone();
         let snapshot = self.household.snapshot.clone();
         {
-            ui.spacing_mut().item_spacing.y = 2.0;
-            ui.label(
+            lines::write(
+                ui,
                 egui::RichText::new(phrase)
                     .size(12.0)
                     .italics()
                     .color(ink::muted(dark)),
             );
             if !doing.is_empty() {
-                ui.label(egui::RichText::new(self.in_which_room(id, doing)).size(12.0));
+                lines::write(
+                    ui,
+                    egui::RichText::new(self.in_which_room(id, doing)).size(12.0),
+                );
             }
             if !liked.is_empty() {
-                ui.label(
+                lines::write(
+                    ui,
                     egui::RichText::new(format!("Likes {}", and_list(liked)))
                         .size(12.0)
                         .color(ink::muted(dark)),
@@ -509,11 +579,10 @@ impl HomeApp {
             }
             let queue = self.life.queue(id);
             if !queue.is_empty() {
-                ui.add_space(2.0);
-                ui.label(label_job("Asked", LABEL, ink::forest(dark)));
+                lines::write(ui, label_job("Asked", LABEL, ink::forest(dark)));
                 let mut cancel = None;
                 for (position, act) in queue.iter().enumerate() {
-                    ui.horizontal(|ui| {
+                    lines::ruled_row(ui, |ui| {
                         if ui
                             .small_button("\u{2715}")
                             .on_hover_text("Take this back")
@@ -521,7 +590,8 @@ impl HomeApp {
                         {
                             cancel = Some(position);
                         }
-                        ui.label(
+                        lines::write(
+                            ui,
                             egui::RichText::new(act.label(&self.household, &house, &snapshot))
                                 .size(12.0),
                         );
@@ -726,11 +796,12 @@ impl HomeApp {
 
     fn furniture_page(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, unit: f32) {
         let dark = ui.visuals().dark_mode;
+        let made = home_of(&self.state, self.keeper).projects.clone();
         let snapshot = &self.household.snapshot;
-        let (days, things) = (
-            snapshot.days_lived,
-            crate::keepsakes::colony_things(snapshot).count(),
-        );
+        let now = catalog::Arrived {
+            made: &made,
+            ..catalog::Arrived::of(snapshot, home_of(&self.state, self.keeper))
+        };
         let house = self.house.clone();
         let size = egui::vec2(30.0 * unit, 30.0 * unit);
         // The sets, to look at one at a time.
@@ -738,7 +809,9 @@ impl HomeApp {
             ui.selectable_value(&mut self.set_shown, None, "All");
             for set in catalog::Set::ALL {
                 ui.selectable_value(&mut self.set_shown, Some(set), set.name())
-                    .on_hover_text(if set.arrives().come(days, things) {
+                    .on_hover_text(if set == catalog::Set::Made {
+                        "Made by the household, as it finishes its projects"
+                    } else if set.arrives().come(&now) {
                         "Here to use"
                     } else {
                         "Arrives in time"
@@ -759,7 +832,7 @@ impl HomeApp {
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(2.0 * unit, 2.0 * unit);
                 for piece in pieces {
-                    let available = piece.available(days, things);
+                    let available = piece.available(&now);
                     let carried = matches!(
                         self.arranging.carrying,
                         Some(Carry::New { piece: carrying, .. }) if carrying.id == piece.id
@@ -805,12 +878,16 @@ impl HomeApp {
                     let set = piece.set;
                     let response = response.on_hover_ui(|ui| {
                         ui.strong(name);
-                        if set != catalog::Set::Home {
+                        if set == catalog::Set::Made {
+                            ui.label(egui::RichText::new("Made at home").small());
+                        } else if set != catalog::Set::Home {
                             ui.label(
                                 egui::RichText::new(format!("From the {} set", set.name())).small(),
                             );
                         }
-                        if !available {
+                        if !available && set == catalog::Set::Made {
+                            ui.label(egui::RichText::new("Made by finishing a project").small());
+                        } else if !available {
                             ui.label(egui::RichText::new("Arrives in time").small());
                         } else if count > 0 {
                             ui.label(egui::RichText::new(format!("{count} in the house")).small());
@@ -852,11 +929,10 @@ impl HomeApp {
         let layout = home.rooms[room].clone();
         let mut floor = None;
         let mut wall = None;
-        let snapshot = &self.household.snapshot;
-        let (days, things) = (
-            snapshot.days_lived,
-            crate::keepsakes::colony_things(snapshot).count(),
-        );
+        let now = catalog::Arrived {
+            made: &home.projects,
+            ..catalog::Arrived::of(&self.household.snapshot, &home)
+        };
         kicker(ui, "Floor");
         let size = egui::vec2(34.0 * unit, 22.0 * unit);
         ui.horizontal_wrapped(|ui| {
@@ -869,7 +945,7 @@ impl HomeApp {
                     shell::floor_swatch(finish.id)
                 });
                 let shown = crisp(ui, pixels, size - egui::vec2(4.0, 4.0) * unit, 4.0);
-                let arrived = finish.set.arrives().come(days, things);
+                let arrived = finish.available(&now);
                 ui.painter().image(
                     texture,
                     egui::Rect::from_center_size(rect.center(), shown),
@@ -883,6 +959,8 @@ impl HomeApp {
                 let name = finish.name;
                 let response = response.on_hover_text(if arrived {
                     name.to_owned()
+                } else if finish.set == catalog::Set::Made {
+                    format!("{name}: made by finishing a project")
                 } else {
                     format!("{name}: arrives in time")
                 });
@@ -907,7 +985,7 @@ impl HomeApp {
                     shell::wall_swatch(finish.id)
                 });
                 let shown = crisp(ui, pixels, size - egui::vec2(4.0, 4.0) * unit, 4.0);
-                let arrived = finish.set.arrives().come(days, things);
+                let arrived = finish.available(&now);
                 ui.painter().image(
                     texture,
                     egui::Rect::from_center_size(rect.center(), shown),
@@ -921,6 +999,8 @@ impl HomeApp {
                 let name = finish.name;
                 let response = response.on_hover_text(if arrived {
                     name.to_owned()
+                } else if finish.set == catalog::Set::Made {
+                    format!("{name}: made by finishing a project")
                 } else {
                     format!("{name}: arrives in time")
                 });
@@ -1085,7 +1165,7 @@ fn plan_of(painter: &egui::Painter, rect: egui::Rect, size: (u8, u8), unit: f32,
 }
 
 /// "the armchair", "the armchair and the shell", "the armchair, the rug and the shell".
-fn and_list(things: &[String]) -> String {
+pub(super) fn and_list(things: &[String]) -> String {
     match things {
         [] => String::new(),
         [one] => one.clone(),

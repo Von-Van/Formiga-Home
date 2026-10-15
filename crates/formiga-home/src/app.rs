@@ -42,6 +42,7 @@ enum Drawer {
     Finds,
     Room,
     Household,
+    Projects,
     Journal,
 }
 
@@ -96,6 +97,10 @@ pub struct HomeApp {
     move_in: Option<Id>,
     /// Who Desktop was last told is in the house.
     indoors_said: Option<Vec<Id>>,
+    /// The project opened on the project board, if one is.
+    project_chosen: Option<&'static str>,
+    /// Whether the board lists everything made at home, or only the latest.
+    made_shown_whole: bool,
     _open: Option<store::Open>,
     /// For review: a picture of the window itself to save, and when, after which it closes; and
     /// how many steps closer than fits to show the house in it.
@@ -151,7 +156,7 @@ impl HomeApp {
                 .collect();
             life.start_out(&out);
         }
-        Self {
+        let mut app = Self {
             selected: life.present().first().copied(),
             household,
             host,
@@ -187,11 +192,15 @@ impl HomeApp {
             next_door: None,
             move_in: None,
             indoors_said: None,
+            project_chosen: None,
+            made_shown_whole: false,
             _open: open,
             snap: None,
             snap_zoom: 0,
             fixed_daylight: None,
-        }
+        };
+        app.hear_of_souvenirs();
+        app
     }
 
     /// For review only: the house at this hour and month, whatever the clock says.
@@ -595,7 +604,7 @@ impl HomeApp {
                 self.zoom_controls(ui, page, layout.unit);
                 self.cells(ui, page, layout.unit);
                 ui.scope_builder(egui::UiBuilder::new().max_rect(layout.notes), |ui| {
-                    self.notes(ui, &ctx, layout.unit);
+                    self.notes(ui, &ctx, layout.right, layout.unit);
                 });
                 self.help_note(ui, &ctx, layout.notes, layout.unit);
                 self.status_line(ui, &layout);
@@ -709,11 +718,13 @@ mod arranging;
 mod cells;
 mod events;
 mod keys;
+pub(super) mod lines;
 mod living;
 mod menu;
 mod notebook;
 mod pages;
 mod photo;
+mod projects;
 mod visits;
 mod zoom;
 

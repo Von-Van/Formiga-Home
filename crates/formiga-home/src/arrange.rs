@@ -53,7 +53,7 @@ pub struct Arranging {
 }
 
 /// Taking an arrangement back takes back the arrangement only: what the household has lived
-/// since, its likings and its journal, stays as it is now.
+/// since, its likings, its journal and its projects, stays as it is now.
 fn lived_since(now: &HomeState, restored: &mut HomeState) {
     for home in &mut restored.households {
         let Some(current) = now.household(home.keeper) else {
@@ -61,6 +61,8 @@ fn lived_since(now: &HomeState, restored: &mut HomeState) {
         };
         home.likings.clone_from(&current.likings);
         home.journal.clone_from(&current.journal);
+        home.projects.clone_from(&current.projects);
+        home.tallies.clone_from(&current.tallies);
         home.forget_what_is_gone();
     }
 }
@@ -81,6 +83,14 @@ impl Arranging {
             self.undo.remove(0);
         }
         self.redo.clear();
+    }
+
+    /// Forget what could be taken back or done again: the household has made something of the
+    /// house since, which no arrangement before it had.
+    pub fn forget(&mut self) {
+        self.undo.clear();
+        self.redo.clear();
+        self.carrying = None;
     }
 
     /// A keepsake has come to the house: it is there whatever is taken back or done again.
@@ -423,6 +433,10 @@ impl Arranging {
 }
 
 /// The footprint of `piece` set at `(x, y)` in a room, on the house's floor.
+pub fn footprint_at(house: &House, room: u8, piece: &Piece, x: u8, y: u8, turn: u8) -> Footprint {
+    at(house, room, piece, x, y, turn)
+}
+
 fn at(house: &House, room: u8, piece: &Piece, x: u8, y: u8, turn: u8) -> Footprint {
     let (w, d) = piece.size_at(turn);
     let (rx, ry) = house.room(room).map_or((0, 0), |room| (room.x, room.y));
@@ -817,8 +831,8 @@ pub fn room_places(
             if !inside || overlaps {
                 continue;
             }
-            let finds = crate::keepsakes::colony_things(snapshot).count();
-            let arrived = |piece: &Piece| piece.available(snapshot.days_lived, finds);
+            let now = catalog::Arrived::of(snapshot, home);
+            let arrived = |piece: &Piece| piece.available(&now);
             if let Some(grown) = grow(
                 home,
                 template,
