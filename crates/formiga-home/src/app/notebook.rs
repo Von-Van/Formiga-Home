@@ -64,12 +64,13 @@ pub(super) mod ink {
         }
     }
 
-    /// Present, but not asking for attention.
+    /// Present, but not asking for attention: quieter than the page's ink, and still read easily,
+    /// at better than 4.5:1 on the page, a card, or whatever is chosen, as in Desktop's notebook.
     pub fn muted(dark: bool) -> Color32 {
         if dark {
-            Color32::from_rgb(150, 162, 148)
+            Color32::from_rgb(184, 194, 180)
         } else {
-            Color32::from_rgb(110, 119, 108)
+            Color32::from_rgb(80, 90, 79)
         }
     }
 
@@ -114,9 +115,9 @@ pub(super) mod ink {
         Color32::from_rgb(243, 230, 196)
     }
 
-    /// Lettering pressed into the leather.
+    /// Lettering pressed into the leather, still a tab to read: about 5:1 on it.
     pub fn deboss(_dark: bool) -> Color32 {
-        Color32::from_rgb(178, 149, 112)
+        Color32::from_rgb(210, 184, 148)
     }
 }
 
@@ -142,7 +143,7 @@ pub(super) fn label_job(text: &str, size: f32, color: egui::Color32) -> egui::te
 /// A section's printed label on a page.
 pub(super) fn kicker(ui: &mut egui::Ui, text: &str) {
     let dark = ui.visuals().dark_mode;
-    ui.label(label_job(text, LABEL, ink::forest(dark)));
+    super::lines::write(ui, label_job(text, LABEL, ink::forest(dark)));
 }
 
 /// The painted cover, kept until the window changes size or a control on it changes.
@@ -300,7 +301,6 @@ pub(super) fn lay_out(ui: &egui::Ui, house: &str, mode: Mode) -> (Layout, Spread
         modes: Vec::new(),
         page_tabs: Vec::new(),
         studs: Vec::new(),
-        rules: (22, 12),
         dark,
     };
     let notes = to_points(right);
@@ -712,6 +712,21 @@ pub(super) fn style(ctx: &egui::Context) {
             widgets.active.bg_stroke = egui::Stroke::new(1.0, ink::forest(dark));
             style.spacing.button_padding = egui::vec2(6.0, 2.0);
             style.spacing.item_spacing = egui::vec2(6.0, 4.0);
+            // The notes are set as Desktop's notebook sets its pages: body text a size that
+            // reads at a glance, and small print a step under it rather than a squint.
+            for (text_style, size) in [
+                (egui::TextStyle::Body, 14.0),
+                (egui::TextStyle::Button, 13.5),
+                (egui::TextStyle::Heading, 20.0),
+                (egui::TextStyle::Small, 12.0),
+            ] {
+                style
+                    .text_styles
+                    .insert(text_style, egui::FontId::proportional(size));
+            }
+            style
+                .text_styles
+                .insert(egui::TextStyle::Monospace, egui::FontId::monospace(13.0));
         });
     }
 }

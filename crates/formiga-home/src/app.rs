@@ -604,7 +604,7 @@ impl HomeApp {
                 self.zoom_controls(ui, page, layout.unit);
                 self.cells(ui, page, layout.unit);
                 ui.scope_builder(egui::UiBuilder::new().max_rect(layout.notes), |ui| {
-                    self.notes(ui, &ctx, layout.unit);
+                    self.notes(ui, &ctx, layout.right, layout.unit);
                 });
                 self.help_note(ui, &ctx, layout.notes, layout.unit);
                 self.status_line(ui, &layout);
@@ -718,6 +718,7 @@ mod arranging;
 mod cells;
 mod events;
 mod keys;
+pub(super) mod lines;
 mod living;
 mod menu;
 mod notebook;

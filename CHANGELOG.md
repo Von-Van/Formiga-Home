@@ -31,6 +31,18 @@ changes.
   for every house: oak parquet and a sage wainscot.
 - A small mark on the board's tab when something on it is new or ready, a quiet line when a
   stage becomes ready, and one when a new souvenir from Formiga Hill counts towards a project.
+- The notes page's ruled lines scroll with what is written on it. They were painted with the cover,
+  so scrolling a long page slid its words across lines that stayed put; now each line stays under
+  whatever it was under, worn in the same places as it goes.
+- Each page of the notes keeps its own place: scrolling down the furniture, turning to the rooms
+  and back finds the furniture where it was, and a short page is never opened part of the way down
+  because a long one was.
+- What is written on the notes sits on the page's ruled lines: each line of the journal, each
+  resident's name with their portrait standing on the line, what the chosen one is doing, the
+  houses next door and the hints at the foot. The notes are set in a larger type, body text at
+  14 points and small print at 12, as Desktop's notebook is.
+- Quieter words on the notes read as easily as the rest, darker by daylight and lighter after dark,
+  and the mode tab not chosen is lettered more brightly on the leather.
 
 ## 0.67.6 (2026-10-12)
 

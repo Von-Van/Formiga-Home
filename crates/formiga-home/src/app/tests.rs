@@ -936,3 +936,78 @@ fn a_ready_project_is_finished_from_the_board_and_stays_finished() {
     assert!(has_hearth(&again.app));
     assert_eq!(hearth.done(home_of(&again.app.state, again.app.keeper)), 1);
 }
+
+impl Harness {
+    /// Turns the mouse wheel down by `points` over `at`, and lets the scroll settle.
+    fn scroll(&mut self, at: Pos2, points: f32) {
+        self.step(vec![Event::PointerMoved(at)]);
+        self.step(vec![Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -points),
+            phase: egui::TouchPhase::Move,
+            modifiers: Modifiers::NONE,
+        }]);
+        self.wait(1.0);
+    }
+
+    /// The tops of the notes page's ruled lines, last frame.
+    fn ruled_lines(&self) -> Vec<f32> {
+        let dark = self.ctx.global_style().visuals.dark_mode;
+        let rule = crate::art::notebook::palette(dark).rule;
+        let rule = egui::Color32::from_rgb(rule.r, rule.g, rule.b);
+        let mut tops: Vec<f32> = Vec::new();
+        for clipped in &self.output.as_ref().expect("a frame").shapes {
+            if let egui::Shape::Mesh(mesh) = &clipped.shape {
+                for vertex in &mesh.vertices {
+                    if vertex.color == rule
+                        && !tops.iter().any(|top| (top - vertex.pos.y).abs() < 0.5)
+                    {
+                        tops.push(vertex.pos.y);
+                    }
+                }
+            }
+        }
+        tops.sort_by(f32::total_cmp);
+        // Each line is a row of rectangles, a top and a bottom edge apiece: keep the tops.
+        tops.into_iter().step_by(2).collect()
+    }
+}
+
+#[test]
+fn the_notes_ruling_scrolls_with_the_writing_and_each_page_keeps_its_place() {
+    let data = scratch("ruling");
+    let mut window = Harness::open(&data);
+    window.arrange();
+    window.turn_to(Drawer::Furniture);
+    window.wait(0.2);
+    let heading = window
+        .text("TABLES")
+        .expect("the furniture page has tables");
+    let lines = window.ruled_lines();
+    assert!(lines.len() > 10, "{lines:?}");
+    // How far below the heading the next line is: it stays so, however far the page scrolls.
+    let gap = |heading: Pos2, lines: &[f32]| {
+        lines
+            .iter()
+            .map(|line| line - heading.y)
+            .find(|gap| *gap > 0.0)
+            .expect("a line under the heading")
+    };
+    let before = gap(heading, &lines);
+    window.scroll(heading, 100.0);
+    let scrolled = window.text("TABLES").expect("still on the page");
+    assert!(scrolled.y < heading.y - 50.0, "{heading:?} → {scrolled:?}");
+    let after = gap(scrolled, &window.ruled_lines());
+    assert!((after - before).abs() <= 1.0, "{before} → {after}");
+    // Another page has a place of its own, and the furniture is where it was left.
+    window.turn_to(Drawer::Room);
+    window.wait(0.2);
+    window.turn_to(Drawer::Furniture);
+    window.wait(0.2);
+    let back = window.text("TABLES").expect("back on the furniture page");
+    assert!(
+        (back.y - scrolled.y).abs() <= 1.0,
+        "{scrolled:?} → {back:?}"
+    );
+    let _ = std::fs::remove_dir_all(&data);
+}
