@@ -143,7 +143,7 @@ pub(super) fn label_job(text: &str, size: f32, color: egui::Color32) -> egui::te
 /// A section's printed label on a page.
 pub(super) fn kicker(ui: &mut egui::Ui, text: &str) {
     let dark = ui.visuals().dark_mode;
-    ui.label(label_job(text, LABEL, ink::forest(dark)));
+    super::lines::write(ui, label_job(text, LABEL, ink::forest(dark)));
 }
 
 /// The painted cover, kept until the window changes size or a control on it changes.
@@ -697,6 +697,21 @@ pub(super) fn style(ctx: &egui::Context) {
             widgets.active.bg_stroke = egui::Stroke::new(1.0, ink::forest(dark));
             style.spacing.button_padding = egui::vec2(6.0, 2.0);
             style.spacing.item_spacing = egui::vec2(6.0, 4.0);
+            // The notes are set as Desktop's notebook sets its pages: body text a size that
+            // reads at a glance, and small print a step under it rather than a squint.
+            for (text_style, size) in [
+                (egui::TextStyle::Body, 14.0),
+                (egui::TextStyle::Button, 13.5),
+                (egui::TextStyle::Heading, 20.0),
+                (egui::TextStyle::Small, 12.0),
+            ] {
+                style
+                    .text_styles
+                    .insert(text_style, egui::FontId::proportional(size));
+            }
+            style
+                .text_styles
+                .insert(egui::TextStyle::Monospace, egui::FontId::monospace(13.0));
         });
     }
 }

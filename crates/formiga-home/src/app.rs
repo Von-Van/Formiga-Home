@@ -709,6 +709,7 @@ mod arranging;
 mod cells;
 mod events;
 mod keys;
+pub(super) mod lines;
 mod living;
 mod menu;
 mod notebook;

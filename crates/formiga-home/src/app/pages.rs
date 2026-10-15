@@ -4,6 +4,7 @@
 //! and the rooms, each a page of small pictures rather than a list, with what each one is kept
 //! for when it is pointed at.
 
+use super::lines;
 use super::notebook::{LABEL, ink, kicker, label_job};
 use super::*;
 use crate::art::{displays, shell};
@@ -139,19 +140,29 @@ impl HomeApp {
         let scrolled = egui::ScrollArea::vertical()
             .id_salt(("notes", self.mode as u8, self.page() as u8))
             .auto_shrink([false, false])
-            .show(ui, |ui| match self.mode {
-                Mode::Live if self.live_page == Drawer::Journal => self.journal_page(ui, unit),
-                Mode::Live => self.household_page(ui, ctx, unit),
-                Mode::Arrange => {
-                    match self.drawer {
-                        Drawer::Furniture => self.furniture_page(ui, ctx, unit),
-                        Drawer::Room => self.rooms_page(ui, ctx, unit),
-                        _ => self.finds_page(ui, ctx, unit),
+            .show(ui, |ui| {
+                // What is written on the page finds its ruled lines through the grid.
+                use crate::art::notebook::{FIRST_RULE, RULE_PITCH};
+                lines::RuleGrid {
+                    top: ui.max_rect().top() + (FIRST_RULE - RULE_PITCH) as f32 * unit,
+                    pitch: RULE_PITCH as f32 * unit,
+                }
+                .keep(ui.ctx());
+                match self.mode {
+                    Mode::Live if self.live_page == Drawer::Journal => self.journal_page(ui, unit),
+                    Mode::Live => self.household_page(ui, ctx, unit),
+                    Mode::Arrange => {
+                        match self.drawer {
+                            Drawer::Furniture => self.furniture_page(ui, ctx, unit),
+                            Drawer::Room => self.rooms_page(ui, ctx, unit),
+                            _ => self.finds_page(ui, ctx, unit),
+                        }
+                        ui.add_space(10.0);
+                        self.arranging_foot(ui);
                     }
-                    ui.add_space(10.0);
-                    self.arranging_foot(ui);
                 }
             });
+        lines::RuleGrid::forget(ui.ctx());
         let top = scrolled.inner_rect.top() - scrolled.state.offset.y;
         painter.set(slot, ruling(ui, page, top, ruled, unit));
     }
@@ -207,7 +218,8 @@ impl HomeApp {
         let journal = home_of(&self.state, self.keeper).journal.clone();
         kicker(ui, "Journal");
         if journal.is_empty() {
-            ui.label(
+            lines::write(
+                ui,
                 egui::RichText::new(
                     "Nothing written yet. Friends who come over, keepsakes, new rooms and \
                      favourites are noted here.",
@@ -223,19 +235,21 @@ impl HomeApp {
             let day = crate::journal::day_of(entry.at_utc);
             if last != Some(day) {
                 if last.is_some() {
+                    // A line left blank between days.
                     ui.add_space(3.0 * unit);
                 }
-                ui.label(
+                lines::write(
+                    ui,
                     egui::RichText::new(crate::journal::heading(day, today))
                         .small()
                         .color(ink::forest(dark)),
                 );
                 last = Some(day);
             }
-            ui.label(crate::journal::line(
-                &entry.moment,
-                &self.household.snapshot,
-            ));
+            lines::write(
+                ui,
+                crate::journal::line(&entry.moment, &self.household.snapshot),
+            );
         }
     }
 
@@ -259,22 +273,19 @@ impl HomeApp {
         kicker(ui, "Next door");
         let dark = ui.visuals().dark_mode;
         let mut going = None;
-        ui.horizontal_wrapped(|ui| {
+        lines::ruled_row(ui, |ui| {
             // A house's name moves to the next line whole rather than breaking.
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             ui.spacing_mut().item_spacing.x = 10.0;
             for (keeper, name) in &houses {
-                let link = ui
-                    .add(
-                        egui::Label::new(
-                            egui::RichText::new(name.as_str())
-                                .underline()
-                                .color(ink::forest(dark)),
-                        )
-                        .sense(egui::Sense::click()),
-                    )
-                    .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    .on_hover_text(format!("Go over to {name}"));
+                let link = lines::write_with(
+                    ui,
+                    egui::RichText::new(name.as_str())
+                        .underline()
+                        .color(ink::forest(dark)),
+                    egui::Sense::click(),
+                )
+                .on_hover_text(format!("Go over to {name}"));
                 if link.clicked() {
                     going = Some(*keeper);
                 }
@@ -308,7 +319,6 @@ impl HomeApp {
                 continue;
             }
             kicker(ui, heading);
-            ui.add_space(2.0);
             for id in ids {
                 self.resident_row(ui, ctx, id, unit);
                 if self.selected == Some(id) {
@@ -322,7 +332,8 @@ impl HomeApp {
             Some(_) => "Click something in the house to see what they could do.",
             None => "Choose someone, then something in the house.",
         };
-        ui.label(
+        lines::write(
+            ui,
             egui::RichText::new(hint)
                 .small()
                 .italics()
@@ -335,20 +346,18 @@ impl HomeApp {
     /// mouse and keys can do.
     fn help_button(&mut self, ui: &mut egui::Ui) {
         let dark = ui.visuals().dark_mode;
-        ui.add_space(4.0);
         let word = if self.help {
             "Put the note away"
         } else {
             "How to\u{2026}"
         };
-        let response = ui.add(
-            egui::Label::new(
-                egui::RichText::new(word)
-                    .small()
-                    .underline()
-                    .color(ink::forest(dark)),
-            )
-            .sense(egui::Sense::click()),
+        let response = lines::write_with(
+            ui,
+            egui::RichText::new(word)
+                .small()
+                .underline()
+                .color(ink::forest(dark)),
+            egui::Sense::click(),
         );
         if response.clicked() {
             self.help = !self.help;
@@ -436,8 +445,8 @@ impl HomeApp {
         let name = resident.name.clone();
         let little = resident.is_little();
         let visitor = self.household.is_visitor(id);
-        let size = egui::vec2(ui.available_width(), 22.0 * unit);
-        let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+        // Two lines of the page: the portrait stands on the lower one, and the name rests on it.
+        let rect = lines::band(ui, 2.0, 22.0 * unit);
         let response = ui.interact(rect, egui::Id::new(("resident", id)), egui::Sense::click());
         let chosen = self.selected == Some(id);
         if chosen {
@@ -448,7 +457,10 @@ impl HomeApp {
                 .rect_filled(rect, 0.0, ink::mint(dark).gamma_multiply(0.3));
         }
         if let Some((texture, pixels)) = self.portrait(ctx, id) {
-            let frame = egui::Rect::from_min_size(rect.min, egui::vec2(22.0 * unit, 22.0 * unit));
+            let frame = egui::Rect::from_min_max(
+                egui::pos2(rect.left(), rect.bottom() - 22.0 * unit),
+                egui::pos2(rect.left() + 22.0 * unit, rect.bottom()),
+            );
             let shown = pixels * unit;
             let at = egui::Rect::from_min_size(
                 egui::pos2(frame.center().x - shown.x / 2.0, frame.bottom() - shown.y),
@@ -467,7 +479,7 @@ impl HomeApp {
             egui::FontId::proportional(14.0),
             ink::page(dark),
         );
-        let y = rect.center().y - galley.size().y / 2.0;
+        let y = lines::on_rule(&galley, rect.bottom());
         let name_width = galley.size().x;
         ui.painter()
             .galley(egui::pos2(text_left, y), galley, ink::page(dark));
@@ -488,7 +500,7 @@ impl HomeApp {
                 egui::FontId::proportional(11.5),
                 ink::muted(dark),
             );
-            let y = rect.center().y - galley.size().y / 2.0 + 1.0;
+            let y = lines::on_rule(&galley, rect.bottom());
             ui.painter().galley(
                 egui::pos2(text_left + name_width + 6.0, y),
                 galley,
@@ -541,18 +553,22 @@ impl HomeApp {
         let house = self.house.clone();
         let snapshot = self.household.snapshot.clone();
         {
-            ui.spacing_mut().item_spacing.y = 2.0;
-            ui.label(
+            lines::write(
+                ui,
                 egui::RichText::new(phrase)
                     .size(12.0)
                     .italics()
                     .color(ink::muted(dark)),
             );
             if !doing.is_empty() {
-                ui.label(egui::RichText::new(self.in_which_room(id, doing)).size(12.0));
+                lines::write(
+                    ui,
+                    egui::RichText::new(self.in_which_room(id, doing)).size(12.0),
+                );
             }
             if !liked.is_empty() {
-                ui.label(
+                lines::write(
+                    ui,
                     egui::RichText::new(format!("Likes {}", and_list(liked)))
                         .size(12.0)
                         .color(ink::muted(dark)),
@@ -560,11 +576,10 @@ impl HomeApp {
             }
             let queue = self.life.queue(id);
             if !queue.is_empty() {
-                ui.add_space(2.0);
-                ui.label(label_job("Asked", LABEL, ink::forest(dark)));
+                lines::write(ui, label_job("Asked", LABEL, ink::forest(dark)));
                 let mut cancel = None;
                 for (position, act) in queue.iter().enumerate() {
-                    ui.horizontal(|ui| {
+                    lines::ruled_row(ui, |ui| {
                         if ui
                             .small_button("\u{2715}")
                             .on_hover_text("Take this back")
@@ -572,7 +587,8 @@ impl HomeApp {
                         {
                             cancel = Some(position);
                         }
-                        ui.label(
+                        lines::write(
+                            ui,
                             egui::RichText::new(act.label(&self.household, &house, &snapshot))
                                 .size(12.0),
                         );

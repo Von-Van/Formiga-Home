@@ -12,6 +12,10 @@ version is tagged.
 - Each page of the notes keeps its own place: scrolling down the furniture, turning to the rooms
   and back finds the furniture where it was, and a short page is never opened part of the way down
   because a long one was.
+- What is written on the notes sits on the page's ruled lines: each line of the journal, each
+  resident's name with their portrait standing on the line, what the chosen one is doing, the
+  houses next door and the hints at the foot. The notes are set in a larger type, body text at
+  14 points and small print at 12, as Desktop's notebook is.
 - Quieter words on the notes read as easily as the rest, darker by daylight and lighter after dark,
   and the mode tab not chosen is lettered more brightly on the leather.
 
