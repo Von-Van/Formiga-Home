@@ -7,6 +7,7 @@
 //! stands. Choosing one opens what it asks for, how far along each is, and what finishing it
 //! gives. Below them, what the household has made, for good.
 
+use super::lines;
 use super::notebook::{LABEL, ink, kicker, label_job};
 use super::pages::{and_list, crisp, cropped, tile};
 use super::*;
@@ -152,7 +153,8 @@ impl HomeApp {
         let dark = ui.visuals().dark_mode;
         kicker(ui, "Projects");
         if !self.keeps_projects() {
-            ui.label(
+            lines::write(
+                ui,
                 egui::RichText::new(
                     "Projects are kept by Formiga Desktop 0.67.7 and newer. Once Desktop is up \
                      to date, the household can take them on here.",
@@ -184,7 +186,7 @@ impl HomeApp {
             }
         }
         let mut finish = None;
-        for project in shown {
+        for project in &shown {
             let open = self.project_chosen == Some(project.id);
             let row = self.project_row(ui, ctx, project, open, new.contains(&project.id), unit);
             if row.clicked() {
@@ -195,19 +197,12 @@ impl HomeApp {
                 }
             }
             if open && self.project_details(ui, project, unit) {
-                finish = Some(project);
+                finish = Some(*project);
             }
-            ui.add_space(2.0 * unit);
         }
-        let hidden = PROJECTS.len() - {
-            let facts = self.facts();
-            PROJECTS
-                .iter()
-                .filter(|project| project.standing(&facts) != Standing::Hidden)
-                .count()
-        };
-        if hidden > 0 {
-            ui.label(
+        if shown.len() < PROJECTS.len() {
+            lines::write(
+                ui,
                 egui::RichText::new("More appear as the household makes the house its own.")
                     .small()
                     .italics()
@@ -220,8 +215,9 @@ impl HomeApp {
         }
     }
 
-    /// One project on the board: a picture of what it makes next, its name, and where it
-    /// stands. The whole row chooses it.
+    /// One project on the board, two lines of the page: a picture of what it makes next standing
+    /// on the lower one, its name on the upper with a dot for each stage, and where it stands on
+    /// the lower. The whole row chooses it.
     fn project_row(
         &mut self,
         ui: &mut egui::Ui,
@@ -236,66 +232,100 @@ impl HomeApp {
             let facts = self.facts();
             (project.standing(&facts), project.done(facts.home))
         };
-        let picture = picture_of(project, done);
-        let size = egui::vec2(24.0 * unit, 24.0 * unit);
-        let response = ui
-            .horizontal(|ui| {
-                let (response, rect) =
-                    tile(ui, egui::Id::new(("project", project.id)), size, open, unit);
-                if let Some(piece) = picture {
-                    let (texture, pixels) =
-                        self.thumbnail(ctx, format!("piece:{}", piece.id), || {
-                            cropped(crate::art::furniture::draw(piece, false).canvas)
-                        });
-                    let shown = crisp(ui, pixels, size - egui::vec2(5.0, 5.0) * unit, 2.0);
-                    ui.painter().image(
-                        texture,
-                        egui::Rect::from_center_size(rect.center(), shown),
-                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                        if standing == Standing::Finished || done > 0 {
-                            egui::Color32::WHITE
-                        } else {
-                            egui::Color32::from_white_alpha(110)
-                        },
-                    );
-                }
-                let text = ui
-                    .vertical(|ui| {
-                        ui.spacing_mut().item_spacing.y = 1.0;
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(project.name).strong());
-                            if new {
-                                ui.label(label_job("New", LABEL - 1.5, ink::stamp(dark)));
-                            }
-                        });
-                        let (line, colour) = match standing {
-                            Standing::Ready(stage) => (
-                                format!("Ready: {}", project.stages[stage].name),
-                                ink::forest(dark),
-                            ),
-                            Standing::Underway(stage) => (
-                                format!(
-                                    "{} of {}: {}",
-                                    stage + 1,
-                                    project.stages.len(),
-                                    project.stages[stage].name
-                                ),
-                                ink::muted(dark),
-                            ),
-                            Standing::Finished => ("Finished".to_owned(), ink::muted(dark)),
-                            Standing::Hidden => (String::new(), ink::muted(dark)),
-                        };
-                        ui.label(egui::RichText::new(line).size(12.0).color(colour));
-                        pips(ui, project.stages.len(), done, standing, unit);
-                    })
-                    .response;
-                response.union(ui.interact(
-                    text.rect,
-                    egui::Id::new(("project text", project.id)),
-                    egui::Sense::click(),
-                ))
-            })
-            .inner;
+        let rect = lines::band(ui, 2.0, 24.0 * unit);
+        let response = ui.interact(
+            rect,
+            egui::Id::new(("project", project.id)),
+            egui::Sense::click(),
+        );
+        if open {
+            ui.painter()
+                .rect_filled(rect, 0.0, ink::mint(dark).gamma_multiply(0.55));
+        } else if response.hovered() {
+            ui.painter()
+                .rect_filled(rect, 0.0, ink::mint(dark).gamma_multiply(0.3));
+        }
+        let first_rule = rect.top() + rect.height() / 2.0;
+        // The picture, on a slip of card standing on the lower line.
+        let size = egui::vec2(rect.height(), rect.height());
+        let card = egui::Rect::from_min_size(rect.min, size);
+        let mut card_ui = ui.new_child(egui::UiBuilder::new().max_rect(card));
+        let (_, at) = tile(
+            &mut card_ui,
+            egui::Id::new(("project tile", project.id)),
+            size,
+            open,
+            unit,
+        );
+        if let Some(piece) = picture_of(project, done) {
+            let (texture, pixels) = self.thumbnail(ctx, format!("piece:{}", piece.id), || {
+                cropped(crate::art::furniture::draw(piece, false).canvas)
+            });
+            let shown = crisp(ui, pixels, size - egui::vec2(5.0, 5.0) * unit, 2.0);
+            ui.painter().image(
+                texture,
+                egui::Rect::from_center_size(at.center(), shown),
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                if done > 0 {
+                    egui::Color32::WHITE
+                } else {
+                    egui::Color32::from_white_alpha(110)
+                },
+            );
+        }
+        let left = rect.left() + size.x + 4.0 * unit;
+        let name = ui.painter().layout_no_wrap(
+            project.name.to_owned(),
+            egui::FontId::proportional(14.0),
+            ink::page(dark),
+        );
+        let name_width = name.size().x;
+        let y = lines::on_rule(&name, first_rule);
+        ui.painter()
+            .galley(egui::pos2(left, y), name, ink::page(dark));
+        let mut after = left + name_width + 3.0 * unit;
+        after = pips(
+            ui.painter(),
+            egui::pos2(after, first_rule - 4.0 * unit),
+            project.stages.len(),
+            done,
+            standing,
+            unit,
+            dark,
+        ) + 2.0 * unit;
+        if new {
+            let galley = ui
+                .painter()
+                .layout_job(label_job("New", LABEL - 1.5, ink::stamp(dark)));
+            let y = lines::on_rule(&galley, first_rule);
+            ui.painter()
+                .galley(egui::pos2(after, y), galley, ink::stamp(dark));
+        }
+        let (line, colour) = match standing {
+            Standing::Ready(stage) => (
+                format!("Ready: {}", project.stages[stage].name),
+                ink::forest(dark),
+            ),
+            Standing::Underway(stage) => (
+                format!(
+                    "{} of {}: {}",
+                    stage + 1,
+                    project.stages.len(),
+                    project.stages[stage].name
+                ),
+                ink::muted(dark),
+            ),
+            Standing::Finished => ("Finished".to_owned(), ink::muted(dark)),
+            Standing::Hidden => (String::new(), ink::muted(dark)),
+        };
+        let status = ui.painter().layout(
+            line,
+            egui::FontId::proportional(12.0),
+            colour,
+            rect.right() - left,
+        );
+        let y = lines::on_rule(&status, rect.bottom());
+        ui.painter().galley(egui::pos2(left, y), status, colour);
         let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
         response.widget_info(|| {
             egui::WidgetInfo::selected(egui::WidgetType::Button, true, open, project.name)
@@ -304,8 +334,8 @@ impl HomeApp {
     }
 
     /// A chosen project, opened under its row: what it is, what its next stage asks and how far
-    /// along each is, what finishing it gives, and the stages already finished. Whether the owner
-    /// asked to finish the stage.
+    /// along each is, what finishing it gives, and the stages already finished, each on a line
+    /// of the page. Whether the owner asked to finish the stage.
     fn project_details(&mut self, ui: &mut egui::Ui, project: &'static Project, unit: f32) -> bool {
         let dark = ui.visuals().dark_mode;
         let facts = self.facts();
@@ -331,75 +361,79 @@ impl HomeApp {
             })
             .unwrap_or_default();
         let mut asked = false;
-        ui.horizontal(|ui| {
-            ui.add_space(4.0 * unit);
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = 2.0;
-                ui.label(label_job(project.kind.label(), LABEL, ink::forest(dark)));
-                ui.label(
-                    egui::RichText::new(project.about)
-                        .size(12.0)
-                        .italics()
-                        .color(ink::muted(dark)),
-                );
-                if let Some(stage) = project.stages.get(done) {
-                    ui.add_space(2.0);
-                    ui.label(egui::RichText::new(stage.name).strong());
-                    ui.label(egui::RichText::new(stage.about).size(12.0));
-                    for NeedLine {
-                        label,
-                        met,
-                        progress,
-                    } in &lines
-                    {
-                        let text = match progress {
-                            Some((have, want)) if !*met => format!("{label}: {have} of {want}"),
-                            _ => label.clone(),
-                        };
-                        ui.horizontal(|ui| {
-                            mark(ui, *met, unit);
-                            ui.label(egui::RichText::new(text).size(12.0).color(if *met {
+        // Set in under its row, with no rule down the side: the page's own margin is enough.
+        ui.visuals_mut().indent_has_left_vline = false;
+        ui.indent(("project details", project.id), |ui| {
+            kicker(ui, project.kind.label());
+            lines::write(
+                ui,
+                egui::RichText::new(project.about)
+                    .italics()
+                    .color(ink::muted(dark)),
+            );
+            if let Some(stage) = project.stages.get(done) {
+                lines::write(ui, egui::RichText::new(stage.name).strong());
+                lines::write(ui, stage.about);
+                for NeedLine {
+                    label,
+                    met,
+                    progress,
+                } in &lines
+                {
+                    let text = match progress {
+                        Some((have, want)) if !*met => format!("{label}: {have} of {want}"),
+                        _ => label.clone(),
+                    };
+                    lines::ruled_row(ui, |ui| {
+                        mark(ui, *met, unit);
+                        lines::write(
+                            ui,
+                            egui::RichText::new(text).small().color(if *met {
                                 ink::forest(dark)
                             } else {
                                 ink::muted(dark)
-                            }));
-                        });
-                    }
-                    if matches!(standing, Standing::Ready(_)) {
-                        ui.add_space(2.0);
-                        // Something new is built; something there already is finished.
-                        let verb = match project.kind {
-                            Kind::Construction | Kind::Legacy if done == 0 => "Build it",
-                            _ => "Finish it",
-                        };
-                        asked = ui
-                            .button(verb)
-                            .on_hover_text("Whenever you like: nothing waits on it")
-                            .clicked();
-                    }
-                }
-                if !finished.is_empty() {
-                    ui.add_space(2.0);
-                    for (stage, at) in project.stages.iter().zip(&finished) {
-                        let when = crate::journal::heading(
-                            crate::journal::day_of(*at),
-                            crate::journal::day_of(OffsetDateTime::now_utc()),
+                            }),
                         );
-                        ui.horizontal(|ui| {
-                            mark(ui, true, unit);
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "{}, {}",
-                                    stage.name,
-                                    when.to_lowercase()
-                                ))
-                                .size(12.0)
-                                .color(ink::muted(dark)),
-                            );
-                        });
-                    }
+                    });
                 }
-            });
+                if matches!(standing, Standing::Ready(_)) {
+                    // Something new is built; something there already is finished.
+                    let verb = match project.kind {
+                        Kind::Construction | Kind::Legacy if done == 0 => "Build it",
+                        _ => "Finish it",
+                    };
+                    let band = lines::band(ui, 2.0, 24.0 * unit);
+                    let pitch = band.height() / 2.0;
+                    let galley = ui.painter().layout_no_wrap(
+                        verb.to_owned(),
+                        egui::FontId::proportional(13.5),
+                        ink::page(dark),
+                    );
+                    let button = egui::Rect::from_min_size(
+                        egui::pos2(band.left(), band.bottom() - pitch * 1.5),
+                        egui::vec2(galley.size().x + 12.0 * unit, pitch * 1.3),
+                    );
+                    asked = ui
+                        .put(button, egui::Button::new(verb))
+                        .on_hover_text("Whenever you like: nothing waits on it")
+                        .clicked();
+                }
+            }
+            if !finished.is_empty() {
+                let today = crate::journal::day_of(OffsetDateTime::now_utc());
+                for (stage, at) in project.stages.iter().zip(&finished) {
+                    let when = crate::journal::heading(crate::journal::day_of(*at), today);
+                    lines::ruled_row(ui, |ui| {
+                        mark(ui, true, unit);
+                        lines::write(
+                            ui,
+                            egui::RichText::new(format!("{}, {}", stage.name, when.to_lowercase()))
+                                .small()
+                                .color(ink::muted(dark)),
+                        );
+                    });
+                }
+            }
         });
         asked
     }
@@ -429,23 +463,24 @@ impl HomeApp {
         if !self.made_shown_whole {
             made.truncate(LATEST);
         }
-        ui.add_space(6.0);
         kicker(ui, "Made at home");
         let today = crate::journal::day_of(OffsetDateTime::now_utc());
         let mut last = None;
         for (at, stage, project) in made {
             let day = crate::journal::day_of(at);
             if last != Some(day) {
-                ui.label(
+                lines::write(
+                    ui,
                     egui::RichText::new(crate::journal::heading(day, today))
                         .small()
                         .color(ink::forest(dark)),
                 );
                 last = Some(day);
             }
-            ui.label(
+            lines::write(
+                ui,
                 egui::RichText::new(format!("{stage}, for {}", project.the()))
-                    .size(12.0)
+                    .small()
                     .color(ink::muted(dark)),
             );
         }
@@ -455,17 +490,14 @@ impl HomeApp {
             } else {
                 format!("All {all}")
             };
-            let link = ui
-                .add(
-                    egui::Label::new(
-                        egui::RichText::new(words)
-                            .small()
-                            .underline()
-                            .color(ink::forest(dark)),
-                    )
-                    .sense(egui::Sense::click()),
-                )
-                .on_hover_cursor(egui::CursorIcon::PointingHand);
+            let link = lines::write_with(
+                ui,
+                egui::RichText::new(words)
+                    .small()
+                    .underline()
+                    .color(ink::forest(dark)),
+                egui::Sense::click(),
+            );
             if link.clicked() {
                 self.made_shown_whole = !self.made_shown_whole;
             }
@@ -495,48 +527,52 @@ fn picture_of(project: &Project, done: usize) -> Option<&'static catalog::Piece>
         })
 }
 
-/// A mark before a line of what a stage asks: filled once the household has it, a ring until it
-/// does. Painted, as the notebook's lettering has no tick.
+/// A mark before a line of what a stage asks, on that line: filled once the household has it, a
+/// ring until it does. Painted, as the notebook's lettering has no tick.
 fn mark(ui: &mut egui::Ui, met: bool, unit: f32) {
     let dark = ui.visuals().dark_mode;
-    let (rect, _) =
-        ui.allocate_exact_size(egui::vec2(4.0 * unit, 4.0 * unit), egui::Sense::hover());
+    let height = lines::RuleGrid::of(ui.ctx()).map_or(4.0 * unit, |grid| grid.pitch);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(5.0 * unit, height), egui::Sense::hover());
+    let centre = egui::pos2(rect.center().x, rect.bottom() - 4.5 * unit);
     let radius = 1.3 * unit;
     if met {
         ui.painter()
-            .circle_filled(rect.center(), radius, ink::forest(dark));
+            .circle_filled(centre, radius, ink::forest(dark));
     } else {
         ui.painter().circle_stroke(
-            rect.center(),
+            centre,
             radius,
             egui::Stroke::new(unit * 0.6, ink::muted(dark)),
         );
     }
 }
 
-/// A dot for each stage: filled for each finished, ringed for one ready.
-fn pips(ui: &mut egui::Ui, stages: usize, done: usize, standing: Standing, unit: f32) {
-    let dark = ui.visuals().dark_mode;
-    let gap = 5.0 * unit;
-    let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(gap * stages as f32, 4.0 * unit),
-        egui::Sense::hover(),
-    );
+/// A dot for each stage, from `at`: filled for each finished, ringed for one ready. Where they
+/// end.
+fn pips(
+    painter: &egui::Painter,
+    at: egui::Pos2,
+    stages: usize,
+    done: usize,
+    standing: Standing,
+    unit: f32,
+    dark: bool,
+) -> f32 {
+    let gap = 4.5 * unit;
+    let radius = 1.3 * unit;
     for stage in 0..stages {
-        let centre = rect.left_center() + egui::vec2(gap * (stage as f32 + 0.5), 0.0);
-        let radius = 1.5 * unit;
+        let centre = at + egui::vec2(gap * (stage as f32 + 0.5), 0.0);
         if stage < done {
-            ui.painter()
-                .circle_filled(centre, radius, ink::forest(dark));
+            painter.circle_filled(centre, radius, ink::forest(dark));
         } else if standing == Standing::Ready(stage) {
-            ui.painter()
-                .circle_stroke(centre, radius, egui::Stroke::new(unit, ink::stamp(dark)));
+            painter.circle_stroke(centre, radius, egui::Stroke::new(unit, ink::stamp(dark)));
         } else {
-            ui.painter().circle_stroke(
+            painter.circle_stroke(
                 centre,
                 radius,
-                egui::Stroke::new(unit * 0.6, ink::line(dark)),
+                egui::Stroke::new(unit * 0.6, ink::muted(dark)),
             );
         }
     }
+    at.x + gap * stages as f32
 }
