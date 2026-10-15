@@ -41,6 +41,7 @@ enum Drawer {
     Furniture,
     Finds,
     Room,
+    Designs,
     Household,
     Projects,
     Journal,
@@ -108,6 +109,14 @@ pub struct HomeApp {
     snap_zoom: i32,
     /// For review: an hour and month to show instead of the clock's.
     fixed_daylight: Option<crate::daylight::Daylight>,
+    /// The layout gallery: designs saved here or opened from a file.
+    designs: crate::designs::Gallery,
+    /// A design shown in the house before it is used, if one is.
+    trying: Option<designs::Trying>,
+    /// The name being written for the next design saved.
+    design_name: String,
+    /// The design in the gallery the owner has asked to remove, until they say so again.
+    removing: Option<usize>,
 }
 
 /// Now, to the second, as the journal keeps time.
@@ -186,6 +195,10 @@ impl HomeApp {
             last: 0.0,
             last_recall_check: 0.0,
             place: data.as_deref().and_then(WindowPlace::load),
+            designs: crate::designs::Gallery::open(data.as_deref()),
+            trying: None,
+            design_name: String::new(),
+            removing: None,
             data,
             left: false,
             opened_at_utc: now_utc(),
@@ -261,6 +274,7 @@ impl HomeApp {
                 self.arranging.carrying = None;
                 self.arranging.dragged = false;
                 self.placing = None;
+                self.trying = None;
                 self.life.resume(&self.house, &self.household.snapshot, now);
                 self.keep();
             }
@@ -317,6 +331,8 @@ impl HomeApp {
             .room_page
             .min(self.house.rooms.len().saturating_sub(1) as u8);
         self.life.make_room(&self.house);
+        // A design being tried was fitted to the house as it was.
+        self.trying = None;
         self.keep();
         self.say(notice);
     }
@@ -338,12 +354,19 @@ impl HomeApp {
         (texture.id(), size)
     }
 
-    /// The house as it is drawn just now: the one being built, if a room is being placed.
+    /// The house as it is drawn just now: the one being built, if a room is being placed, or
+    /// the one a design would make, if one is being tried.
     fn shown_house(&self) -> House {
         match &self.placing {
             Some((places, shown)) => House::of(&places[*shown].rooms),
-            None => self.house_as_seen(),
+            None => self.tried_house().unwrap_or_else(|| self.house_as_seen()),
         }
+    }
+
+    /// Whether the house shown is only a picture of what could be: nothing in it can be picked
+    /// up.
+    fn only_shown(&self) -> bool {
+        self.placing.is_some() || self.tried_house().is_some()
     }
 
     fn room_view(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
@@ -372,12 +395,12 @@ impl HomeApp {
         let released = ctx.input(|input| input.pointer.primary_released());
 
         let snapshot = self.household.snapshot.clone();
-        if self.menu.is_none() && self.placing.is_none() {
+        if self.menu.is_none() && !self.only_shown() {
             self.hovered = pixel.and_then(|point| {
                 self.scene
                     .hit(&house, &snapshot, &mut self.life.actors, now, point)
             });
-        } else if self.placing.is_some() {
+        } else if self.only_shown() {
             self.hovered = None;
         }
 
@@ -397,8 +420,16 @@ impl HomeApp {
                     .as_ref()
                     .map(|(places, _)| (places[0].rooms.len() - 1) as u8);
             }
+            Mode::Arrange if self.only_shown() => {
+                if let Some(trying) = &self.trying
+                    && !trying.design.whole_house
+                    && house.rooms.len() > 1
+                {
+                    overlay.chosen_room = Some(trying.room);
+                }
+            }
             Mode::Arrange => {
-                if self.drawer == Drawer::Room && house.rooms.len() > 1 {
+                if matches!(self.drawer, Drawer::Room | Drawer::Designs) && house.rooms.len() > 1 {
                     overlay.chosen_room = Some(self.room_page);
                 }
                 self.arrange_pointer(&response, pointer, released);
@@ -716,6 +747,7 @@ impl Drop for HomeApp {
 
 mod arranging;
 mod cells;
+mod designs;
 mod events;
 mod keys;
 pub(super) mod lines;

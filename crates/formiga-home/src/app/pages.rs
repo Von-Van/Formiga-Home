@@ -158,6 +158,7 @@ impl HomeApp {
                         match self.drawer {
                             Drawer::Furniture => self.furniture_page(ui, ctx, unit),
                             Drawer::Room => self.rooms_page(ui, ctx, unit),
+                            Drawer::Designs => self.designs_page(ui, unit),
                             _ => self.finds_page(ui, ctx, unit),
                         }
                         ui.add_space(10.0);

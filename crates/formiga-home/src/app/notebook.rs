@@ -174,10 +174,11 @@ pub(super) struct Layout {
 }
 
 /// The pages of the notes when arranging, and what their tabs say.
-pub(super) const PAGES: [(Drawer, &str); 3] = [
-    (Drawer::Finds, "Found things"),
+pub(super) const PAGES: [(Drawer, &str); 4] = [
+    (Drawer::Finds, "Finds"),
     (Drawer::Furniture, "Furniture"),
     (Drawer::Room, "Rooms"),
+    (Drawer::Designs, "Designs"),
 ];
 
 /// The pages of the notes when living in the house.
@@ -569,6 +570,7 @@ impl HomeApp {
                     Mode::Arrange => {
                         self.drawer = drawer;
                         self.placing = None;
+                        self.trying = None;
                     }
                 }
             }

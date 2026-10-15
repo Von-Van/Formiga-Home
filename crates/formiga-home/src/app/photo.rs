@@ -13,6 +13,7 @@ impl HomeApp {
             Some("finds") => Some(Drawer::Finds),
             Some("furniture") => Some(Drawer::Furniture),
             Some("rooms") => Some(Drawer::Room),
+            Some("designs") => Some(Drawer::Designs),
             Some("journal") => {
                 self.live_page = Drawer::Journal;
                 None

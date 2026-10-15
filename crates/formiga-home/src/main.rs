@@ -9,8 +9,6 @@ mod art;
 mod catalog;
 mod character;
 mod daylight;
-// The gallery is not on a page of the window yet.
-#[allow(dead_code)]
 mod designs;
 mod host;
 mod house;
@@ -57,9 +55,10 @@ Usage: formiga-home [--sample | --formiga-home <VISIT DIRECTORY> | --from-save <
   --rooms <N>              With --render-room or a rehearsal: the house grown to N rooms (up to 3)
   --snap <PNG>             Open the window, and after --at seconds (3 if not given) save a
                            picture of the window itself and close, for review
-  --page <PAGE>            With --snap: open arranging, on finds, furniture or rooms; or the
+  --page <PAGE>            With --snap: open arranging, on finds, furniture, rooms or designs; or the
                            journal, or the project board, or a project on it opened, by its
                            id (project.hearth)
+  --try <FILE>             With --snap: the designs page, trying the design in FILE in the house
   --theme <THEME>          With --snap: the notebook light or dark, whatever the household's
                            own preference
   --zoom <STEPS>           With --snap: the house that many whole pixels closer than fits
@@ -96,6 +95,7 @@ struct Args {
     rooms: usize,
     snap: Option<PathBuf>,
     page: Option<String>,
+    try_design: Option<PathBuf>,
     theme: Option<String>,
     zoom: i32,
     hour: Option<f32>,
@@ -134,6 +134,7 @@ fn parse_args(mut args: impl Iterator<Item = std::ffi::OsString>) -> Result<Opti
         rooms: 1,
         snap: None,
         page: None,
+        try_design: None,
         theme: None,
         zoom: 0,
         hour: None,
@@ -193,6 +194,7 @@ fn parse_args(mut args: impl Iterator<Item = std::ffi::OsString>) -> Result<Opti
             Some("--theme") => {
                 parsed.theme = Some(value(&mut args, "--theme")?.to_string_lossy().into());
             }
+            Some("--try") => parsed.try_design = Some(value(&mut args, "--try")?),
             Some("--page") => {
                 parsed.page = Some(value(&mut args, "--page")?.to_string_lossy().into());
             }
@@ -380,6 +382,9 @@ fn main() -> Result<()> {
                     args.page.as_deref(),
                     args.zoom,
                 );
+                if let Some(file) = &args.try_design {
+                    app.try_file(file);
+                }
                 match args.theme.as_deref() {
                     Some("dark") => cc.egui_ctx.set_theme(eframe::egui::ThemePreference::Dark),
                     Some("light") => cc.egui_ctx.set_theme(eframe::egui::ThemePreference::Light),
