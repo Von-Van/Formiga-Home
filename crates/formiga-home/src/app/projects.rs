@@ -66,8 +66,8 @@ impl HomeApp {
         if let Some(project) = now_ready {
             let stage = project.stages[project.done(home_of(&self.state, self.keeper))].name;
             self.say(format!(
-                "{stage}, for the {}, is ready on the project board.",
-                project.name.to_lowercase()
+                "{stage}, for {}, is ready on the project board.",
+                project.the()
             ));
         }
     }
@@ -90,10 +90,7 @@ impl HomeApp {
             projects::heard_of_souvenirs(&snapshot, home);
         }
         if let Some((souvenir, counts)) = news {
-            let names: Vec<String> = counts
-                .iter()
-                .map(|project| format!("the {}", project.name.to_lowercase()))
-                .collect();
+            let names: Vec<String> = counts.iter().map(|project| project.the()).collect();
             self.say(format!(
                 "The {} from Formiga Hill counts towards {}.",
                 projects::souvenir_name(&souvenir).to_lowercase(),
@@ -355,18 +352,18 @@ impl HomeApp {
                         progress,
                     } in &lines
                     {
-                        let mark = if *met { "\u{2713}" } else { "\u{25CB}" };
                         let text = match progress {
-                            Some((have, want)) if !*met => {
-                                format!("{mark} {label}: {have} of {want}")
-                            }
-                            _ => format!("{mark} {label}"),
+                            Some((have, want)) if !*met => format!("{label}: {have} of {want}"),
+                            _ => label.clone(),
                         };
-                        ui.label(egui::RichText::new(text).size(12.0).color(if *met {
-                            ink::forest(dark)
-                        } else {
-                            ink::muted(dark)
-                        }));
+                        ui.horizontal(|ui| {
+                            mark(ui, *met, unit);
+                            ui.label(egui::RichText::new(text).size(12.0).color(if *met {
+                                ink::forest(dark)
+                            } else {
+                                ink::muted(dark)
+                            }));
+                        });
                     }
                     if matches!(standing, Standing::Ready(_)) {
                         ui.add_space(2.0);
@@ -384,19 +381,22 @@ impl HomeApp {
                 if !finished.is_empty() {
                     ui.add_space(2.0);
                     for (stage, at) in project.stages.iter().zip(&finished) {
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "\u{2713} {}, {}",
-                                stage.name,
-                                crate::journal::heading(
-                                    crate::journal::day_of(*at),
-                                    crate::journal::day_of(OffsetDateTime::now_utc())
-                                )
-                                .to_lowercase()
-                            ))
-                            .size(12.0)
-                            .color(ink::muted(dark)),
+                        let when = crate::journal::heading(
+                            crate::journal::day_of(*at),
+                            crate::journal::day_of(OffsetDateTime::now_utc()),
                         );
+                        ui.horizontal(|ui| {
+                            mark(ui, true, unit);
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{}, {}",
+                                    stage.name,
+                                    when.to_lowercase()
+                                ))
+                                .size(12.0)
+                                .color(ink::muted(dark)),
+                            );
+                        });
                     }
                 }
             });
@@ -404,12 +404,13 @@ impl HomeApp {
         asked
     }
 
-    /// Every stage the household has finished, newest first: what it has made of its home, kept
-    /// for good.
+    /// Every stage the household has finished, newest first under the day it was finished: what
+    /// it has made of its home, kept for good. The latest few, until the rest are asked for.
     fn made_at_home(&mut self, ui: &mut egui::Ui) {
+        const LATEST: usize = 3;
         let dark = ui.visuals().dark_mode;
         let home = home_of(&self.state, self.keeper);
-        let mut made: Vec<(OffsetDateTime, &'static str, &'static str)> = PROJECTS
+        let mut made: Vec<(OffsetDateTime, &'static str, &'static Project)> = PROJECTS
             .iter()
             .filter_map(|project| project.record(home).map(|record| (project, record)))
             .flat_map(|(project, record)| {
@@ -417,26 +418,57 @@ impl HomeApp {
                     .stages
                     .iter()
                     .zip(project.stages)
-                    .map(move |(done, stage)| (done.at_utc, stage.name, project.name))
+                    .map(move |(done, stage)| (done.at_utc, stage.name, project))
             })
             .collect();
         if made.is_empty() {
             return;
         }
         made.sort_by_key(|(at, ..)| std::cmp::Reverse(*at));
+        let all = made.len();
+        if !self.made_shown_whole {
+            made.truncate(LATEST);
+        }
         ui.add_space(6.0);
         kicker(ui, "Made at home");
         let today = crate::journal::day_of(OffsetDateTime::now_utc());
+        let mut last = None;
         for (at, stage, project) in made {
+            let day = crate::journal::day_of(at);
+            if last != Some(day) {
+                ui.label(
+                    egui::RichText::new(crate::journal::heading(day, today))
+                        .small()
+                        .color(ink::forest(dark)),
+                );
+                last = Some(day);
+            }
             ui.label(
-                egui::RichText::new(format!(
-                    "{}: {stage}, for the {}",
-                    crate::journal::heading(crate::journal::day_of(at), today),
-                    project.to_lowercase()
-                ))
-                .size(12.0)
-                .color(ink::muted(dark)),
+                egui::RichText::new(format!("{stage}, for {}", project.the()))
+                    .size(12.0)
+                    .color(ink::muted(dark)),
             );
+        }
+        if all > LATEST {
+            let words = if self.made_shown_whole {
+                "Only the latest".to_owned()
+            } else {
+                format!("All {all}")
+            };
+            let link = ui
+                .add(
+                    egui::Label::new(
+                        egui::RichText::new(words)
+                            .small()
+                            .underline()
+                            .color(ink::forest(dark)),
+                    )
+                    .sense(egui::Sense::click()),
+                )
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
+            if link.clicked() {
+                self.made_shown_whole = !self.made_shown_whole;
+            }
         }
     }
 }
@@ -461,6 +493,25 @@ fn picture_of(project: &Project, done: usize) -> Option<&'static catalog::Piece>
             Gift::Piece(id) | Gift::Upgrade { to: id, .. } => catalog::piece(&CatalogId::known(id)),
             Gift::Finish(_) => None,
         })
+}
+
+/// A mark before a line of what a stage asks: filled once the household has it, a ring until it
+/// does. Painted, as the notebook's lettering has no tick.
+fn mark(ui: &mut egui::Ui, met: bool, unit: f32) {
+    let dark = ui.visuals().dark_mode;
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(4.0 * unit, 4.0 * unit), egui::Sense::hover());
+    let radius = 1.3 * unit;
+    if met {
+        ui.painter()
+            .circle_filled(rect.center(), radius, ink::forest(dark));
+    } else {
+        ui.painter().circle_stroke(
+            rect.center(),
+            radius,
+            egui::Stroke::new(unit * 0.6, ink::muted(dark)),
+        );
+    }
 }
 
 /// A dot for each stage: filled for each finished, ringed for one ready.

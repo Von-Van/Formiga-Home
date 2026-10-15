@@ -286,7 +286,9 @@ pub(super) fn lay_out(ui: &egui::Ui, house: &str, mode: Mode) -> (Layout, Spread
     // Clear of the mode tabs, too, where the notebook is narrow for its text.
     let mut along = (right.0 + 6).max(along + 4);
     for &(drawer, name) in pages(mode) {
-        let wide = width_of(label_job(name, LABEL, ink::page(dark))) + 6;
+        // The project board's tab keeps room at its end for the mark it may carry.
+        let mark = if drawer == Drawer::Projects { 4 } else { 0 };
+        let wide = width_of(label_job(name, LABEL, ink::page(dark))) + 6 + mark;
         page_tabs.push((drawer, (along, top - 7, wide, 7)));
         along += wide + 1;
     }
@@ -544,17 +546,21 @@ impl HomeApp {
                 ink::muted(dark)
             };
             let galley = ui.painter().layout_job(label_job(name, LABEL, colour));
-            let label_at = rect.center() - galley.size() / 2.0 + egui::vec2(0.0, layout.unit);
-            // A small mark on the board's tab while it has something new or ready on it.
-            if drawer == Drawer::Projects && self.board_wants_a_look() {
-                ui.painter().circle_filled(
-                    egui::pos2(
-                        label_at.x + galley.size().x + 2.5 * layout.unit,
-                        label_at.y + 1.5 * layout.unit,
-                    ),
-                    1.5 * layout.unit,
-                    ink::stamp(dark),
-                );
+            let mut label_at = rect.center() - galley.size() / 2.0 + egui::vec2(0.0, layout.unit);
+            if drawer == Drawer::Projects {
+                label_at.x -= 2.0 * layout.unit;
+                // A small mark at the end of the board's tab while it has something new or
+                // ready on it.
+                if self.board_wants_a_look() {
+                    ui.painter().circle_filled(
+                        egui::pos2(
+                            label_at.x + galley.size().x + 2.5 * layout.unit,
+                            rect.center().y,
+                        ),
+                        1.2 * layout.unit,
+                        ink::stamp(dark),
+                    );
+                }
             }
             ui.painter().galley(label_at, galley, colour);
             if response.clicked() {

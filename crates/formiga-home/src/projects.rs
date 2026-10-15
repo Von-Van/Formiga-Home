@@ -238,11 +238,8 @@ pub static PROJECTS: [Project; 5] = [
             },
             Stage {
                 name: "Feather pillows",
-                about: "Plump pillows, stuffed with feathers like the one from the swing.",
-                needs: &[
-                    Need::Souvenir("swing_feather"),
-                    Need::Counted(Count::Rests, 14),
-                ],
+                about: "A second pillow on every bed, plump with feathers.",
+                needs: &[Need::Counted(Count::Rests, 14), Need::Days(12)],
                 gifts: &[Gift::Upgrade {
                     from: &["bed", "quilt_bed"],
                     to: "feather_bed",
@@ -283,9 +280,10 @@ pub static PROJECTS: [Project; 5] = [
             },
             Stage {
                 name: "Harvest supper",
-                about: "A bowl of acorns and apples, and a candle, for when friends come.",
+                about: "A bowl of apples, a candle, and a brass bell like the high striker's, to \
+                        ring when supper is ready.",
                 needs: &[
-                    Need::Souvenir("oak_acorn"),
+                    Need::Souvenir("striker_bell"),
                     Need::Counted(Count::Snacks, 12),
                     Need::Counted(Count::Visits, 3),
                 ],
@@ -456,6 +454,16 @@ pub enum Standing {
 impl Project {
     pub fn catalog_id(&self) -> CatalogId {
         CatalogId::known(self.id)
+    }
+
+    /// Its name, as a sentence goes on: "the window garden", "the hearth".
+    pub fn the(&self) -> String {
+        let name = self.name.to_lowercase();
+        if name.starts_with("the ") {
+            name
+        } else {
+            format!("the {name}")
+        }
     }
 
     /// The household's record of it, if the board has shown it.

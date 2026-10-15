@@ -420,7 +420,8 @@ fn canopy_bed(easel: &mut Easel, piece: &Piece, away: bool) -> Easel {
 }
 
 /// The low table, dressed: a gingham cloth over it, hanging over its edges, and for a harvest
-/// supper a bowl of acorns and apples in the middle and a candle behind it.
+/// supper a bowl of acorns and apples in the middle, a candle behind it, and a little brass bell
+/// to ring for supper.
 fn family_table(easel: &mut Easel, harvest: bool) {
     low_table(easel);
     // The cloth: a skin over the top, and a drop down the two faces that can be seen.
@@ -478,6 +479,12 @@ fn family_table(easel: &mut Easel, harvest: bool) {
     paint::put(&mut easel.canvas, cx, cy - 2, BRASS.shine);
     paint::put(&mut easel.canvas, cx, cy - 3, rgb(0xfff4c8));
     paint::put(&mut easel.canvas, cx - 1, cy - 2, TERRACOTTA.light);
+    // The supper bell, beside the candle.
+    let (sx, sy) = easel.pixel(1.22, 0.24, 11.5);
+    paint::hline(&mut easel.canvas, sx - 1, sy - 1, 3, BRASS.base);
+    paint::hline(&mut easel.canvas, sx - 1, sy - 2, 3, BRASS.light);
+    paint::put(&mut easel.canvas, sx, sy - 3, BRASS.shine);
+    paint::put(&mut easel.canvas, sx, sy - 4, WALNUT.base);
     // The bowl of acorns and apples, low in the middle, clear of the table's two places.
     easel.cylinder((1.0, 0.5), (3.0, 4.5), (11.5, 14.0), WICKER);
     easel.disc((1.0, 0.5), 4.5, 14.0, WICKER.light);

@@ -55,7 +55,8 @@ Usage: formiga-home [--sample | --formiga-home <VISIT DIRECTORY> | --from-save <
   --snap <PNG>             Open the window, and after --at seconds (3 if not given) save a
                            picture of the window itself and close, for review
   --page <PAGE>            With --snap: open arranging, on finds, furniture or rooms; or the
-                           journal, or the project board
+                           journal, or the project board, or a project on it opened, by its
+                           id (project.hearth)
   --theme <THEME>          With --snap: the notebook light or dark, whatever the household's
                            own preference
   --zoom <STEPS>           With --snap: the house that many whole pixels closer than fits

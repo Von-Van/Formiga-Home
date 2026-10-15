@@ -21,6 +21,11 @@ impl HomeApp {
                 self.live_page = Drawer::Projects;
                 None
             }
+            Some(id) if crate::projects::project(id).is_some() => {
+                self.live_page = Drawer::Projects;
+                self.project_chosen = crate::projects::project(id).map(|project| project.id);
+                None
+            }
             _ => None,
         };
         if let Some(page) = page {

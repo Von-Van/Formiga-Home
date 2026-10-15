@@ -99,6 +99,8 @@ pub struct HomeApp {
     indoors_said: Option<Vec<Id>>,
     /// The project opened on the project board, if one is.
     project_chosen: Option<&'static str>,
+    /// Whether the board lists everything made at home, or only the latest.
+    made_shown_whole: bool,
     _open: Option<store::Open>,
     /// For review: a picture of the window itself to save, and when, after which it closes; and
     /// how many steps closer than fits to show the house in it.
@@ -191,6 +193,7 @@ impl HomeApp {
             move_in: None,
             indoors_said: None,
             project_chosen: None,
+            made_shown_whole: false,
             _open: open,
             snap: None,
             snap_zoom: 0,

@@ -91,9 +91,11 @@ pub fn line(moment: &HomeMoment, snapshot: &HomeSnapshot) -> String {
         HomeMoment::Project { project, stage } => {
             match crate::projects::project(project.as_str()) {
                 Some(project) if usize::from(*stage) >= project.stages.len() => {
+                    let the = project.the();
                     format!(
-                        "The {} was finished, for good.",
-                        project.name.to_lowercase()
+                        "{}{} was finished, for good.",
+                        the[..1].to_uppercase(),
+                        &the[1..]
                     )
                 }
                 Some(project) => {
@@ -101,7 +103,7 @@ pub fn line(moment: &HomeMoment, snapshot: &HomeSnapshot) -> String {
                         .stages
                         .get(usize::from(*stage).saturating_sub(1))
                         .map_or("A project", |stage| stage.name);
-                    format!("{name}: done, for the {}.", project.name.to_lowercase())
+                    format!("{name}: done, for {}.", project.the())
                 }
                 None => "A project was finished.".to_owned(),
             }
