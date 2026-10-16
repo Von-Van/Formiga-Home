@@ -967,6 +967,53 @@ fn a_ready_project_is_finished_from_the_board_and_stays_finished() {
     assert_eq!(hearth.done(home_of(&again.app.state, again.app.keeper)), 1);
 }
 
+#[test]
+fn a_stage_a_visit_readies_is_said_rather_than_lost_under_the_arrival() {
+    use crate::projects::{self, Count};
+    use formiga_home_contract::StageDone;
+    let data = scratch("visit-readies");
+    let mut window = Harness::open(&data);
+    let theatre = projects::project("project.puppet_theatre").unwrap();
+    let friend = window.app.household.visitors[0].id;
+    // The booth built, and the curtains wanting only one more friend come over.
+    let home = window.app.state.household_mut(window.app.keeper).unwrap();
+    projects::seen(home, theatre);
+    home.projects
+        .iter_mut()
+        .find(|record| record.project == theatre.catalog_id())
+        .unwrap()
+        .stages
+        .push(StageDone {
+            at_utc: OffsetDateTime::now_utc(),
+        });
+    for _ in 0..16 {
+        projects::count(home, Count::Games);
+    }
+    projects::count(home, Count::Visits);
+    window.click_id(egui::Id::new(("cell", friend)));
+    let said = |window: &Harness, what: &str| {
+        window
+            .app
+            .notice
+            .as_ref()
+            .is_some_and(|(notice, _)| notice.contains(what))
+    };
+    let mut waited = 0.0;
+    while !said(&window, "has come over") && !said(&window, "project board") && waited < 30.0 {
+        window.wait(0.1);
+        waited += 0.1;
+    }
+    assert_eq!(
+        window
+            .app
+            .notice
+            .as_ref()
+            .map(|(notice, _)| notice.as_str()),
+        Some("Fairground curtains, for the puppet theatre, is ready on the project board.")
+    );
+    let _ = std::fs::remove_dir_all(&data);
+}
+
 impl Harness {
     /// Turns the mouse wheel down by `points` over `at`, and lets the scroll settle.
     fn scroll(&mut self, at: Pos2, points: f32) {
