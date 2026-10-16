@@ -4,6 +4,21 @@ This page records what changed in each version of Formiga Home. Each version's s
 its release notes: `.github/workflows/release.yml` publishes it alongside the downloads when the
 version is tagged.
 
+## 0.67.9 (2026-10-16)
+
+Home is built on Formiga Desktop 0.67.9 and still reads household version 11 and travel version 5,
+so it works with the same visits as before.
+
+- What hangs on a far wall (frames, postcards, ribbons, Battle medals, photos) now lies along the
+  wall, slanting as its top does, instead of sitting over it face-on. Frames have a slim moulding
+  and only as much mount as fits, so frames side by side meet rather than overlap.
+- Using a saved design in a room keeps any furniture a newer Home put there, and fits the design
+  around it.
+- If Home can't write the list of who is indoors (a busy file on Windows, say), it tries again
+  instead of leaving Desktop showing the wrong companions outside.
+- A project stage readied by a visitor's arrival or a sleepover now shows its "ready on the project
+  board" notice, where before the arrival notice hid it. The arrival still goes in the journal.
+
 ## 0.67.8 (2026-10-15)
 
 Home is built on Formiga Desktop 0.67.8 and reads household version 11, which offers the keepsakes
