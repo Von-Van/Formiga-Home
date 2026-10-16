@@ -12,6 +12,24 @@ things the colony has found, let the house grow a room or two over time, and spe
 directing the residents more closely than Desktop ever does. When you stop directing them, they
 simply get on with their own lives.
 
+![A two-room house, lived in: a sofa and armchair, a glass case of finds, frames on the walls, and two residents at home](docs/assets/house.png)
+
+## Download
+
+Home needs [Formiga Desktop](https://github.com/Von-Van/Formiga-Desktop) 0.67.0 or newer, and is
+best kept at the same version. Open the [Releases page](https://github.com/Von-Van/Formiga-Home/releases)
+and pick the file for your computer:
+
+- **macOS** — download the `.dmg`, open it, and drag Formiga Home to Applications.
+- **Windows** — download the `.msi` and run it. It installs for you alone, with no administrator
+  prompt.
+
+That is all: Desktop finds Home on its own, and clicking a house in its village opens it. Each
+download has a matching `.sha256` file to check it against. These builds are not code-signed yet,
+so the first launch needs one extra step: on macOS, Control-click the app and choose **Open** (on
+macOS 15 and later, choose **Open Anyway** under System Settings → Privacy & Security); on Windows,
+choose **More info → Run anyway**.
+
 ## What it offers
 
 - **The same creatures, not lookalikes.** Every resident is drawn from exactly what Desktop sends
@@ -82,7 +100,7 @@ same rules Desktop would use, so a rehearsal proves the same loop a real visit w
 | Going next door, and friends staying over | Released |
 | The household contract (`formiga-home-contract`) | Desktop's, since Desktop 0.67.0; Home takes it by Desktop's release tag |
 | Opening a house from Desktop's village | In Desktop from 0.67.0 |
-| Packaging for macOS | Run end to end: a universal, signed `Formiga Home.app` with Desktop's bundle id and contract version, a zip and a disk image, each with its checksum; the packaged app answers a visit from a session directory |
+| Packaging for macOS | Run end to end: a universal `Formiga Home.app`, ad-hoc signed unless a signing identity is given, with Desktop's bundle id and contract version, a zip and a disk image, each with its checksum; the packaged app answers a visit from a session directory |
 | Packaging for Windows | A per-user installer and a portable zip, each with its checksum; the installer has been run on Windows |
 
 ## A visit
@@ -244,8 +262,10 @@ otherwise drawn at midday in June, so it is the same every time, and the window 
 
 The notebook itself can be pictured too. `--snap <PNG>` opens the window, waits `--at` seconds,
 saves a picture of just that window and closes. A window opened this way stays behind everything
-else and ignores the mouse and keyboard. `--page finds|furniture|rooms` opens it in Arrange Mode
-and `--page journal` on the Journal, `--theme light|dark` sets its theme, `--zoom <steps>` brings
+else and ignores the mouse and keyboard. `--page finds|furniture|rooms|designs` opens it in
+Arrange Mode, `--page journal` on the Journal, `--page projects` on the project board and
+`--page <project id>` (such as `project.hearth`) on one project, `--try <design file>` tries that
+design on the Designs page, `--theme light|dark` sets its theme, `--zoom <steps>` brings
 the house that many pixels closer, `--lived-in` starts a rehearsal that has no house yet in the
 lived-in one, and `--rooms` grows a rehearsal's house first. Give it a scratch `FORMIGA_HOME_DATA_DIR` so the
 rehearsal it opens is its own.
@@ -336,3 +356,9 @@ cargo test --workspace
 
 The household contract, with its tests and its saved example documents for every version (its
 "golden fixtures"), lives in Formiga Desktop's workspace, and changes there.
+
+## License
+
+MIT. See [LICENSE](LICENSE). Formiga Home is a personal project and does not take outside pull
+requests, but forks are welcome: everything needed to build and change it is under
+[Developing](#developing) above.
