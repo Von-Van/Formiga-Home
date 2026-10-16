@@ -4,6 +4,14 @@ This page records what changed in each version of Formiga Home. Each version's s
 its release notes: `.github/workflows/release.yml` publishes it alongside the downloads when the
 version is tagged.
 
+## 0.67.11 (2026-10-16)
+
+Home is built on Formiga Desktop 0.67.11 and still reads household version 11 and travel version 5,
+so it works with the same visits as before.
+
+- Using a saved design keeps what is shown on furniture a newer Home put in the room, instead of
+  moving it off.
+
 ## 0.67.9 (2026-10-16)
 
 Home is built on Formiga Desktop 0.67.9 and still reads household version 11 and travel version 5,
