@@ -2877,7 +2877,8 @@ fn toy_like(item: &DisplayItem) -> bool {
         DisplaySource::DesktopFind { variant } => TOYS.contains(variant),
         DisplaySource::HillSouvenir { id } => id == "chest_marble",
         DisplaySource::HomeMemento { memento } => *memento == MementoKind::Pebble,
-        DisplaySource::Unknown => false,
+        // A cup's trophy or medal is looked at, not played with.
+        DisplaySource::BattleKeepsake { .. } | DisplaySource::Unknown => false,
     }
 }
 

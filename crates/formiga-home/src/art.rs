@@ -8,6 +8,7 @@
 //! colours. A piece is drawn once from the front and once from behind; its two other turns are
 //! those seen in a mirror.
 
+pub mod battle;
 pub mod cues;
 pub mod displays;
 pub mod furniture;
