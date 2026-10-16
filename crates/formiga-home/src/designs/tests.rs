@@ -307,6 +307,99 @@ fn a_piece_a_newer_home_put_in_the_room_stays_where_it_is() {
     );
 }
 
+/// One of the colony's things the design shows in its first room.
+fn shown_in_design(design: &Design, snapshot: &HomeSnapshot) -> DisplayId {
+    design.rooms[0]
+        .displays
+        .iter()
+        .filter(|shown| matches!(shown.spot, Spot::On { .. }))
+        .map(|shown| shown.item.clone())
+        .find(|item| item.source() != DisplayId::MEMENTO && snapshot.item(item).is_some())
+        .expect("the lived-in house shows something on a piece")
+}
+
+/// A piece this Home does not know, put in the first room by a newer one.
+fn newer_piece(home: &HouseholdHome) -> PlacedPiece {
+    PlacedPiece {
+        uid: placement::next_uid(home),
+        piece: CatalogId::parse("hammock_of_the_future").unwrap(),
+        x: 0,
+        y: 0,
+        turn: 0,
+    }
+}
+
+#[test]
+fn what_a_newer_homes_piece_holds_stays_on_it() {
+    let (snapshot, mut state) = lived_in();
+    let keeper = keeper(&snapshot);
+    let design = Design::of(
+        state.household(keeper).unwrap(),
+        Scope::Room(0),
+        "Held",
+        at(),
+    );
+    let item = shown_in_design(&design, &snapshot);
+    // Since the design was saved, a newer Home has put the thing on a piece of its own.
+    let home = state.household_mut(keeper).unwrap();
+    let newer = newer_piece(home);
+    home.take_down(&item);
+    home.rooms[0].pieces.push(newer.clone());
+    let on_it = PlacedDisplay {
+        item: item.clone(),
+        spot: Spot::On {
+            piece: newer.uid,
+            slot: 0,
+        },
+    };
+    home.rooms[0].displays.push(on_it.clone());
+    let fitted = fit(&design, &state, keeper, &snapshot, 0).unwrap();
+    let everywhere: Vec<&PlacedDisplay> = fitted
+        .home
+        .rooms
+        .iter()
+        .flat_map(|layout| &layout.displays)
+        .filter(|shown| shown.item == item)
+        .collect();
+    assert_eq!(everywhere, vec![&on_it]);
+    assert!(!fitted.put_away.contains(&item));
+    assert!(fitted.moved.is_empty());
+}
+
+#[test]
+fn what_a_newer_homes_piece_holds_next_door_stays_there() {
+    let (snapshot, mut state) = lived_in();
+    let keeper = keeper(&snapshot);
+    let design = Design::of(
+        state.household(keeper).unwrap(),
+        Scope::House,
+        "Held next door",
+        at(),
+    );
+    let item = shown_in_design(&design, &snapshot);
+    // The thing went next door since, onto a piece this Home does not know.
+    let mut next_door = state.household(keeper).unwrap().clone();
+    next_door.keeper = TravelerId(keeper.0 + 1000);
+    for layout in &mut next_door.rooms {
+        layout.displays.clear();
+    }
+    next_door.mementos.clear();
+    let newer = newer_piece(&next_door);
+    next_door.rooms[0].pieces.push(newer.clone());
+    next_door.rooms[0].displays.push(PlacedDisplay {
+        item: item.clone(),
+        spot: Spot::On {
+            piece: newer.uid,
+            slot: 0,
+        },
+    });
+    state.household_mut(keeper).unwrap().take_down(&item);
+    state.set_household(next_door.clone());
+    let fitted = fit(&design, &state, keeper, &snapshot, 0).unwrap();
+    assert!(!fitted.home.shown().any(|shown| shown == &item));
+    assert!(fitted.moved.is_empty());
+}
+
 #[test]
 fn a_bigger_room_fits_into_a_smaller_one_as_far_as_it_can() {
     let (snapshot, mut state) = lived_in();
