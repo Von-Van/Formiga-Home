@@ -6,10 +6,8 @@
 # Local [patch] overrides pointing at a Desktop checkout; see README.md.
 /.cargo/config.toml
 
-# Claude Code's own folder: its settings and the worktrees it makes for parallel work
+# Local notes, tool settings and design documents, kept out of git.
 .claude/
-
-# Notes for Claude Code and design documents are kept locally, never in git.
 /CLAUDE.md
 /AGENTS.md
 /docs/DESIGN.md

@@ -373,6 +373,7 @@ pub struct Fitted {
 /// room, or one room into the house's room `room`. Everything else about the household is left
 /// as it is: its likings, keepsakes, journal and projects, its walls and its doorways. A piece
 /// already there that the design has too keeps its name, so what anyone thought of it stays.
+/// A piece a newer Home put there, which this one does not know, is left where it is.
 pub fn fit(
     design: &Design,
     state: &HomeState,
@@ -396,8 +397,17 @@ pub fn fit(
     let mut shown_before = Vec::new();
     for target in targets.iter().flatten() {
         let layout = &mut home.rooms[*target];
-        shown_before.extend(layout.displays.drain(..).map(|shown| shown.item));
-        layout.pieces.clear();
+        // A piece a newer Home has stays where it is, with whatever is shown on it, and the
+        // design is fitted around it.
+        layout
+            .pieces
+            .retain(|placed| catalog::piece(&placed.piece).is_none());
+        let left: Vec<u16> = layout.pieces.iter().map(|placed| placed.uid).collect();
+        let (kept, cleared): (Vec<_>, Vec<_>) = layout.displays.drain(..).partition(
+            |shown| matches!(shown.spot, Spot::On { piece, .. } if left.contains(&piece)),
+        );
+        layout.displays = kept;
+        shown_before.extend(cleared.into_iter().map(|shown| shown.item));
     }
     for (planned, target) in design.rooms.iter().zip(&targets) {
         let Some(target) = *target else {
