@@ -4,6 +4,24 @@ This page records what changed in each version of Formiga Home. Each version's s
 its release notes: `.github/workflows/release.yml` publishes it alongside the downloads when the
 version is tagged.
 
+## 0.67.8 (2026-10-15)
+
+Home is built on Formiga Desktop 0.67.8 and reads household version 11, which offers the keepsakes
+a colony won in Formiga Battle, and travel version 5. Designs are kept in Home's own data folder,
+so nothing about them reaches Desktop.
+
+- A Designs page in Arrange Mode. The whole house, or one room, can be saved to a gallery by name:
+  its sizes, finishes and pieces, and where the colony's things are shown, but never the keepsakes
+  themselves or anyone who lives there. A design is tried in the house first, with anything it
+  cannot bring named and why, and used as one change that undo takes back.
+- Share saves a design as a file to pass on, and a design file opened is tried in the house before
+  it is used or kept. The finds tab is now called Finds, to make room for Designs.
+- Formiga Battle's cup trophies and medals, for the Backyard, Woodland, Millpond and Sandy Cove
+  Cups. A trophy is a little brass cup on its arena's own stand (a wooden plinth, a mossy stump, a
+  millstone and driftwood), and a medal hangs on its cup's own ribbon. They can be set down, hung,
+  carded or framed like any other find, and a keepsake this Home does not know yet still gets its
+  card.
+
 ## 0.67.7 (2026-10-15)
 
 Home is built on Formiga Desktop 0.67.7 and reads household version 10, which keeps a household's
