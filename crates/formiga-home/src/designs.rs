@@ -373,7 +373,8 @@ pub struct Fitted {
 /// room, or one room into the house's room `room`. Everything else about the household is left
 /// as it is: its likings, keepsakes, journal and projects, its walls and its doorways. A piece
 /// already there that the design has too keeps its name, so what anyone thought of it stays.
-/// A piece a newer Home put there, which this one does not know, is left where it is.
+/// A piece a newer Home put there, which this one does not know, is left where it is, and so is
+/// whatever is shown on such a piece anywhere, even where the design shows it somewhere else.
 pub fn fit(
     design: &Design,
     state: &HomeState,
@@ -409,6 +410,15 @@ pub fn fit(
         layout.displays = kept;
         shown_before.extend(cleared.into_iter().map(|shown| shown.item));
     }
+    // What a newer Home's piece holds, in this house or another, stays on it rather than going
+    // where the design had it.
+    let held: Vec<DisplayId> = state
+        .households
+        .iter()
+        .filter(|other| other.keeper != keeper)
+        .chain(std::iter::once(&home))
+        .flat_map(on_unknown_pieces)
+        .collect();
     for (planned, target) in design.rooms.iter().zip(&targets) {
         let Some(target) = *target else {
             omitted.push(Omitted::Room);
@@ -428,6 +438,7 @@ pub fn fit(
             target,
             planned,
             &names,
+            &held,
             (&house, snapshot),
             &mut omitted,
         );
@@ -559,18 +570,38 @@ fn stand(
     })
 }
 
+/// What is shown on pieces this Home does not know, in the house.
+fn on_unknown_pieces(home: &HouseholdHome) -> impl Iterator<Item = DisplayId> + '_ {
+    home.rooms.iter().flat_map(|layout| {
+        layout
+            .displays
+            .iter()
+            .filter(|shown| match shown.spot {
+                Spot::On { piece, .. } => layout
+                    .piece(piece)
+                    .is_some_and(|placed| catalog::piece(&placed.piece).is_none()),
+                _ => false,
+            })
+            .map(|shown| shown.item.clone())
+    })
+}
+
 /// The design's things shown in the room, as far as the colony has them and there is a place
 /// for them: on the piece the design had them on, on the same wall, or on the floor near where
-/// it had them.
+/// it had them. What is `held` on a piece a newer Home put somewhere stays there.
 fn show_things(
     home: &mut HouseholdHome,
     target: usize,
     planned: &RoomLayout,
     names: &[(u16, u16)],
+    held: &[DisplayId],
     (house, snapshot): (&House, &HomeSnapshot),
     omitted: &mut Vec<Omitted>,
 ) {
     for shown in &planned.displays {
+        if held.contains(&shown.item) {
+            continue;
+        }
         let item = snapshot
             .item(&shown.item)
             .filter(|item| item.id.source() != DisplayId::MEMENTO);
