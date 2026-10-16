@@ -243,6 +243,71 @@ fn a_piece_this_home_does_not_know_is_left_out_not_kept() {
 }
 
 #[test]
+fn a_piece_a_newer_home_put_in_the_room_stays_where_it_is() {
+    let (snapshot, mut state) = lived_in();
+    let keeper = keeper(&snapshot);
+    let design = Design::of(
+        state.household(keeper).unwrap(),
+        Scope::Room(0),
+        "Around it",
+        at(),
+    );
+    let home = state.household_mut(keeper).unwrap();
+    // Where the design has its sofa, a newer Home has put something this one does not know,
+    // with something shown on it, and a resident has taken to it.
+    let sofa = home.rooms[0]
+        .pieces
+        .iter()
+        .find(|placed| placed.piece.as_str() == "sofa")
+        .unwrap()
+        .clone();
+    let newer = PlacedPiece {
+        uid: placement::next_uid(home),
+        piece: CatalogId::parse("hammock_of_the_future").unwrap(),
+        x: sofa.x,
+        y: sofa.y,
+        turn: 1,
+    };
+    home.rooms[0].pieces.push(newer.clone());
+    let on_it = PlacedDisplay {
+        item: DisplayId::souvenir("lantern_from_far_away").unwrap(),
+        spot: Spot::On {
+            piece: newer.uid,
+            slot: 0,
+        },
+    };
+    home.rooms[0].displays.push(on_it.clone());
+    home.likings.push(Liking {
+        resident: snapshot.residents[0].id,
+        thing: Liked::Piece {
+            room: 0,
+            uid: newer.uid,
+        },
+        uses: 2,
+    });
+    let before = home.clone();
+    let fitted = fit(&design, &state, keeper, &snapshot, 0).unwrap();
+    let room = &fitted.home.rooms[0];
+    assert_eq!(room.piece(newer.uid), Some(&newer));
+    assert!(room.displays.contains(&on_it));
+    assert!(!fitted.put_away.contains(&on_it.item));
+    assert_eq!(fitted.home.likings, before.likings);
+    let others = room.pieces.iter().filter(|placed| placed.uid != newer.uid);
+    assert!(
+        others
+            .filter(|placed| !catalog::piece(&placed.piece).unwrap().flat)
+            .all(|placed| !placement::footprint(placed).contains(newer.x, newer.y)),
+        "the design is fitted around it"
+    );
+    assert!(
+        room.pieces
+            .iter()
+            .any(|placed| placed.piece.as_str() == "sofa"),
+        "the sofa still comes, nearby"
+    );
+}
+
+#[test]
 fn a_bigger_room_fits_into_a_smaller_one_as_far_as_it_can() {
     let (snapshot, mut state) = lived_in();
     let keeper = keeper(&snapshot);
