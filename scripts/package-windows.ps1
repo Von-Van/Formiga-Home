@@ -25,6 +25,7 @@ Push-Location $RepoDir
 try {
     rustup target add x86_64-pc-windows-msvc
     cargo build --release -p formiga-home --target x86_64-pc-windows-msvc
+    if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
     # The Home version comes from the binary itself, so the installer can never claim another.
     $HomeContractVersion = (& $Exe --home-version).Trim()
     # And so does the icon, from the same picture as the window's.
@@ -33,6 +34,7 @@ try {
     $Icon = Join-Path $IconDir "FormigaHome.ico"
     if ($env:FORMIGA_SIGNTOOL_CERT_SHA1) {
         signtool sign /sha1 $env:FORMIGA_SIGNTOOL_CERT_SHA1 /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $Exe
+        if ($LASTEXITCODE -ne 0) { throw "signtool sign failed for the program" }
     }
     New-Item -ItemType Directory -Force $DistDir | Out-Null
     if (Test-Path $PortableDir) { Remove-Item -Recurse -Force $PortableDir }
@@ -54,8 +56,10 @@ try {
             -arch x64 `
             -o $Installer `
             (Join-Path $RepoDir "packaging\windows\FormigaHome.wxs")
+        if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
         if ($env:FORMIGA_SIGNTOOL_CERT_SHA1) {
             signtool sign /sha1 $env:FORMIGA_SIGNTOOL_CERT_SHA1 /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $Installer
+            if ($LASTEXITCODE -ne 0) { throw "signtool sign failed for the installer" }
         }
         Write-Checksum $Installer
     }
