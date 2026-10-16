@@ -21,6 +21,7 @@ use crate::catalog::Piece;
 use crate::iso::{TILE_H, TILE_W};
 use crate::paint::{self, Ramp};
 use formiga_art::Canvas;
+use formiga_home_contract::WallSide;
 use std::collections::HashMap;
 
 /// A drawing with the point it hangs from: for furniture, the far corner of its footprint.
@@ -55,6 +56,41 @@ impl Sprite {
             anchor: (self.canvas.width() as i32 - self.anchor.0, self.anchor.1),
             over: self.over.as_ref().map(flip),
             lids: self.lids.iter().map(|lid| lid.as_ref().map(flip)).collect(),
+        }
+    }
+
+    /// The same flat drawing laid along a far wall, as the wall itself runs: each column slides
+    /// down half a pixel for every pixel across along the north wall, and up along the west, so
+    /// a picture hung there lies on the wall rather than facing out of it. Whole columns move, so
+    /// what is upright stays upright and no pixel is smeared. Anchored at the same point.
+    pub fn along_wall(&self, side: WallSide) -> Self {
+        let width = self.canvas.width() as i32;
+        let drop = |x: i32| {
+            let across = x - self.anchor.0;
+            match side {
+                WallSide::North => across.div_euclid(2),
+                WallSide::West => (-across).div_euclid(2),
+            }
+        };
+        let (lowest, highest) = (0..width).fold((0, 0), |(low, high), x| {
+            (low.min(drop(x)), high.max(drop(x)))
+        });
+        let height = self.canvas.height() as i32 + highest - lowest;
+        let lay = |canvas: &Canvas| {
+            let mut laid = Canvas::new(width as u32, height as u32);
+            for x in 0..width {
+                let shift = drop(x) - lowest;
+                for y in 0..canvas.height() as i32 {
+                    laid.set(x, y + shift, canvas.get(x, y));
+                }
+            }
+            laid
+        };
+        Self {
+            canvas: lay(&self.canvas),
+            anchor: (self.anchor.0, self.anchor.1 - lowest),
+            over: self.over.as_ref().map(lay),
+            lids: self.lids.iter().map(|lid| lid.as_ref().map(lay)).collect(),
         }
     }
 
@@ -364,4 +400,47 @@ pub mod ramps {
     pub const PEACH: Ramp = Ramp::new(0x9a4a2e, 0xd0724a, 0xe8946a, 0xf4b690, 0xfcd8bc);
     pub const NIGHT: Ramp = Ramp::new(0x141a3a, 0x222b58, 0x323f78, 0x4a5a98, 0x6f80ba);
     pub const MOON: Ramp = Ramp::new(0x9a8a5a, 0xcab98a, 0xe6d8a8, 0xf4ecc8, 0xfffbe8);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_picture_laid_along_a_wall_slants_with_it_and_keeps_its_anchor() {
+        let mut canvas = Canvas::new(9, 3);
+        for y in 0..3 {
+            for x in 0..9 {
+                canvas.set(x, y, paint::rgb(0x8a6a4a));
+            }
+        }
+        let flat = Sprite {
+            canvas,
+            anchor: (4, 1),
+            over: None,
+            lids: Vec::new(),
+        };
+        let top = |sprite: &Sprite, x: i32| {
+            (0..sprite.canvas.height() as i32).find(|&y| sprite.canvas.get(x, y).a > 0)
+        };
+        // Along the north wall it falls to the right, along the west wall it rises, as the
+        // walls' own tops do: a pixel down or up for every two across.
+        for (side, sign) in [(WallSide::North, 1), (WallSide::West, -1)] {
+            let laid = flat.along_wall(side);
+            let (ox, oy) = laid.origin((0, 0));
+            let anchor_top = top(&laid, 4).unwrap() + oy;
+            assert_eq!(anchor_top, -1, "{side:?}: the anchor stays where it was");
+            let left = top(&laid, 0).unwrap();
+            let right = top(&laid, 8).unwrap();
+            assert_eq!((right - left) * sign, 4, "{side:?}");
+            assert_eq!(ox, -4);
+            // Every column keeps all its pixels, upright.
+            for x in 0..9 {
+                let lit = (0..laid.canvas.height() as i32)
+                    .filter(|&y| laid.canvas.get(x, y).a > 0)
+                    .count();
+                assert_eq!(lit, 3, "{side:?}, column {x}");
+            }
+        }
+    }
 }

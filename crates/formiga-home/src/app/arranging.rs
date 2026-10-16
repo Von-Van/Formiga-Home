@@ -177,7 +177,7 @@ impl HomeApp {
             .unwrap_or((point.0 as i32, point.1 as i32));
         let sprite = self
             .scene
-            .thing(&item, place, showing.unwrap_or(Showing::Card))
+            .thing_at(&item, at, place, showing.unwrap_or(Showing::Card))
             .clone();
         let footprint = match at {
             At::Floor { x, y } => Some(placement::Footprint { x, y, w: 1, d: 1 }),

@@ -21,7 +21,7 @@ use crate::iso::View;
 use crate::paint::{self, rgba};
 use crate::placement::{self, Footprint, Place, Showing};
 use formiga_art::{Canvas, Rgba};
-use formiga_home_contract::{DisplayId, DisplayItem, HomeSnapshot};
+use formiga_home_contract::{DisplayId, DisplayItem, HomeSnapshot, WallSide};
 use std::collections::HashMap;
 
 /// How high on a wall something hangs, in pixels above the floor.
@@ -192,7 +192,7 @@ pub struct Scene {
     shell_key: Option<ShellKey>,
     shell: Canvas,
     pieces: PieceCache,
-    things: HashMap<(DisplayId, PlaceKey, Showing), Sprite>,
+    things: HashMap<(DisplayId, PlaceKey, Showing, Option<WallSide>), Sprite>,
     /// The household's keepsakes' pictures, by id: whoever is in each, in their own colours.
     pictures: HashMap<DisplayId, Canvas>,
 }
@@ -233,7 +233,7 @@ impl Scene {
     /// next, so whatever was drawn of any keepsake is drawn again.
     pub fn set_pictures(&mut self, pictures: HashMap<DisplayId, Canvas>) {
         self.things
-            .retain(|(id, _, _), _| id.source() != DisplayId::MEMENTO);
+            .retain(|(id, ..), _| id.source() != DisplayId::MEMENTO);
         self.shell_key = None;
         self.pictures = pictures;
     }
@@ -248,9 +248,38 @@ impl Scene {
 
     /// A thing's picture as it is shown in a place of this kind.
     pub fn thing(&mut self, item: &DisplayItem, place: Place, showing: Showing) -> &Sprite {
-        let key = (item.id.clone(), place.into(), showing);
+        self.drawn(item, place, showing, None)
+    }
+
+    /// A thing's picture as it is shown at a spot in the house: on a wall, laid along it.
+    pub fn thing_at(
+        &mut self,
+        item: &DisplayItem,
+        at: At,
+        place: Place,
+        showing: Showing,
+    ) -> &Sprite {
+        let side = match at {
+            At::Wall { side, .. } => Some(side),
+            At::On { .. } | At::Floor { .. } => None,
+        };
+        self.drawn(item, place, showing, side)
+    }
+
+    fn drawn(
+        &mut self,
+        item: &DisplayItem,
+        place: Place,
+        showing: Showing,
+        side: Option<WallSide>,
+    ) -> &Sprite {
+        let key = (item.id.clone(), place.into(), showing, side);
         if !self.things.contains_key(&key) {
-            let sprite = displays::dress(self.icon(item), item, place, showing);
+            let flat = displays::dress(self.icon(item), item, place, showing);
+            let sprite = match side {
+                Some(side) => flat.along_wall(side),
+                None => flat,
+            };
             self.things.insert(key.clone(), sprite);
         }
         &self.things[&key]
@@ -288,8 +317,8 @@ impl Scene {
         }
         self.view = View::of(house);
         let mut canvas = shell::draw(&self.view, house, backdrop, season);
-        for (item, at) in &key.2 {
-            let At::Wall { room, side, at } = *at else {
+        for (item, hung) in &key.2 {
+            let At::Wall { room, side, at } = *hung else {
                 continue;
             };
             let Some(wall) = house
@@ -305,7 +334,7 @@ impl Scene {
                 continue;
             };
             let at_screen = self.view.on_wall(wall, HANG_HEIGHT);
-            let sprite = self.thing(item, Place::Wall, showing);
+            let sprite = self.thing_at(item, *hung, Place::Wall, showing);
             let (ox, oy) = sprite.origin(at_screen);
             let picture = sprite.canvas.clone();
             paint::blit(&mut canvas, &picture, ox, oy);
@@ -755,7 +784,7 @@ impl Scene {
         let place = house.place_of(shown.at)?;
         let showing = placement::showing(thing, place)?;
         let at = self.spot_anchor(house, shown.at)?;
-        Some((self.thing(thing, place, showing).clone(), at))
+        Some((self.thing_at(thing, shown.at, place, showing).clone(), at))
     }
 
     /// What is under a point of the scene: a resident first, then what is shown, then furniture,

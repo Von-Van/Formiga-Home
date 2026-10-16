@@ -7,11 +7,16 @@
 use super::Sprite;
 use super::ramps::{BRASS, LINEN, OAK, VELVET};
 use super::souvenirs;
+use crate::iso::TILE_W;
 use crate::paint::{self, rgb, rgba};
 use crate::placement::{Place, Showing};
 use formiga_art::{Canvas, TRINKET_CELL, draw_souvenir, draw_trinket};
 use formiga_core::{BattleKeepsake, Souvenir, TRINKET_VARIANTS};
-use formiga_home_contract::{DisplayItem, DisplaySource};
+use formiga_home_contract::{DisplayItem, DisplaySource, WallSide};
+
+/// How wide a stretch of far wall is on screen: one tile's length, seen at its slant. Nothing
+/// hung is wider, so things on neighbouring stretches never overlap.
+pub const STRETCH: i32 = TILE_W / 2;
 
 /// The thing's own picture, cropped to what it covers.
 pub fn icon(item: &DisplayItem) -> Canvas {
@@ -179,10 +184,13 @@ pub(super) fn pinned(icon: &Canvas) -> Sprite {
     }
 }
 
-/// In a little frame on the wall: oak round a cream mount, or round velvet for a souvenir.
+/// In a slim frame on the wall: oak round a cream mount, or brass round velvet for a souvenir.
+/// Never wider than a stretch of wall, so two frames hung side by side meet rather than overlap:
+/// a small thing gets a margin of mount either side of it, a wide one only the moulding.
 fn framed(icon: &Canvas, velvet: bool) -> Sprite {
     let (w, h) = (icon.width() as i32, icon.height() as i32);
-    let (fw, fh) = (w + 8, h + 8);
+    let fw = (w + 6).min(STRETCH).max(w + 2);
+    let fh = h + 6;
     let mut canvas = Canvas::new((fw + 1) as u32, (fh + 1) as u32);
     // A shadow on the wall to the lower right.
     paint::rect(&mut canvas, 1, 1, fw, fh, rgba(0x3a2a24, 55));
@@ -193,15 +201,16 @@ fn framed(icon: &Canvas, velvet: bool) -> Sprite {
     paint::hline(&mut canvas, 0, fh - 1, fw, frame.edge);
     paint::vline(&mut canvas, fw - 1, 0, fh, frame.edge);
     let mount = if velvet { VELVET.base } else { LINEN.light };
-    paint::rect(&mut canvas, 2, 2, fw - 4, fh - 4, mount);
+    paint::rect(&mut canvas, 1, 1, fw - 2, fh - 2, mount);
+    // The moulding's own shadow along the top of the mount.
     paint::hline(
         &mut canvas,
-        2,
-        2,
-        fw - 4,
+        1,
+        1,
+        fw - 2,
         if velvet { VELVET.shadow } else { LINEN.base },
     );
-    paint::blit(&mut canvas, icon, 4, 4);
+    paint::blit(&mut canvas, icon, (fw - w) / 2, 3);
     Sprite {
         canvas,
         anchor: (fw / 2, fh / 2),
@@ -249,7 +258,14 @@ fn card(icon: &Canvas, velvet: bool) -> Sprite {
 /// Every thing the sample colony has, shown every way it can be, for review: `--render-finds`.
 pub fn sheet(items: &[DisplayItem], icon: impl Fn(&DisplayItem) -> Canvas) -> Canvas {
     let cell = (36, 36);
-    let places = [Place::Top, Place::Shelf, Place::Wall, Place::Floor];
+    // Hung things are shown on both far walls, laid along each as the house hangs them.
+    let places = [
+        (Place::Top, None),
+        (Place::Shelf, None),
+        (Place::Wall, Some(WallSide::West)),
+        (Place::Wall, Some(WallSide::North)),
+        (Place::Floor, None),
+    ];
     let columns = places.len() as i32 + 1;
     let mut sheet = Canvas::new(
         (cell.0 * columns) as u32,
@@ -268,11 +284,15 @@ pub fn sheet(items: &[DisplayItem], icon: impl Fn(&DisplayItem) -> Canvas) -> Ca
         let card = dress(icon(item), item, Place::Top, Showing::Card);
         let (ox, oy) = card.origin((cell.0 / 2, top + cell.1 - 6));
         paint::blit(&mut sheet, &card.canvas, ox, oy);
-        for (index, place) in places.into_iter().enumerate() {
+        for (index, (place, side)) in places.into_iter().enumerate() {
             let Some(showing) = crate::placement::showing(item, place) else {
                 continue;
             };
-            let drawn = dress(icon(item), item, place, showing);
+            let flat = dress(icon(item), item, place, showing);
+            let drawn = match side {
+                Some(side) => flat.along_wall(side),
+                None => flat,
+            };
             let column = index as i32 + 1;
             let at = if place == Place::Wall {
                 (column * cell.0 + cell.0 / 2, top + cell.1 / 2)
@@ -307,8 +327,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn every_find_and_souvenir_desktop_has_can_be_shown_and_has_a_picture_every_way() {
+    /// Every find and souvenir Desktop has, as a household that has all of them would offer.
+    fn everything_desktop_has() -> Vec<DisplayItem> {
         let mut save = sample::colony();
         let finder = save.creatures[0].id;
         for variant in 0..TRINKET_VARIANTS {
@@ -331,11 +351,17 @@ mod tests {
             "test",
         )
         .unwrap();
+        snapshot.inventory
+    }
+
+    #[test]
+    fn every_find_and_souvenir_desktop_has_can_be_shown_and_has_a_picture_every_way() {
+        let inventory = everything_desktop_has();
         assert_eq!(
-            snapshot.inventory.len(),
+            inventory.len(),
             usize::from(TRINKET_VARIANTS) + Souvenir::ALL.len()
         );
-        for item in &snapshot.inventory {
+        for item in &inventory {
             let mut shown = 0;
             for place in [Place::Top, Place::Shelf, Place::Wall, Place::Floor] {
                 if let Some(showing) = crate::placement::showing(item, place) {
@@ -354,6 +380,22 @@ mod tests {
                 "{} has no picture",
                 item.id
             );
+        }
+    }
+
+    #[test]
+    fn nothing_hung_is_wider_than_its_stretch_of_wall() {
+        let mut everything = everything_desktop_has();
+        everything.extend(sample::snapshot().inventory);
+        for item in &everything {
+            let Some(showing) = crate::placement::showing(item, Place::Wall) else {
+                continue;
+            };
+            let drawn = sprite(item, Place::Wall, showing);
+            let (left, _, right, _) = drawn.canvas.alpha_bounds().unwrap();
+            // Its shadow may fall a pixel onto the next stretch; the thing itself may not.
+            let wide = (right - left) as i32;
+            assert!(wide <= STRETCH, "{} is {wide} wide on a wall", item.id);
         }
     }
 
