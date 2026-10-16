@@ -10,7 +10,7 @@ use super::souvenirs;
 use crate::paint::{self, rgb, rgba};
 use crate::placement::{Place, Showing};
 use formiga_art::{Canvas, TRINKET_CELL, draw_souvenir, draw_trinket};
-use formiga_core::{Souvenir, TRINKET_VARIANTS};
+use formiga_core::{BattleKeepsake, Souvenir, TRINKET_VARIANTS};
 use formiga_home_contract::{DisplayItem, DisplaySource};
 
 /// The thing's own picture, cropped to what it covers.
@@ -39,6 +39,10 @@ pub fn icon(item: &DisplayItem) -> Canvas {
         (DisplaySource::HomeMemento { memento }, _) => {
             super::keepsakes::plain(*memento).unwrap_or_else(unknown_icon)
         }
+        (DisplaySource::BattleKeepsake { id }, _) => match BattleKeepsake::from_id(id) {
+            Some(keepsake) => super::battle::picture(keepsake),
+            None => unknown_icon(),
+        },
         _ => unknown_icon(),
     }
 }

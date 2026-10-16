@@ -27,6 +27,7 @@ documents are written the same way, and text is made safe the same way.
 | Desktop | The colony; which household lives in which house; the layouts it last accepted (`home/state.json`, kept beside the colony save and never inside it); every session directory | Home's window and its data folder |
 | Home | The room on screen, the residents' life in it, its own window and lock | The colony save, ever |
 | Formiga Hill | Nothing here. A souvenir reaches Home only after Desktop has kept it | Home's documents |
+| Formiga Battle | Nothing here. A cup's trophy or medal reaches Home only after Desktop has kept it | Home's documents |
 
 ## A visit, file by file
 
@@ -118,7 +119,12 @@ The snapshot is everything Home is allowed to know about the visit.
 - **The inventory.** Everything the colony has that a house can show:
   - every scrapbook find, as `find.<variant>`, with the colony's colours already resolved by
     Desktop;
-  - every souvenir Desktop has kept from Formiga Hill, as `souvenir.<Hill's id>`.
+  - every souvenir Desktop has kept from Formiga Hill, as `souvenir.<Hill's id>`;
+  - since version 11, every keepsake Desktop has kept from Formiga Battle, by Battle's own id,
+    which already says where it came from: a trophy and a medal for each of Battle's four cups,
+    such as `battle.trophy.woodland_cup` and `battle.medal.cove_cup`. Home draws each trophy on
+    its cup's own stand and each medal on its cup's own ribbon (`art/battle.rs`); a keepsake this
+    build does not know is shown on its card.
 
   Each thing lists the ways it may be shown, best first, and every list includes
   `fallback_card`. That way nothing the colony has is ever without a way onto a shelf or a wall.
@@ -262,6 +268,7 @@ one wrote.
 | 8 | `indoors.json` and the `indoors` capability that offers to follow it: who is in the house, said as it changes, so whoever is not is out on the desktop; `stays_out` in each home. An older reader reads the capability as `unknown` and ignores `stays_out` |
 | 9 | Desktop 0.67.6. No new fields: residents are written in travel version 5 |
 | 10 | `projects` and `tallies` in each home, and a `project` moment. An older reader ignores both and reads the moment as `unknown`; Desktop keeps both as they were when an older Home answers |
+| 11 | Formiga Battle's keepsakes in the inventory, as a `battle_keepsake` source. An older reader reads the source as `unknown` and shows the keepsake on its card |
 
 ## Finding Home
 
