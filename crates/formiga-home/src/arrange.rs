@@ -414,6 +414,26 @@ impl Arranging {
         taken_down
     }
 
+    /// Arrange the house as a design fitted to it: its home becomes the fitted one, and whatever
+    /// the design shows here is taken down in any other house that showed it.
+    pub fn use_design(
+        &mut self,
+        state: &mut HomeState,
+        keeper: TravelerId,
+        fitted: &crate::designs::Fitted,
+    ) {
+        let before = state.clone();
+        state.set_household(fitted.home.clone());
+        for (item, other) in &fitted.moved {
+            if let Some(home) = state.household_mut(*other) {
+                home.take_down(item);
+            }
+        }
+        debug_assert_eq!(fitted.home.keeper, keeper);
+        self.remember(&before);
+        self.carrying = None;
+    }
+
     /// Take a room away, with everything in it: its pieces back in the catalogue and its finds
     /// back in the drawer. Never the first room, nor one the others are only reached through.
     /// Whether it was taken away.

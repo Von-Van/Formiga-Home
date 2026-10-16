@@ -1011,3 +1011,108 @@ fn the_notes_ruling_scrolls_with_the_writing_and_each_page_keeps_its_place() {
     );
     let _ = std::fs::remove_dir_all(&data);
 }
+
+#[test]
+fn a_room_saved_as_a_design_comes_back_when_it_is_used_and_undo_takes_it_back() {
+    let data = scratch("design-use");
+    let mut window = Harness::open(&data);
+    window.arrange();
+    window.turn_to(Drawer::Designs);
+    window.app.design_name = "Cosy".to_owned();
+    window.click_text("Save");
+    assert_eq!(window.app.designs.kept.len(), 1);
+    assert_eq!(window.app.designs.kept[0].design.name, "Cosy");
+    let saved = home_of(&window.app.state, window.app.keeper).rooms[0].clone();
+    // The room cleared since.
+    let keeper = window.app.keeper;
+    let home = window.app.state.household_mut(keeper).unwrap();
+    home.rooms[0].pieces.clear();
+    home.rooms[0].displays.clear();
+    window.app.changed("Cleared.");
+    let cleared = window.app.state.clone();
+    window.wait(0.2);
+    window.click_text("Try it");
+    assert!(window.app.trying.is_some());
+    assert_eq!(window.app.state, cleared, "trying a design changes nothing");
+    assert!(window.text("Everything in it comes.").is_some());
+    window.click_text("Use this design");
+    assert!(window.app.trying.is_none());
+    let room = &home_of(&window.app.state, keeper).rooms[0];
+    assert_eq!(room.pieces.len(), saved.pieces.len());
+    assert_eq!(room.displays, saved.displays);
+    formiga_home_contract::HomeDocument::validate(&window.app.state).unwrap();
+    window.click_text("Undo");
+    assert_eq!(window.app.state, cleared);
+    // The gallery is there the next time the house opens.
+    drop(window);
+    let again = Harness::open(&data);
+    assert_eq!(again.app.designs.kept.len(), 1);
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn a_design_opened_from_a_file_changes_nothing_until_it_is_used_or_kept() {
+    let data = scratch("design-open");
+    let mut window = Harness::open(&data);
+    window.arrange();
+    window.turn_to(Drawer::Designs);
+    let mut layout = home_of(&window.app.state, window.app.keeper).rooms[0].clone();
+    layout.displays.push(formiga_home_contract::PlacedDisplay {
+        item: DisplayId::souvenir("nobody_has_this").unwrap(),
+        spot: Spot::Floor { x: 0, y: 0 },
+    });
+    let mut design = crate::designs::Design::of(
+        home_of(&window.app.state, window.app.keeper),
+        crate::designs::Scope::Room(0),
+        "From a friend",
+        OffsetDateTime::now_utc(),
+    );
+    design.rooms = vec![layout];
+    std::fs::create_dir_all(&data).unwrap();
+    let file = data.join("friend.formiga-home-design");
+    crate::designs::export(&design, &file).unwrap();
+    let before = window.app.state.clone();
+    window.app.open_design(&file);
+    window.wait(0.2);
+    assert!(window.app.trying.is_some());
+    assert!(window.text("Not in this colony").is_some());
+    window.click_text("Keep in the gallery");
+    assert!(window.app.designs.kept[0].opened);
+    window.click_text("Not now");
+    assert!(window.app.trying.is_none());
+    assert_eq!(window.app.state, before);
+    // Something that is not a design is turned away, and nothing is tried.
+    let junk = data.join("junk.formiga-home-design");
+    std::fs::write(&junk, b"{\"format\": \"formiga.home.design\"}").unwrap();
+    window.app.open_design(&junk);
+    assert!(window.app.trying.is_none());
+    assert!(
+        window
+            .app
+            .notice
+            .as_ref()
+            .unwrap()
+            .0
+            .contains("could not be opened")
+    );
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn a_design_is_removed_from_the_gallery_only_once_the_owner_says_so_twice() {
+    let data = scratch("design-remove");
+    let mut window = Harness::open(&data);
+    window.arrange();
+    window.turn_to(Drawer::Designs);
+    window.click_text("Save");
+    assert_eq!(window.app.designs.kept.len(), 1);
+    window.click_text("Remove");
+    assert_eq!(window.app.designs.kept.len(), 1);
+    window.click_text("Keep it");
+    assert_eq!(window.app.designs.kept.len(), 1);
+    window.click_text("Remove");
+    window.click_text("Remove");
+    assert!(window.app.designs.kept.is_empty());
+    assert!(Harness::open(&data).app.designs.kept.is_empty());
+    let _ = std::fs::remove_dir_all(&data);
+}

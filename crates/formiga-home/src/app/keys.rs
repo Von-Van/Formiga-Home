@@ -115,6 +115,7 @@ impl HomeApp {
             Mode::Arrange => {
                 self.drawer = page;
                 self.placing = None;
+                self.trying = None;
             }
         }
     }

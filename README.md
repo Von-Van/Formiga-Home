@@ -144,9 +144,9 @@ The notebook opens in **Live Mode**, where the household is simply at home.
 ### Arranging
 
 **Arrange Mode** is chosen from its tab on the cover, so nothing gets moved by accident. While you
-arrange, everyone waits off the furniture. Three tabs stand up from the notes:
+arrange, everyone waits off the furniture. Four tabs stand up from the notes:
 
-- **Found things** shows everything the colony has, along with the house's own keepsakes. A red
+- **Finds** shows everything the colony has, along with the house's own keepsakes. A red
   dot marks what is shown here, and a hollow one marks what is shown in another household's
   house. Moving something from another house moves it here, since one find can only be in one
   place at a time.
@@ -158,6 +158,16 @@ arrange, everyone waits off the furniture. Three tabs stand up from the notes:
   after forty days a third. You choose its kind, preview the house with it in each place it could
   go, and build it where it looks right. Any room but the first can be taken away again, and its
   contents go back to the catalogue and the drawer.
+- **Designs** is the layout gallery. Save the house, or one room of it, by name, and try a saved
+  design in the house before using it. The house is shown as the design would make it, with
+  whatever it cannot bring named first: pieces that have not arrived yet, finds the colony does not
+  have, and anything there is no room for. Using it is one change, which undo takes back, and it
+  touches only the rooms' finishes, furniture and what is on show. Walls, doorways, keepsakes and
+  everything the household remembers stay as they are. **Share…** saves a design as a
+  `.formiga-home-design` file to pass on, and **Open a design file…** tries one someone passed on,
+  to use or keep. A design carries no keepsakes, names or anything else about the colony, and a
+  file is checked before it is shown. The gallery is Home's own, in its data folder, and Desktop
+  never sees it.
 
 Drag or click something to pick it up, and click to put it down. A ghost shows where it would go,
 green where it fits and red where it does not. Doorways slide along their walls the same way. R
@@ -188,6 +198,7 @@ Very little. Home's data folder is:
 | `window.json` | Where the window was, and how big |
 | `open.lock` | Held while a window is open, so a second visit is turned away as busy |
 | `rehearsals/<colony key>.json` | A rehearsal's layouts. A real visit's layouts belong to Desktop |
+| `designs/*.json` | The layout gallery: each design saved here or kept from a file |
 
 ## Developing
 
@@ -278,6 +289,7 @@ crates/formiga-home/src/
   path.rs          finding the way across the house, room to room through the doorways
   arrange.rs       picking up, carrying and putting down; doorways; building rooms; undo
   placement.rs     what can go where: footprints, surfaces, walls, the floor
+  designs.rs       the layout gallery: designs, their files, and fitting one to a house
   catalog.rs       every piece of furniture, floor and wall, the sets, the kinds of room
   starter.rs       how a house first looks inside
   scene.rs         one frame of the house, back to front, and what is under the pointer
