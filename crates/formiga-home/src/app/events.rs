@@ -13,7 +13,6 @@ impl HomeApp {
             match event {
                 Event::Did(_, count) => self.count(count),
                 Event::Arrived(id) => {
-                    self.count(crate::projects::Count::Visits);
                     let notice = match self.household.friend_of(id) {
                         Some(friend) => {
                             format!("{} has come over to see {}.", self.name(id), friend.name)
@@ -21,6 +20,9 @@ impl HomeApp {
                         None => format!("{} has come over.", self.name(id)),
                     };
                     self.say(notice);
+                    // Counted after the arrival is said, so that a stage it readies is what the
+                    // window says, rather than lost under the arrival.
+                    self.count(crate::projects::Count::Visits);
                     self.note(HomeMoment::Visit {
                         visitor: TravelerId(id),
                     });
@@ -42,8 +44,8 @@ impl HomeApp {
                     }
                 }
                 Event::StayingOver(id) => {
-                    self.count(crate::projects::Count::Sleepovers);
                     self.say(format!("{} is staying over.", self.name(id)));
+                    self.count(crate::projects::Count::Sleepovers);
                     self.note(HomeMoment::StayedOver {
                         visitor: TravelerId(id),
                     });
