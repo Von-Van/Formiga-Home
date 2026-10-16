@@ -871,6 +871,36 @@ fn a_cell_sends_someone_out_to_the_desktop_and_the_house_remembers_who_stays_out
 }
 
 #[test]
+fn who_is_indoors_is_said_again_after_a_word_that_could_not_be_written() {
+    use formiga_home_contract::{INDOORS_FILE, SNAPSHOT_FILE, STATE_FILE, write_document};
+    let snapshot = sample::snapshot();
+    let root = scratch("indoors-again");
+    let dir = root.join(snapshot.session_id.as_str());
+    std::fs::create_dir_all(&dir).unwrap();
+    write_document(&dir.join(SNAPSHOT_FILE), &snapshot).unwrap();
+    write_document(&dir.join(STATE_FILE), &sample::state()).unwrap();
+    // Something in the way of the word, so the first try fails.
+    let word = dir.join(INDOORS_FILE);
+    std::fs::create_dir_all(word.join("in-the-way")).unwrap();
+    let (visit, household) = crate::session::arrive(&dir, false).unwrap();
+    let mut app = HomeApp::new(
+        &egui::Context::default(),
+        household,
+        Host::Visit(visit),
+        None,
+        None,
+    );
+    app.say_who_is_indoors();
+    assert_eq!(app.indoors_said, None);
+    assert!(word.is_dir());
+    std::fs::remove_dir_all(&word).unwrap();
+    app.say_who_is_indoors();
+    assert_eq!(app.indoors_said, Some(app.life.indoors()));
+    assert!(word.is_file());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn a_souvenir_from_formiga_hill_is_said_to_count_once() {
     let data = scratch("souvenir-news");
     let window = Harness::open(&data);
