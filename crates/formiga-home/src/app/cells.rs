@@ -8,7 +8,8 @@ use super::*;
 use crate::life::Inside;
 
 impl HomeApp {
-    /// Who is in the house just now, said to Desktop whenever it changes.
+    /// Who is in the house just now, said to Desktop whenever it changes. A word that could not
+    /// be written is tried again next frame.
     pub(super) fn say_who_is_indoors(&mut self) {
         if !self.host.follows_indoors() {
             return;
@@ -18,10 +19,10 @@ impl HomeApp {
             return;
         }
         let travelers: Vec<TravelerId> = indoors.iter().copied().map(TravelerId).collect();
-        if let Err(error) = self.host.say_indoors(&travelers) {
-            eprintln!("formiga-home: {error:#}");
+        match self.host.say_indoors(&travelers) {
+            Ok(()) => self.indoors_said = Some(indoors),
+            Err(error) => eprintln!("formiga-home: {error:#}"),
         }
-        self.indoors_said = Some(indoors);
     }
 
     /// Send someone in the house out to the desktop, or have someone out on it in.
