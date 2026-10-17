@@ -4,6 +4,15 @@ This page records what changed in each version of Formiga Home. Each version's s
 its release notes: `.github/workflows/release.yml` publishes it alongside the downloads when the
 version is tagged.
 
+## 0.67.14 (2026-10-17)
+
+Home is built on Formiga Desktop 0.67.14 and still reads household version 11 and travel version 5,
+so it works with the same visits as before.
+
+- Leaving the house after the computer's clock was set back still hands the visit back to Desktop.
+- Undo no longer swaps out a keepsake that has just arrived, or brings back someone who was sent
+  out.
+
 ## 0.67.11 (2026-10-16)
 
 Home is built on Formiga Desktop 0.67.11 and still reads household version 11 and travel version 5,
