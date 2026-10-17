@@ -269,6 +269,7 @@ one wrote.
 | 9 | Desktop 0.67.6. No new fields: residents are written in travel version 5 |
 | 10 | `projects` and `tallies` in each home, and a `project` moment. An older reader ignores both and reads the moment as `unknown`; Desktop keeps both as they were when an older Home answers |
 | 11 | Formiga Battle's keepsakes in the inventory, as a `battle_keepsake` source. An older reader reads the source as `unknown` and shows the keepsake on its card |
+| 12 | Desktop 0.68.0. No new fields: residents are written in travel version 6, so one sculpted in Formiga Farm is drawn as itself |
 
 ## Finding Home
 
