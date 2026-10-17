@@ -17,6 +17,7 @@
 
 use crate::actor::{Actor, Pose};
 use crate::art::cues::Cue;
+use crate::body::Body;
 use crate::catalog::{self, Family, Use};
 use crate::character::Drive;
 use crate::house::{At, House};
@@ -1265,7 +1266,7 @@ impl Life {
                 Some(Act::GrumbleAt(visitor))
             } else if character.keeps_apart() {
                 // Off to the seat furthest from the door, or failing one, the far corner.
-                let seats = self.free_seats(house);
+                let seats = seats_for(self.actors[r].body(), house, &self.free_seats(house));
                 let far = seats.iter().max_by(|a, b| {
                     let d = |s: &Seat| (s.at.0 - outside.0).powi(2) + (s.at.1 - outside.1).powi(2);
                     d(a).total_cmp(&d(b))
@@ -1411,7 +1412,11 @@ impl Life {
         now: f32,
     ) {
         let id = self.minds[index].id;
-        if !still_there(&act, house, snapshot) || self.worn_by_another(&act, id) {
+        let body = self.actors[index].body();
+        if !still_there(&act, house, snapshot)
+            || self.worn_by_another(&act, id)
+            || !suits(body, house, &act)
+        {
             self.minds[index].dawdle_until = now + 0.5;
             return;
         }
@@ -1437,7 +1442,8 @@ impl Life {
             }
         }
         let seats = self.free_seats(house);
-        let spot = self.spot_for(house, floor, index, &act, &seats);
+        let mine = seats_for(body, house, &seats);
+        let spot = self.spot_for(house, floor, index, &act, &mine);
         let Some((tile, seat, face)) = spot else {
             self.minds[index].dawdle_until = now + 1.0;
             return;
@@ -1464,7 +1470,7 @@ impl Life {
                 .is_some_and(|p| p.asked && p.part == Part::Leads)
         {
             self.end(o, now, false);
-            let mut free = seats;
+            let mut free = seats_for(self.actors[o].body(), house, &seats);
             if let Some(mine) = seat {
                 free.retain(|other| *other != mine);
             }
@@ -1980,7 +1986,7 @@ impl Life {
             resident,
             index,
             visiting: household.is_visitor(id),
-            seats: self.free_seats(house),
+            seats: seats_for(self.actors[index].body(), house, &self.free_seats(house)),
             others: self.company(id),
             visitors_here: self.minds.iter().any(|mind| {
                 mind.id != id && household.is_visitor(mind.id) && mind.presence.in_house()
@@ -2001,6 +2007,8 @@ impl Life {
         options.extend(self.look_round(house, index, room, leaving));
         keep_to_room(house, room, &mut options);
         self.wait_for_others_elsewhere(house, index, room, &mut options);
+        let body = self.actors[index].body();
+        options.retain(|(act, _)| suits(body, house, act));
         self.likeliest(index, resident.character.whimsy(), options)
     }
 
@@ -2908,6 +2916,28 @@ fn shown_on(house: &House, uid: u16) -> Vec<DisplayId> {
 
 /// Every place on a piece someone can sit or lie: along its width for a seat, head and foot for
 /// a bed.
+/// Whether a body can do `act`: get up onto the piece it settles on, bounce on it, or stretch out
+/// on a rug. Anything else, anybody can do.
+pub fn suits(body: Body, house: &House, act: &Act) -> bool {
+    match act {
+        Act::Bounce(uid) => body.bounces() && body.settles_on_placed(house, *uid),
+        Act::Sprawl(_) => body.sprawls(),
+        _ if act.settles() => act
+            .piece()
+            .is_some_and(|uid| body.settles_on_placed(house, uid)),
+        _ => true,
+    }
+}
+
+/// The seats among `seats` a body can get up onto and fits.
+fn seats_for(body: Body, house: &House, seats: &[Seat]) -> Vec<Seat> {
+    seats
+        .iter()
+        .filter(|seat| body.settles_on_placed(house, seat.piece))
+        .copied()
+        .collect()
+}
+
 pub fn seat_points(
     placed: &formiga_home_contract::PlacedPiece,
     piece: &catalog::Piece,
@@ -3080,6 +3110,8 @@ pub fn choices(
                 acts.push(Act::Snack(*uid));
                 acts.extend(others.iter().map(|other| Act::Share(*uid, *other)));
             }
+            let body = Body::of(resident.genome());
+            acts.retain(|act| suits(body, house, act));
             if acts.is_empty() || piece.flat {
                 let footprint = placement::footprint(placed);
                 let (cx, cy) = footprint.centre();

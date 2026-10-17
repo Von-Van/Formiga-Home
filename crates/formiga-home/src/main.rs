@@ -6,6 +6,7 @@ mod actor;
 mod app;
 mod arrange;
 mod art;
+mod body;
 mod catalog;
 mod character;
 mod daylight;
