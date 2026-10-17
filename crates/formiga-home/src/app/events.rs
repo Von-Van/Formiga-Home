@@ -174,7 +174,7 @@ impl HomeApp {
         let home = self.state.household_mut(self.keeper)?;
         let id = keepsakes::make(home, kind, by.map(TravelerId), of, now_utc())?;
         if let Some(memento) = home.memento(&id) {
-            self.arranging.came(self.keeper, memento);
+            self.arranging.came(home, memento);
         }
         self.keepsakes_changed();
         self.keep();
