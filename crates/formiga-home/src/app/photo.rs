@@ -122,7 +122,10 @@ impl HomeApp {
                 {
                     self.say("Saved a picture of the room, and framed one for the drawer.");
                 } else {
-                    self.say("Saved a picture of the room.");
+                    self.say(format!(
+                        "Saved a picture of the room. One was not framed, as {}",
+                        super::events::DRAWER_FULL
+                    ));
                 }
             }
             Err(error) => self.say(format!("The picture could not be saved: {error}")),

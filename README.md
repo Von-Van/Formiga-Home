@@ -48,7 +48,8 @@ choose **More info → Run anyway**.
   if it will; nothing else about the colony changes.
 - **Keepsakes of its own.** Beyond the colony's finds, a house collects a few things that only
   happen at home: a gift from a visitor, a drawing by one of the little ones, or a framed copy of
-  a photo you took.
+  a photo you took. Its drawer holds twenty-four; once it is full, the notes say so, and letting
+  one go makes room for the next.
 - **A journal.** The notebook keeps short notes on what has happened in the house: who visited,
   what someone took a liking to, when a room was built.
 - **A house that grows.** Over time a house can gain a second and third room, all seen together
@@ -91,7 +92,7 @@ same rules Desktop would use, so a rehearsal proves the same loop a real visit w
 
 | Part | Status |
 | --- | --- |
-| The house: up to three rooms, doorways and a front door, seven floors, seven walls, thirty-two pieces of furniture in three sets plus the house's own | Released |
+| The house: up to three rooms, doorways and a front door, nine floors, ten walls, and forty-four pieces of furniture in three sets, the house's own, and what the household makes | Released |
 | The notebook window: the leather cover as its frame, the house on one page and notes on the other | Released |
 | Residents living on their own, and the short list of things you can ask of each | Released |
 | Arranging, Found Things, and the card for anything without its own picture | Released |
@@ -108,7 +109,8 @@ same rules Desktop would use, so a rehearsal proves the same loop a real visit w
 The window is a notebook. Its leather cover acts as the frame: drag it to move the window, and use
 the brass studs to close it, put it away, open it wide or take a photo. The house is drawn on the
 left-hand page and notes are kept on the right. "How to…" at the foot of the notes lists
-everything the mouse and keys can do, so the walk-through below is a tour rather than a manual.
+everything the mouse and keys can do, and its note is out the first time a house is opened, so the
+walk-through below is a tour rather than a manual.
 
 ### Living in the house
 
@@ -167,13 +169,15 @@ arrange, everyone waits off the furniture. Four tabs stand up from the notes:
 - **Finds** shows everything the colony has, along with the house's own keepsakes. A red
   dot marks what is shown here, and a hollow one marks what is shown in another household's
   house. Moving something from another house moves it here, since one find can only be in one
-  place at a time.
+  place at a time. A keepsake no longer wanted can be let go, from its right-click menu or with
+  **Let it go** under the page while it is picked up; undo brings it back.
 - **Furniture** always has the starter pieces. More arrive as the colony lives and finds things,
-  and they stay: a sofa, a long rug, a toy box, a glass case, a bell jar, a curio cabinet, a glass
+  and they stay; pointing at one not yet here says how many more days or finds it waits on, or
+  which project's stage makes it: a sofa, a long rug, a toy box, a glass case, a bell jar, a curio cabinet, a glass
   counter, and three matching sets (seaside, woodland and starlit). A guest bedroll is there from
   the start, for whoever stays over.
 - **Rooms** sets each room's floor and walls. After two weeks a second room can be built, and
-  after forty days a third. You choose its kind, preview the house with it in each place it could
+  after forty days a third; until then the page says how many more days to go. You choose its kind, preview the house with it in each place it could
   go, and build it where it looks right. Any room but the first can be taken away again, and its
   contents go back to the catalogue and the drawer.
 - **Designs** is the layout gallery. Save the house, or one room of it, by name, and try a saved
