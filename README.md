@@ -173,13 +173,14 @@ arrange, everyone waits off the furniture. Four tabs stand up from the notes:
   **Let it go** under the page while it is picked up; undo brings it back.
 - **Furniture** always has the starter pieces. More arrive as the colony lives and finds things,
   and they stay; pointing at one not yet here says how many more days or finds it waits on, or
-  which project's stage makes it: a sofa, a long rug, a toy box, a glass case, a bell jar, a curio cabinet, a glass
-  counter, and three matching sets (seaside, woodland and starlit). A guest bedroll is there from
-  the start, for whoever stays over.
+  which project's stage makes it: a sofa, a long rug, a toy box, a glass case, a bell jar, a
+  curio cabinet, a glass counter, and three matching sets (seaside, woodland and starlit). A guest
+  bedroll is there from the start, for whoever stays over.
 - **Rooms** sets each room's floor and walls. After two weeks a second room can be built, and
-  after forty days a third; until then the page says how many more days to go. You choose its kind, preview the house with it in each place it could
-  go, and build it where it looks right. Any room but the first can be taken away again, and its
-  contents go back to the catalogue and the drawer.
+  after forty days a third; until then the page says how many more days to go. You choose its
+  kind, preview the house with it in each place it could go, and build it where it looks right.
+  Any room but the first can be taken away again, and its contents go back to the catalogue and
+  the drawer.
 - **Designs** is the layout gallery. Save the house, or one room of it, by name, and try a saved
   design in the house before using it. The house is shown as the design would make it, with
   whatever it cannot bring named first: pieces that have not arrived yet, finds the colony does not
