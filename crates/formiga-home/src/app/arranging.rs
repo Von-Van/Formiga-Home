@@ -50,17 +50,25 @@ impl HomeApp {
             }
             return;
         }
-        let Some(carrying) = self.arranging.carrying.clone() else {
+        if self.arranging.carrying.is_none() {
             return;
-        };
+        }
         let put_now = if self.arranging.dragged {
             released
         } else {
             response.clicked()
         };
-        if !put_now {
-            return;
+        if put_now {
+            self.put_carried(pointer);
         }
+    }
+
+    /// Put down what is carried where `pointer` is on the scene, if it goes there; let go
+    /// outside the room, it goes back where it came from.
+    pub(super) fn put_carried(&mut self, pointer: Option<(f32, f32)>) {
+        let Some(carrying) = self.arranging.carrying.clone() else {
+            return;
+        };
         let landing = pointer.and_then(|point| self.landing(point));
         let house = self.house.clone();
         let put = match landing {
