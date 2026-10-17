@@ -1079,8 +1079,10 @@ impl HomeApp {
                     plan_of(ui.painter(), rect, template.size, unit, dark);
                     let name = template.name;
                     let (w, d) = template.size;
+                    let purpose = template.purpose.about();
                     let response = response.on_hover_ui(|ui| {
                         ui.strong(name);
+                        ui.label(egui::RichText::new(purpose).small());
                         ui.label(egui::RichText::new(format!("{w} by {d} tiles")).small());
                     });
                     response.widget_info(|| {
