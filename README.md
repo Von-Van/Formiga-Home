@@ -98,7 +98,7 @@ same rules Desktop would use, so a rehearsal proves the same loop a real visit w
 
 | Part | Status |
 | --- | --- |
-| The house: up to three rooms, doorways and a front door, nine floors, ten walls, and fifty-seven pieces of furniture in three sets, the house's own, and what the household makes | Released |
+| The house: up to three rooms, doorways and a front door, nine floors, ten walls, and sixty-two pieces of furniture in three sets, the house's own, and what the household makes | Released |
 | The notebook window: the leather cover as its frame, the house on one page and notes on the other | Released |
 | Residents living on their own, and the short list of things you can ask of each | Released |
 | Arranging, Found Things, and the card for anything without its own picture | Released |
@@ -180,12 +180,17 @@ arrange, everyone waits off the furniture. Four tabs stand up from the notes:
 - **Furniture** always has the starter pieces. More arrive as the colony lives and finds things,
   and they stay; pointing at one not yet here says how many more days or finds it waits on, or
   which project's stage makes it: a sofa, a long rug, a toy box, a glass case, a bell jar, a
-  curio cabinet, a glass counter, and three matching sets (seaside, woodland and starlit). A guest
+  curio cabinet, a glass counter, a writing desk, a blanket chest, a little stove, a kitchen
+  dresser, a tall clock to wind, and three matching sets (seaside, woodland and starlit). A guest
   bedroll is there from the start, for whoever stays over. What the household makes appears once
   it is made; the **Made at home** set shows all of it, with which stage makes each.
 - **Rooms** sets each room's floor and walls. After two weeks a second room can be built, and
   after forty days a third; until then the page says how many more days to go. You choose its
-  kind, preview the house with it in each place it could go, and build it where it looks right.
+  kind (a reading nook, a bedroom, a gallery, a playroom, a kitchen or a study), preview the
+  house with it in each place it could go, and build it where it looks right. Each kind is for
+  something, and whoever is in it is the more inclined to do that there: nap in the bedroom,
+  look things over in the nook or the gallery, play in the playroom, eat in the kitchen, and sit
+  at the desk or draw in the study.
   Any room but the first can be taken away again, and its contents go back to the catalogue and
   the drawer.
 - **Designs** is the layout gallery. Save the house, or one room of it, by name, and try a saved
