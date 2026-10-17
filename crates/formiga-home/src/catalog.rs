@@ -21,6 +21,12 @@ pub enum Use {
     Play,
     /// Something to eat from.
     Snack,
+    /// A fire to sit by and warm up.
+    Warm,
+    /// A table laid for the household to have supper at.
+    Supper,
+    /// A stage to put on a show from.
+    Show,
 }
 
 /// What a surface takes.
@@ -287,6 +293,11 @@ impl Piece {
         self.arrives.come(now)
     }
 
+    /// A nest basket: a little bed, the right size for a little one.
+    pub fn is_basket(&self) -> bool {
+        self.family == Family::Beds && self.size == (1, 1)
+    }
+
     /// For a light, how high its bulb glows above the floor, in pixels.
     pub fn glow(&self) -> Option<i32> {
         match self.id {
@@ -358,7 +369,74 @@ const MANTEL: [Surface; 2] = [
     },
 ];
 
-pub static PIECES: [Piece; 44] = [
+/// A long bed of one of the sets, or made from one: `height` pixels tall, lifting whoever lies in
+/// it `lift`.
+const fn long_bed(
+    id: &'static str,
+    name: &'static str,
+    height: i32,
+    lift: i32,
+    arrives: Arrival,
+    set: Set,
+) -> Piece {
+    Piece {
+        id,
+        name,
+        family: Family::Beds,
+        size: (1, 2),
+        height,
+        flat: false,
+        uses: &[Use::Sleep, Use::Nap],
+        surfaces: &[],
+        arrives,
+        lift,
+        set,
+    }
+}
+
+/// A nest basket made cosier.
+const fn nest(id: &'static str, name: &'static str, stage: usize) -> Piece {
+    Piece {
+        id,
+        name,
+        family: Family::Beds,
+        size: (1, 1),
+        height: 9,
+        flat: false,
+        uses: &[Use::Sleep, Use::Nap],
+        surfaces: &[],
+        arrives: Arrival::Made("project.cosy_beds", stage),
+        lift: 3,
+        set: Set::Made,
+    }
+}
+
+/// The three steps of the winners' podium, second, first and third, each a place to stand a cup
+/// or a medal.
+const PODIUM: [Surface; 3] = [
+    Surface {
+        at: (0.34, 0.5),
+        height: 11,
+        holds: Holds::Shelf,
+        cover: None,
+    },
+    Surface {
+        at: (1.0, 0.5),
+        height: 16,
+        holds: Holds::Shelf,
+        cover: None,
+    },
+    Surface {
+        at: (1.66, 0.5),
+        height: 7,
+        holds: Holds::Shelf,
+        cover: None,
+    },
+];
+
+const COSY: &str = "project.cosy_beds";
+
+pub static PIECES: [Piece; 57] = [
     Piece {
         id: "cushion",
         name: "Floor cushion",
@@ -900,7 +978,7 @@ pub static PIECES: [Piece; 44] = [
         size: (2, 1),
         height: 40,
         flat: false,
-        uses: &[Use::Play],
+        uses: &[Use::Show],
         surfaces: &[],
         arrives: Arrival::Made("project.puppet_theatre", 1),
         lift: 0,
@@ -913,7 +991,7 @@ pub static PIECES: [Piece; 44] = [
         size: (2, 1),
         height: 44,
         flat: false,
-        uses: &[Use::Play],
+        uses: &[Use::Show],
         surfaces: &[],
         arrives: Arrival::Made("project.puppet_theatre", 2),
         lift: 0,
@@ -965,7 +1043,7 @@ pub static PIECES: [Piece; 44] = [
         size: (2, 1),
         height: 11,
         flat: false,
-        uses: &[],
+        uses: &[Use::Supper],
         surfaces: &LOW_TABLE_TOP,
         arrives: Arrival::Made("project.family_table", 1),
         lift: 0,
@@ -978,7 +1056,7 @@ pub static PIECES: [Piece; 44] = [
         size: (2, 1),
         height: 11,
         flat: false,
-        uses: &[],
+        uses: &[Use::Supper],
         surfaces: &LOW_TABLE_TOP,
         arrives: Arrival::Made("project.family_table", 2),
         lift: 0,
@@ -991,7 +1069,7 @@ pub static PIECES: [Piece; 44] = [
         size: (2, 1),
         height: 36,
         flat: false,
-        uses: &[],
+        uses: &[Use::Warm],
         surfaces: &[],
         arrives: Arrival::Made("project.hearth", 1),
         lift: 0,
@@ -1004,7 +1082,7 @@ pub static PIECES: [Piece; 44] = [
         size: (2, 1),
         height: 40,
         flat: false,
-        uses: &[],
+        uses: &[Use::Warm],
         surfaces: &MANTEL,
         arrives: Arrival::Made("project.hearth", 2),
         lift: 0,
@@ -1017,9 +1095,110 @@ pub static PIECES: [Piece; 44] = [
         size: (2, 1),
         height: 40,
         flat: false,
-        uses: &[],
+        uses: &[Use::Warm],
         surfaces: &MANTEL,
         arrives: Arrival::Made("project.hearth", 3),
+        lift: 0,
+        set: Set::Made,
+    },
+    // Every bed made cosier, a stage at a time, in the look of its own set.
+    long_bed(
+        "driftwood_quilt_bed",
+        "Quilted driftwood bed",
+        16,
+        6,
+        Arrival::Made(COSY, 1),
+        Set::Made,
+    ),
+    long_bed(
+        "driftwood_feather_bed",
+        "Driftwood feather bed",
+        18,
+        7,
+        Arrival::Made(COSY, 2),
+        Set::Made,
+    ),
+    long_bed(
+        "driftwood_canopy_bed",
+        "Driftwood canopy bed",
+        44,
+        7,
+        Arrival::Made(COSY, 3),
+        Set::Made,
+    ),
+    long_bed(
+        "moss_quilt_bed",
+        "Quilted moss bed",
+        16,
+        6,
+        Arrival::Made(COSY, 1),
+        Set::Made,
+    ),
+    long_bed(
+        "moss_feather_bed",
+        "Moss feather bed",
+        18,
+        7,
+        Arrival::Made(COSY, 2),
+        Set::Made,
+    ),
+    long_bed(
+        "moss_canopy_bed",
+        "Moss canopy bed",
+        44,
+        7,
+        Arrival::Made(COSY, 3),
+        Set::Made,
+    ),
+    long_bed(
+        "night_quilt_bed",
+        "Quilted night-sky bed",
+        16,
+        6,
+        Arrival::Made(COSY, 1),
+        Set::Made,
+    ),
+    long_bed(
+        "night_feather_bed",
+        "Night-sky feather bed",
+        18,
+        7,
+        Arrival::Made(COSY, 2),
+        Set::Made,
+    ),
+    long_bed(
+        "night_canopy_bed",
+        "Night-sky canopy bed",
+        44,
+        7,
+        Arrival::Made(COSY, 3),
+        Set::Made,
+    ),
+    nest("quilt_basket", "Quilted nest basket", 1),
+    nest("feather_basket", "Feather nest basket", 2),
+    Piece {
+        id: "podium",
+        name: "Winners' podium",
+        family: Family::Shelves,
+        size: (2, 1),
+        height: 16,
+        flat: false,
+        uses: &[],
+        surfaces: &PODIUM,
+        arrives: Arrival::Made("project.podium", 1),
+        lift: 0,
+        set: Set::Made,
+    },
+    Piece {
+        id: "podium_bunting",
+        name: "Podium with bunting",
+        family: Family::Shelves,
+        size: (2, 1),
+        height: 34,
+        flat: false,
+        uses: &[],
+        surfaces: &PODIUM,
+        arrives: Arrival::Made("project.podium", 2),
         lift: 0,
         set: Set::Made,
     },

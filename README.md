@@ -55,12 +55,18 @@ choose **More info → Run anyway**.
 - **A house that grows.** Over time a house can gain a second and third room, all seen together
   in one cutaway, with doorways between them.
 - **Household projects.** A project board in the notebook lists a few things the household can
-  make of its home: a window garden, a puppet theatre, cosier beds, a family table and a hearth
-  that grows with the household's history. Each comes a stage at a time, from what happens at
-  home anyway (snacks shared, naps, games, plants tended, friends come over), from the days lived
-  and keepsakes made, and from souvenirs anyone in the colony has brought home from Formiga Hill.
-  Finishing a stage is up to you, whenever you like, and what it makes stands in the house for
-  good, with its own pieces, floors and walls to use. Each house's projects are its own.
+  make of its home: a window garden, a puppet theatre, cosier beds, a family table, a hearth
+  that grows with the household's history, and, once the colony has a cup or a medal from
+  Formiga Battle, a winners' podium to stand them on. Each comes a stage at a time, from what
+  happens at home anyway (snacks shared, naps, games, plants tended, friends come over), from the
+  days lived and keepsakes made, and from souvenirs anyone in the colony has brought home from
+  Formiga Hill. Every souvenir counts towards something, but none is ever needed, and nor are
+  friends from other houses: each can be made up for with a little more of life at home, so a
+  one-house colony that never goes to the Hill can finish every stage. Finishing a stage is up to
+  you, whenever you like, and what it makes stands in the house for good, and is used for what it
+  was made for: everyone warms up by the hearth of an evening, has supper at the family table,
+  and puts on shows at the puppet theatre, alone or for someone. Cosy beds makes over every bed
+  and basket in its own set's look. Each house's projects are its own.
 - **Day and night.** The house follows your own clock: as drawn by day, warm as the light goes,
   and blue at night but for the pools of its lamps, when everyone tires sooner and sleeps longer.
   The garden through the front door, and what comes in on the doormat, follow the year.
@@ -92,7 +98,7 @@ same rules Desktop would use, so a rehearsal proves the same loop a real visit w
 
 | Part | Status |
 | --- | --- |
-| The house: up to three rooms, doorways and a front door, nine floors, ten walls, and forty-four pieces of furniture in three sets, the house's own, and what the household makes | Released |
+| The house: up to three rooms, doorways and a front door, nine floors, ten walls, and fifty-seven pieces of furniture in three sets, the house's own, and what the household makes | Released |
 | The notebook window: the leather cover as its frame, the house on one page and notes on the other | Released |
 | Residents living on their own, and the short list of things you can ask of each | Released |
 | Arranging, Found Things, and the card for anything without its own picture | Released |
@@ -175,7 +181,8 @@ arrange, everyone waits off the furniture. Four tabs stand up from the notes:
   and they stay; pointing at one not yet here says how many more days or finds it waits on, or
   which project's stage makes it: a sofa, a long rug, a toy box, a glass case, a bell jar, a
   curio cabinet, a glass counter, and three matching sets (seaside, woodland and starlit). A guest
-  bedroll is there from the start, for whoever stays over.
+  bedroll is there from the start, for whoever stays over. What the household makes appears once
+  it is made; the **Made at home** set shows all of it, with which stage makes each.
 - **Rooms** sets each room's floor and walls. After two weeks a second room can be built, and
   after forty days a third; until then the page says how many more days to go. You choose its
   kind, preview the house with it in each place it could go, and build it where it looks right.

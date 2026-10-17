@@ -855,9 +855,16 @@ impl HomeApp {
         ui.add_space(4.0);
         let shown = self.set_shown;
         for family in Family::ALL {
+            // What the household could make is all on its own page; elsewhere only what it has
+            // made, so a family is not crowded with every bed it might one day make over.
             let pieces: Vec<&'static catalog::Piece> = PIECES
                 .iter()
                 .filter(|p| p.family == family && shown.is_none_or(|set| p.set == set))
+                .filter(|p| {
+                    p.set != catalog::Set::Made
+                        || shown == Some(catalog::Set::Made)
+                        || p.available(&now)
+                })
                 .collect();
             if pieces.is_empty() {
                 continue;
