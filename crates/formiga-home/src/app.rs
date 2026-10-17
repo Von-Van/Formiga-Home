@@ -77,6 +77,9 @@ pub struct HomeApp {
     chrome: notebook::Chrome,
     /// The sticky note of how to do things, taped over the notes.
     help: bool,
+    /// The card over the house saying where a house of the owner's own comes from, while Home,
+    /// opened on its own, shows the sample's.
+    welcome: bool,
     /// Which set the furniture page shows, or every set.
     set_shown: Option<catalog::Set>,
     /// How close the house is seen.
@@ -188,6 +191,7 @@ impl HomeApp {
             thumbnails: HashMap::new(),
             chrome: notebook::Chrome::default(),
             help: false,
+            welcome: false,
             set_shown: None,
             zoom: Zoom::default(),
             clock: 0.0,
@@ -638,6 +642,7 @@ impl HomeApp {
                     self.notes(ui, &ctx, layout.right, layout.unit);
                 });
                 self.help_note(ui, &ctx, layout.notes, layout.unit);
+                self.welcome_card(&ctx, layout.left);
                 self.status_line(ui, &layout);
             });
         self.menu(&ctx);
@@ -758,6 +763,7 @@ mod pages;
 mod photo;
 mod projects;
 mod visits;
+mod welcome;
 mod zoom;
 
 use menu::{Entry, Menu};

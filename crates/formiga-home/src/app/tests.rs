@@ -1193,3 +1193,48 @@ fn a_design_is_removed_from_the_gallery_only_once_the_owner_says_so_twice() {
     assert!(Harness::open(&data).app.designs.kept.is_empty());
     let _ = std::fs::remove_dir_all(&data);
 }
+
+#[test]
+fn the_welcome_card_shows_the_sample_or_closes_the_window() {
+    let data = scratch("welcome");
+    let mut window = Harness::open(&data);
+    assert!(
+        window.text(welcome::LOOK_AROUND).is_none(),
+        "a house opened by Desktop, or by name, has no welcome card"
+    );
+    window.app.welcome();
+    window.wait(0.2);
+    let look = window.text(welcome::LOOK_AROUND).expect("the card is up");
+    assert!(window.text(welcome::CLOSE).is_some());
+    let selected = window.app.selected;
+    window.click(look);
+    assert!(!window.app.welcome, "looking around puts the card away");
+    assert!(window.text(welcome::LOOK_AROUND).is_none());
+    assert_eq!(window.app.selected, selected, "the click went no further");
+    assert!(window.app.menu.is_none());
+    assert!(
+        !window
+            .commands
+            .iter()
+            .any(|command| matches!(command, egui::ViewportCommand::Close))
+    );
+
+    window.app.welcome();
+    window.key(Key::Escape);
+    assert!(!window.app.welcome, "Escape puts it away too");
+    assert_eq!(window.app.selected, selected, "and nothing else");
+
+    window.app.welcome();
+    window.wait(0.2);
+    let close = window.text(welcome::CLOSE).unwrap();
+    window.click(close);
+    assert!(
+        window
+            .commands
+            .iter()
+            .any(|command| matches!(command, egui::ViewportCommand::Close)),
+        "{:?}",
+        window.commands
+    );
+    let _ = std::fs::remove_dir_all(&data);
+}

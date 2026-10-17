@@ -73,7 +73,9 @@ impl HomeApp {
             self.save_photo();
         }
         if escape {
-            if self.placing.take().is_none()
+            // Escape puts the welcome card away first, as looking around with the sample does.
+            if !std::mem::take(&mut self.welcome)
+                && self.placing.take().is_none()
                 && self.menu.take().is_none()
                 && self.arranging.carrying.take().is_none()
             {

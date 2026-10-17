@@ -30,6 +30,9 @@ so the first launch needs one extra step: on macOS, Control-click the app and ch
 macOS 15 and later, choose **Open Anyway** under System Settings → Privacy & Security); on Windows,
 choose **More info → Run anyway**.
 
+Opened on its own, from Applications or the Start menu, Home says that a house of your own opens
+from Formiga Desktop's village, and offers a look round Desktop's sample household meanwhile.
+
 ## What it offers
 
 - **The same creatures, not lookalikes.** Every resident is drawn from exactly what Desktop sends
