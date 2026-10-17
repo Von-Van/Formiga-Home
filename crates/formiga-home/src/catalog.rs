@@ -197,6 +197,33 @@ impl Arrival {
                 .any(|made| made.project.as_str() == project && made.stages.len() >= stages),
         }
     }
+
+    /// When it comes, for the owner, if it has not come yet: "After 5 more days lived", "With 2
+    /// more finds", "Made by finishing In bloom, for the window garden".
+    pub fn when(self, now: &Arrived) -> Option<String> {
+        if self.come(now) {
+            return None;
+        }
+        Some(match self {
+            Self::Always => return None,
+            Self::AfterDays(days) => match days.saturating_sub(now.days) {
+                1 => "After one more day lived".to_owned(),
+                left => format!("After {left} more days lived"),
+            },
+            Self::AfterFinds(finds) => match finds.saturating_sub(now.things) {
+                1 => "Once the colony has one more find".to_owned(),
+                left => format!("Once the colony has {left} more finds"),
+            },
+            Self::Made(id, stage) => match crate::projects::project(id)
+                .and_then(|project| Some((project, project.stages.get(stage.checked_sub(1)?)?)))
+            {
+                Some((project, stage)) => {
+                    format!("Made by finishing {}, for {}", stage.name, project.the())
+                }
+                None => "Made by finishing a project".to_owned(),
+            },
+        })
+    }
 }
 
 /// One piece of furniture.
@@ -1203,7 +1230,17 @@ pub fn template(id: &CatalogId) -> Option<&'static Template> {
 /// How many rooms a house may have after the colony has lived `days` days: a second room after
 /// two weeks, a third after forty days. Nothing hurries it, and a house never has to grow.
 pub fn rooms_allowed(days: u32) -> usize {
-    1 + usize::from(days >= 14) + usize::from(days >= 40)
+    1 + ROOMS_COME.iter().filter(|&&on| days >= on).count()
+}
+
+/// The days lived after which a second room may be built, and a third.
+const ROOMS_COME: [u32; 2] = [14, 40];
+
+/// How many more days the colony has to live before a house of `rooms` rooms may build another,
+/// if it ever may.
+pub fn days_to_next_room(rooms: usize, days: u32) -> Option<u32> {
+    let on = *ROOMS_COME.get(rooms.checked_sub(1)?)?;
+    Some(on.saturating_sub(days))
 }
 
 /// What a room in a house is called: by its kind, or, for the room the house opens into, the
@@ -1305,6 +1342,56 @@ mod tests {
         }
         assert_eq!(rooms_allowed(0), 1);
         assert_eq!(rooms_allowed(40), formiga_home_contract::limits::MAX_ROOMS);
+    }
+
+    #[test]
+    fn what_has_not_come_yet_says_how_far_off_it_is() {
+        let now = Arrived {
+            days: 7,
+            things: 3,
+            made: &[],
+        };
+        assert_eq!(
+            Arrival::AfterDays(12).when(&now).as_deref(),
+            Some("After 5 more days lived")
+        );
+        assert_eq!(
+            Arrival::AfterDays(8).when(&now).as_deref(),
+            Some("After one more day lived")
+        );
+        assert_eq!(
+            Arrival::AfterFinds(6).when(&now).as_deref(),
+            Some("Once the colony has 3 more finds")
+        );
+        assert_eq!(
+            Arrival::Made("project.window_garden", 2)
+                .when(&now)
+                .as_deref(),
+            Some("Made by finishing In bloom, for the window garden")
+        );
+        assert_eq!(Arrival::AfterDays(5).when(&now), None, "already come");
+        assert_eq!(Arrival::Always.when(&now), None);
+        // Every piece and finish not yet come says when it will.
+        for arrives in PIECES
+            .iter()
+            .map(|piece| piece.arrives)
+            .chain(FLOORS.iter().chain(&WALLS).map(|finish| finish.arrives))
+        {
+            let when = arrives.when(&Arrived::FIRST);
+            assert_eq!(
+                when.is_some(),
+                !arrives.come(&Arrived::FIRST),
+                "{arrives:?}"
+            );
+            assert!(
+                when.is_none_or(|when| !when.contains("a project")),
+                "{arrives:?} names its stage"
+            );
+        }
+        assert_eq!(days_to_next_room(1, 3), Some(11));
+        assert_eq!(days_to_next_room(2, 20), Some(20));
+        assert_eq!(days_to_next_room(2, 50), Some(0));
+        assert_eq!(days_to_next_room(3, 50), None);
     }
 
     #[test]

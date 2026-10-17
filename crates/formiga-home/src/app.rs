@@ -75,7 +75,8 @@ pub struct HomeApp {
     thumbnails: HashMap<String, egui::TextureHandle>,
     /// The notebook's cover, painted for the window's size.
     chrome: notebook::Chrome,
-    /// The sticky note of how to do things, taped over the notes.
+    /// The sticky note of how to do things, taped over the notes: out the first time the house
+    /// is opened, until it is put away.
     help: bool,
     /// Which set the furniture page shows, or every set.
     set_shown: Option<catalog::Set>,
@@ -102,6 +103,8 @@ pub struct HomeApp {
     project_chosen: Option<&'static str>,
     /// Whether the board lists everything made at home, or only the latest.
     made_shown_whole: bool,
+    /// Whether the owner has been told this visit that a keepsake had no room in the drawer.
+    drawer_full_said: bool,
     _open: Option<store::Open>,
     /// For review: a picture of the window itself to save, and when, after which it closes; and
     /// how many steps closer than fits to show the house in it.
@@ -149,8 +152,10 @@ impl HomeApp {
         notebook::style(ctx);
         ctx.set_zoom_factor(household.text_scale());
         let mut state = host.state().clone();
-        arrange::ensure_home(&mut state, &household.snapshot);
         let keeper = household.snapshot.household.keeper;
+        // The first time a household's house is opened, the note of how to do things is out.
+        let first_visit = state.household(keeper).is_none();
+        arrange::ensure_home(&mut state, &household.snapshot);
         let mut household = household;
         keepsakes::stock(&mut household.snapshot, home_of(&state, keeper));
         let house = House::of(&home_of(&state, keeper).rooms);
@@ -187,7 +192,7 @@ impl HomeApp {
             texture: None,
             thumbnails: HashMap::new(),
             chrome: notebook::Chrome::default(),
-            help: false,
+            help: first_visit,
             set_shown: None,
             zoom: Zoom::default(),
             clock: 0.0,
@@ -207,6 +212,7 @@ impl HomeApp {
             indoors_said: None,
             project_chosen: None,
             made_shown_whole: false,
+            drawer_full_said: false,
             _open: open,
             snap: None,
             snap_zoom: 0,

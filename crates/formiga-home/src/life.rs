@@ -677,6 +677,12 @@ impl Life {
         std::mem::take(&mut self.events)
     }
 
+    /// For tests: as if this had just happened.
+    #[cfg(test)]
+    pub fn push_event(&mut self, event: Event) {
+        self.events.push(event);
+    }
+
     /// Whether a visitor is staying over.
     pub fn staying(&self, id: Id) -> bool {
         self.index(id)

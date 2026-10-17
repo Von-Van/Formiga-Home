@@ -27,7 +27,16 @@ fn scratch(name: &str) -> PathBuf {
 }
 
 impl Harness {
+    /// The window, with the note of how to do things put away if it opened with it out, so it
+    /// covers nothing a test clicks.
     fn open(data: &Path) -> Self {
+        let mut harness = Self::open_as_is(data);
+        harness.app.help = false;
+        harness.wait(0.1);
+        harness
+    }
+
+    fn open_as_is(data: &Path) -> Self {
         let snapshot = sample::snapshot();
         let household = Household::new(snapshot.clone()).unwrap();
         let homes = RehearsalHomes::new(Some(data), &snapshot.colony_key);
@@ -1191,5 +1200,98 @@ fn a_design_is_removed_from_the_gallery_only_once_the_owner_says_so_twice() {
     window.click_text("Remove");
     assert!(window.app.designs.kept.is_empty());
     assert!(Harness::open(&data).app.designs.kept.is_empty());
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn the_note_of_how_to_do_things_is_out_the_first_time_a_house_is_opened_only() {
+    let data = scratch("first-help");
+    let mut window = Harness::open_as_is(&data);
+    assert!(window.app.help, "out on the first visit");
+    assert!(
+        window.text("Put the note away").is_some(),
+        "and the link at the foot says so"
+    );
+    window.key(Key::H);
+    assert!(!window.app.help);
+    window.app.leave();
+    drop(window);
+    let window = Harness::open_as_is(&data);
+    assert!(!window.app.help, "put away on the next");
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn a_keepsake_with_no_room_in_the_drawer_is_said_and_the_drawer_says_it_is_full() {
+    let data = scratch("drawer-full");
+    let mut window = Harness::open(&data);
+    let friend = window.app.household.visitors[0].id;
+    while window
+        .app
+        .make_keepsake(MementoKind::Pebble, Some(friend), Vec::new())
+        .is_some()
+    {}
+    assert!(
+        window
+            .app
+            .make_keepsake(MementoKind::Postcard, Some(friend), Vec::new())
+            .is_none()
+    );
+    window.app.life.push_event(crate::life::Event::Left(
+        friend,
+        Some(MementoKind::Postcard),
+    ));
+    window.wait(0.1);
+    let (said, _) = window.app.notice.clone().unwrap();
+    assert!(said.contains("drawer of keepsakes is full"), "{said}");
+    window.arrange();
+    window.turn_to(Drawer::Finds);
+    window.wait(0.1);
+    let most = formiga_home_contract::limits::MAX_MEMENTOS;
+    assert!(
+        window
+            .text(&format!(
+                "All {most} the drawer holds: let one go to make room for more"
+            ))
+            .is_some()
+    );
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn a_keepsake_picked_up_can_be_let_go_from_under_the_page() {
+    let data = scratch("let-go-carried");
+    let mut window = Harness::open(&data);
+    let friend = window.app.household.visitors[0].id;
+    let gift = window
+        .app
+        .make_keepsake(MementoKind::JamJar, Some(friend), Vec::new())
+        .unwrap();
+    window.arrange();
+    window.turn_to(Drawer::Finds);
+    window.wait(0.1);
+    assert!(window.text("Let it go").is_none(), "nothing picked up yet");
+    window.click_id(egui::Id::new(("find", gift.as_str())));
+    window.wait(0.1);
+    window.click_text("Let it go");
+    let home = window.app.state.household(window.app.keeper).unwrap();
+    assert!(home.memento(&gift).is_none());
+    assert_eq!(window.app.arranging.carrying, None);
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn the_rooms_page_says_how_long_until_another_room() {
+    let data = scratch("next-room");
+    let mut window = Harness::open(&data);
+    window.app.household.snapshot.days_lived = 3;
+    window.arrange();
+    window.turn_to(Drawer::Room);
+    window.wait(0.1);
+    assert!(
+        window
+            .text("Another room can be built after 11 more days lived.")
+            .is_some()
+    );
     let _ = std::fs::remove_dir_all(&data);
 }
