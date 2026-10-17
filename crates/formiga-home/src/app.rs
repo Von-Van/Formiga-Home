@@ -67,6 +67,10 @@ pub struct HomeApp {
     live_page: Drawer,
     selected: Option<Id>,
     hovered: Option<Target>,
+    /// Who or what in the house the arrow keys have come to, until the mouse moves.
+    focus: Option<Target>,
+    /// The floor tile what is carried by the keys is over, while it is carried by them.
+    key_tile: Option<(u8, u8)>,
     menu: Option<Menu>,
     arranging: Arranging,
     carried: Option<Id>,
@@ -185,6 +189,8 @@ impl HomeApp {
             drawer: Drawer::Finds,
             live_page: Drawer::Household,
             hovered: None,
+            focus: None,
+            key_tile: None,
             menu: None,
             arranging: Arranging::default(),
             carried: None,
@@ -269,6 +275,8 @@ impl HomeApp {
         }
         let now = self.now();
         self.menu = None;
+        self.focus = None;
+        self.key_tile = None;
         if let Some(id) = self.carried.take() {
             self.life.put_down(&self.house, id, now);
         }
@@ -397,6 +405,18 @@ impl HomeApp {
         }
         .filter(|pos| visible.contains(*pos))
         .map(|pos| ((pos.x - rect.min.x) / scale, (pos.y - rect.min.y) / scale));
+        // The mouse taking over again puts away whatever the keys had come to.
+        if ctx
+            .input(|input| input.pointer.delta() != egui::Vec2::ZERO || input.pointer.any_pressed())
+        {
+            self.focus = None;
+            self.key_tile = None;
+        }
+        let pointer = self
+            .key_tile
+            .filter(|_| self.arranging.carrying.is_some())
+            .map(|(x, y)| view.tile_centre(x, y))
+            .or(pointer);
         let pixel = pointer.map(|(x, y)| (x as i32, y as i32));
         let released = ctx.input(|input| input.pointer.primary_released());
 
@@ -408,6 +428,13 @@ impl HomeApp {
             });
         } else if self.only_shown() {
             self.hovered = None;
+        }
+        // What the keys have come to is lit as if pointed at.
+        if self.menu.is_none()
+            && self.arranging.carrying.is_none()
+            && let Some(focus) = &self.focus
+        {
+            self.hovered = Some(focus.clone());
         }
 
         let mut overlay = Overlay {
@@ -755,6 +782,7 @@ mod arranging;
 mod cells;
 mod designs;
 mod events;
+mod keyboard;
 mod keys;
 pub(super) mod lines;
 mod living;

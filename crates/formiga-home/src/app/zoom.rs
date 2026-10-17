@@ -60,6 +60,13 @@ impl Zoom {
         }
     }
 
+    /// Move a house seen close by `by` points; how far it can go is kept to when it is placed.
+    pub(super) fn pan_by(&mut self, by: egui::Vec2) {
+        if self.closer_than_fits() {
+            self.pan += by;
+        }
+    }
+
     pub(super) fn fit(&mut self) {
         self.pixels = None;
         self.pan = egui::Vec2::ZERO;

@@ -73,7 +73,7 @@ impl HomeApp {
         self.click_live(target, at);
     }
 
-    fn click_live(&mut self, target: Target, at: egui::Pos2) {
+    pub(super) fn click_live(&mut self, target: Target, at: egui::Pos2) {
         let now = self.now();
         let house = self.house.clone();
         let snapshot = &self.household.snapshot;
@@ -89,6 +89,7 @@ impl HomeApp {
                         entries
                     },
                     opened: now,
+                    highlight: None,
                 });
             }
             (Target::Resident(id), None) => {
@@ -146,6 +147,7 @@ impl HomeApp {
                         title,
                         entries,
                         opened: now,
+                        highlight: None,
                     });
                 }
             }
