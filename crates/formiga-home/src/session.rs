@@ -224,14 +224,18 @@ impl Visit {
         self.keep(state)?;
         self.left = true;
         let now = OffsetDateTime::now_utc();
+        let arrived_at_utc = self
+            .arrived_at_utc
+            .replace_nanosecond(0)
+            .unwrap_or(self.arrived_at_utc);
         let visited = if self.records_visits {
             vec![HomeEffect::HomeVisit {
                 household: self.snapshot.household.keeper,
-                arrived_at_utc: self
-                    .arrived_at_utc
-                    .replace_nanosecond(0)
-                    .unwrap_or(self.arrived_at_utc),
-                left_at_utc: now.replace_nanosecond(0).unwrap_or(now),
+                arrived_at_utc,
+                // Never before it began, even if the computer's clock was put back while the
+                // house was open: a receipt with a visit that ends first is refused whole, and
+                // everything else in it, the next door included, with it.
+                left_at_utc: now.replace_nanosecond(0).unwrap_or(now).max(arrived_at_utc),
             }]
         } else {
             Vec::new()
@@ -499,6 +503,36 @@ mod tests {
             visits_only.as_slice(),
             [HomeEffect::HomeVisit { .. }]
         ));
+    }
+
+    #[test]
+    fn a_clock_put_back_during_a_visit_still_leaves_a_receipt() {
+        let snapshot = sample::snapshot();
+        let dir = visit_dir("clock", &snapshot, &sample::state());
+        let (mut visit, _) = arrive(&dir, false).unwrap();
+        // The computer's clock is set back an hour while the house is open.
+        visit.arrived_at_utc += time::Duration::hours(1);
+        let neighbour = snapshot
+            .village
+            .iter()
+            .find(|house| house.keeper != snapshot.household.keeper)
+            .unwrap()
+            .keeper;
+        let lived = Lived {
+            next_door: Some(neighbour),
+            ..Lived::default()
+        };
+        visit.leave(&visit.state.clone(), &lived).unwrap();
+        let receipt = read_document::<HomeReceipt>(&dir.join(RECEIPT_FILE))
+            .unwrap()
+            .0;
+        assert_eq!(receipt.next_door(&snapshot), Some(neighbour));
+        assert!(receipt.effects.iter().any(|effect| matches!(
+            effect,
+            HomeEffect::HomeVisit { arrived_at_utc, left_at_utc, .. }
+                if arrived_at_utc == left_at_utc
+        )));
+        let _ = std::fs::remove_dir_all(dir.parent().unwrap());
     }
 
     #[test]
