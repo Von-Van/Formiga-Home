@@ -156,6 +156,12 @@ impl HomeApp {
         // The first time a household's house is opened, the note of how to do things is out.
         let first_visit = state.household(keeper).is_none();
         arrange::ensure_home(&mut state, &household.snapshot);
+        // Beds a stage finished before every bed could be made over are made over now.
+        if host.keeps_projects()
+            && let Some(home) = state.household_mut(keeper)
+        {
+            crate::projects::catch_up_beds(home);
+        }
         let mut household = household;
         keepsakes::stock(&mut household.snapshot, home_of(&state, keeper));
         let house = House::of(&home_of(&state, keeper).rooms);

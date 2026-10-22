@@ -893,6 +893,49 @@ pub fn give(home: &mut HouseholdHome, stage: &Stage) -> Vec<Given> {
     given
 }
 
+/// The beds the cosy beds made over before every bed and basket was: what a stage finished then
+/// made over already.
+const FIRST_BEDS: &[&str] = &["bed", "quilt_bed", "feather_bed"];
+
+/// Kept, as a tally, once a household's other beds have caught up with the stages it finished.
+const BEDS_CAUGHT_UP: &str = "caught_up.beds";
+
+/// A household that made its beds cosier before every bed and basket could be: its driftwood,
+/// moss and night beds and its nest baskets are made over now, as each stage it finished would
+/// make them today. Once only, so that a bed brought in plain since stays as it was chosen.
+pub fn catch_up_beds(home: &mut HouseholdHome) {
+    let caught_up = home
+        .tallies
+        .iter()
+        .any(|tally| tally.what.as_str() == BEDS_CAUGHT_UP);
+    let Some(beds) = project("project.cosy_beds") else {
+        return;
+    };
+    if caught_up {
+        return;
+    }
+    let done = beds.done(home);
+    for stage in &beds.stages[..done] {
+        for gift in stage.gifts {
+            let Gift::Upgrade { from, to } = *gift else {
+                continue;
+            };
+            let Some(piece) = catalog::piece(&CatalogId::known(to)) else {
+                continue;
+            };
+            for room in &mut home.rooms {
+                for placed in &mut room.pieces {
+                    let id = placed.piece.as_str();
+                    if from.contains(&id) && !FIRST_BEDS.contains(&id) {
+                        placed.piece = piece.catalog_id();
+                    }
+                }
+            }
+        }
+    }
+    bump(home, BEDS_CAUGHT_UP, 1);
+}
+
 /// Somewhere a new piece can stand in the house: against a far wall if it can, and never in a
 /// doorway's way or over anything but a rug. The front room first.
 fn spot_for(home: &HouseholdHome, piece: &'static Piece) -> Option<(usize, u8, u8, u8)> {
@@ -1022,8 +1065,8 @@ mod tests {
         assert!((3..=6).contains(&PROJECTS.len()));
         assert!(PROJECTS.len() <= MAX_PROJECTS);
         assert!(
-            Count::ALL.len() < MAX_TALLIES,
-            "every count fits, and what is heard"
+            Count::ALL.len() + 2 <= MAX_TALLIES,
+            "every count fits, what is heard, and that the beds caught up"
         );
         for kind in [Kind::Construction, Kind::Improvement, Kind::Legacy] {
             assert!(
@@ -1477,5 +1520,53 @@ mod tests {
             home.rooms[room].piece(uid).unwrap().piece.as_str(),
             "moss_quilt_bed"
         );
+    }
+
+    #[test]
+    fn beds_a_stage_finished_before_every_bed_could_be_made_over_catch_up_once() {
+        let (_, mut home) = home();
+        for room in &mut home.rooms {
+            room.pieces
+                .retain(|placed| !BEDS.contains(&placed.piece.as_str()));
+        }
+        let mut placed = Vec::new();
+        for id in ["moss_bed", "basket", "bed"] {
+            let piece = catalog::piece(&CatalogId::known(id)).unwrap();
+            let (room, x, y, turn) = spot_for(&home, piece).unwrap();
+            placed.push((
+                room,
+                placement::add_piece(&mut home, room, piece, x, y, turn),
+            ));
+        }
+        let is = |home: &HouseholdHome, (room, uid): (usize, u16)| {
+            home.rooms[room]
+                .piece(uid)
+                .unwrap()
+                .piece
+                .as_str()
+                .to_owned()
+        };
+        // Quilts and pillows were finished when only the plain bed was made over, and the plain
+        // bed was brought in since.
+        let beds = project("project.cosy_beds").unwrap();
+        seen(&mut home, beds);
+        home.projects
+            .iter_mut()
+            .find(|record| record.project.as_str() == beds.id)
+            .unwrap()
+            .stages = vec![StageDone { at_utc: AT }, StageDone { at_utc: AT }];
+        catch_up_beds(&mut home);
+        assert_eq!(is(&home, placed[0]), "moss_feather_bed");
+        assert_eq!(is(&home, placed[1]), "feather_basket");
+        assert_eq!(is(&home, placed[2]), "bed", "chosen plain, it stays plain");
+        // Once only: a moss bed brought in plain from now on stays plain too.
+        let moss = catalog::piece(&CatalogId::known("moss_bed")).unwrap();
+        let (room, x, y, turn) = spot_for(&home, moss).unwrap();
+        let later = (
+            room,
+            placement::add_piece(&mut home, room, moss, x, y, turn),
+        );
+        catch_up_beds(&mut home);
+        assert_eq!(is(&home, later), "moss_bed");
     }
 }
