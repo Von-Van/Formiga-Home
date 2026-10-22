@@ -28,11 +28,26 @@ impl HomeApp {
     }
 
     /// The welcome card, over the middle of the house's page, as the menu's card is drawn: the
-    /// card's face, the notebook's stepped edge and a shadow under it.
-    pub(super) fn welcome_card(&mut self, ctx: &egui::Context, page: egui::Rect) {
+    /// card's face, the notebook's stepped edge and a shadow under it. While it is up, the pages
+    /// and their tabs take no click, so the sample is only looked at once the card is put away;
+    /// the leather still moves the window and its studs still work.
+    pub(super) fn welcome_card(&mut self, ctx: &egui::Context, layout: &notebook::Layout) {
         if !self.welcome {
             return;
         }
+        let shielded = [layout.left, layout.right]
+            .into_iter()
+            .chain(layout.modes.iter().map(|(_, rect)| *rect))
+            .chain(layout.page_tabs.iter().map(|(_, rect)| *rect));
+        for (index, rect) in shielded.enumerate() {
+            egui::Area::new(egui::Id::new(("welcome shield", index)))
+                .order(egui::Order::Middle)
+                .fixed_pos(rect.min)
+                .show(ctx, |ui| {
+                    ui.allocate_rect(rect, egui::Sense::click_and_drag());
+                });
+        }
+        let page = layout.left;
         let unit = notebook::unit(ctx.pixels_per_point());
         let width = WIDTH.min(page.width() - 32.0 * unit).max(120.0);
         let mut look_around = false;

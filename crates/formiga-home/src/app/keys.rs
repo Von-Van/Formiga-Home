@@ -45,6 +45,12 @@ impl HomeApp {
         if ctx.egui_wants_keyboard_input() {
             return;
         }
+        // While the welcome card is up, only Escape does anything: it puts the card away, as
+        // looking around with the sample does.
+        if self.welcome {
+            self.welcome = !escape;
+            return;
+        }
         if live {
             self.set_mode(Mode::Live);
         }
@@ -73,9 +79,7 @@ impl HomeApp {
             self.save_photo();
         }
         if escape {
-            // Escape puts the welcome card away first, as looking around with the sample does.
-            if !std::mem::take(&mut self.welcome)
-                && self.placing.take().is_none()
+            if self.placing.take().is_none()
                 && self.menu.take().is_none()
                 && self.arranging.carrying.take().is_none()
             {

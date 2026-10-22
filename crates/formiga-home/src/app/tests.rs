@@ -302,6 +302,15 @@ fn another_resident_can_be_greeted_and_the_chosen_one_given_a_pat() {
     let mut window = Harness::open(&data);
     let (keeper, pip) = (window.keeper(), window.pip());
     let at = window.find(&Target::Resident(pip));
+    eprintln!(
+        "DBG pip at {at:?} look {:?} close {:?} keeper {:?}",
+        window.text(welcome::LOOK_AROUND),
+        window.text(welcome::CLOSE),
+        {
+            let k = window.keeper();
+            window.find(&Target::Resident(k))
+        }
+    );
     window.click(at);
     window.click_text("Say hello to Pip");
     assert!(window.app.life.queue(keeper).contains(&Act::Greet(pip)));
@@ -1204,9 +1213,32 @@ fn the_welcome_card_shows_the_sample_or_closes_the_window() {
     );
     window.app.welcome();
     window.wait(0.2);
-    let look = window.text(welcome::LOOK_AROUND).expect("the card is up");
+    assert!(
+        window.text(welcome::LOOK_AROUND).is_some(),
+        "the card is up"
+    );
     assert!(window.text(welcome::CLOSE).is_some());
     let selected = window.app.selected;
+    let (mode, page) = (window.app.mode, window.app.live_page);
+    // Neither tab, page nor key reaches behind the card.
+    window.arrange();
+    window.turn_to(if page == Drawer::Journal {
+        Drawer::Projects
+    } else {
+        Drawer::Journal
+    });
+    window.key(Key::A);
+    assert!(window.app.welcome, "nothing behind the card puts it away");
+    assert_eq!(
+        window.app.mode, mode,
+        "the mode tabs and keys wait for the card"
+    );
+    assert_eq!(window.app.live_page, page, "and so do the notes' tabs");
+    assert_eq!(window.app.selected, selected);
+    assert!(window.app.menu.is_none());
+    let look = window
+        .text(welcome::LOOK_AROUND)
+        .expect("the card is still up");
     window.click(look);
     assert!(!window.app.welcome, "looking around puts the card away");
     assert!(window.text(welcome::LOOK_AROUND).is_none());

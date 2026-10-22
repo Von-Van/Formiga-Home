@@ -642,7 +642,7 @@ impl HomeApp {
                     self.notes(ui, &ctx, layout.right, layout.unit);
                 });
                 self.help_note(ui, &ctx, layout.notes, layout.unit);
-                self.welcome_card(&ctx, layout.left);
+                self.welcome_card(&ctx, &layout);
                 self.status_line(ui, &layout);
             });
         self.menu(&ctx);
