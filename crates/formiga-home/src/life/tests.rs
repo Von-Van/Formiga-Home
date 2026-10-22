@@ -1173,3 +1173,54 @@ fn left_alone_each_body_keeps_to_what_it_can_do() {
         assert!(did.len() >= 3, "{plan:?} only ever did {did:?}");
     }
 }
+
+#[test]
+fn a_little_turtle_is_not_asked_to_turn_in_where_it_cannot_climb() {
+    use formiga_core::forms::{Design, Form, Plan, Sculpt};
+    let mut snapshot = sample::snapshot();
+    let little = &mut snapshot.residents[1];
+    let base = little.appearance.to_genome().unwrap();
+    let genome = Design {
+        form: Form::Sculpted {
+            sculpt: Sculpt::starter(Plan::Crawler),
+        },
+        face: base.face,
+    }
+    .genome(&base);
+    little.appearance = (&genome).into();
+    let household = Household::new(snapshot).unwrap();
+    let layout = House::of(&show_house::lived_in(&household, "floor.boards", "wall.leafy").rooms);
+    let (keeper, pip) = (household.keeper().id, household.residents[1].id);
+    assert_eq!(household.residents[1].parent(), Some(keeper));
+    let bed = piece(&layout, "bed");
+    let present: Vec<Id> = household.residents.iter().map(|r| r.id).collect();
+    let offered = choices(
+        &household,
+        &layout,
+        &household.snapshot,
+        &present,
+        &[],
+        keeper,
+        &crate::scene::Target::Piece(bed),
+    );
+    assert!(offered.contains(&Act::Sleep(bed)), "{offered:?}");
+    assert!(
+        !offered.contains(&Act::InviteLittle(bed, pip)),
+        "{offered:?}"
+    );
+    // Asked all the same, neither turns in, and the turtle sleeps on no floor.
+    let mut life = Life::new(&household, &layout);
+    life.ask(keeper, Act::InviteLittle(bed, pip), 0.0);
+    let mut now = 0.0;
+    for _ in 0..60 {
+        now = run(&mut life, &household, &layout, now, 0.25);
+        for id in [keeper, pip] {
+            assert!(
+                life.current(id)
+                    .is_none_or(|(act, _)| !matches!(act, Act::InviteLittle(..))),
+                "{:?}",
+                life.current(id)
+            );
+        }
+    }
+}

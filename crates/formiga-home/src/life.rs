@@ -1442,7 +1442,30 @@ impl Life {
             }
         }
         let seats = self.free_seats(house);
-        let mine = seats_for(body, house, &seats);
+        let mut mine = seats_for(body, house, &seats);
+        // Whoever it is done with joins in, unless they are asleep for being asked or handled.
+        let joining = partner.filter(|&o| {
+            self.minds[o].handled.is_none()
+                && !self.minds[o]
+                    .plan
+                    .as_ref()
+                    .is_some_and(|p| p.asked && p.part == Part::Leads)
+        });
+        // Sitting or lying down together wants somewhere for each body: a seat is taken only if
+        // whoever joins has another they can get up onto and fit, in the same bed to turn in
+        // together. With none, it is not done.
+        if let Some(o) = joining {
+            let theirs = seats_for(self.actors[o].body(), house, &seats);
+            match &act {
+                Act::SitTogether(_) => mine.retain(|seat| theirs.iter().any(|other| other != seat)),
+                Act::InviteLittle(uid, _) => mine.retain(|seat| {
+                    theirs
+                        .iter()
+                        .any(|other| other != seat && other.piece == *uid)
+                }),
+                _ => {}
+            }
+        }
         let spot = self.spot_for(house, floor, index, &act, &mine);
         let Some((tile, seat, face)) = spot else {
             self.minds[index].dawdle_until = now + 1.0;
@@ -1462,13 +1485,7 @@ impl Life {
             seat,
             face,
         });
-        if let Some(o) = partner
-            && self.minds[o].handled.is_none()
-            && !self.minds[o]
-                .plan
-                .as_ref()
-                .is_some_and(|p| p.asked && p.part == Part::Leads)
-        {
+        if let Some(o) = joining {
             self.end(o, now, false);
             let mut free = seats_for(self.actors[o].body(), house, &seats);
             if let Some(mine) = seat {
@@ -2617,7 +2634,15 @@ fn company_whims(choosing: &Choosing, other: Id, options: &mut Vec<(Act, f32)>) 
     if little && !resident.is_little() && guards {
         options.push((Act::Comfort(other), 1.0 * weight));
     }
-    if !character.keeps_apart() && choosing.seats.len() >= 2 {
+    // A seat together, if the other can get up onto one of them too.
+    let their_seat = household.resident(other).is_some_and(|them| {
+        let body = Body::of(them.genome());
+        choosing
+            .seats
+            .iter()
+            .any(|seat| body.settles_on_placed(choosing.house, seat.piece))
+    });
+    if !character.keeps_apart() && choosing.seats.len() >= 2 && their_seat {
         options.push((Act::SitTogether(other), 0.8 * weight));
     }
 }
@@ -2929,6 +2954,14 @@ pub fn suits(body: Body, house: &House, act: &Act) -> bool {
     }
 }
 
+/// Whether anything in the house has a seat a body can get up onto and fits.
+fn somewhere_to_sit(body: Body, house: &House) -> bool {
+    house.pieces.iter().any(|placed| {
+        catalog::piece(&placed.piece)
+            .is_some_and(|piece| body.settles_on(piece) && !seat_points(placed, piece).is_empty())
+    })
+}
+
 /// The seats among `seats` a body can get up onto and fits.
 fn seats_for(body: Body, house: &House, seats: &[Seat]) -> Vec<Seat> {
     seats
@@ -3070,11 +3103,11 @@ pub fn choices(
             if piece.has(Use::Sleep) && !visiting {
                 acts.extend([Act::Sleep(*uid), Act::CurlUp(*uid), Act::Bounce(*uid)]);
                 if !resident.is_little() && piece.size.1 >= 2 {
+                    // A little one that can get up into the bed too.
                     for other in &others {
-                        if household
-                            .resident(*other)
-                            .is_some_and(|r| r.parent() == Some(id))
-                        {
+                        if household.resident(*other).is_some_and(|r| {
+                            r.parent() == Some(id) && Body::of(r.genome()).settles_on(piece)
+                        }) {
                             acts.push(Act::InviteLittle(*uid, *other));
                         }
                     }
@@ -3153,7 +3186,11 @@ pub fn choices(
             let bond = household.bond(id, other);
             let family = household.family(id, other);
             acts.push(Act::Greet(other));
-            acts.push(Act::SitTogether(other));
+            // Somewhere to sit for each of them.
+            let sits = |who: &Resident| somewhere_to_sit(Body::of(who.genome()), house);
+            if sits(resident) && household.resident(other).is_some_and(sits) {
+                acts.push(Act::SitTogether(other));
+            }
             if character.playful() {
                 acts.push(Act::PlayTogether(other));
             }
