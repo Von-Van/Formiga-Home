@@ -1404,6 +1404,61 @@ fn a_piece_is_picked_up_carried_and_put_down_by_the_keys() {
 }
 
 #[test]
+fn a_long_piece_picked_up_by_the_keys_and_put_straight_down_stays_where_it_stood() {
+    let data = scratch("arrows-long");
+    let mut window = Harness::open(&data);
+    window.arrange();
+    let rug = window.piece("long_rug");
+    let at = |window: &Harness| {
+        let placed = window.app.house.piece(rug).unwrap();
+        (placed.x, placed.y)
+    };
+    let before = at(&window);
+    window.arrow_to(&Target::Piece(rug));
+    window.key(Key::Enter);
+    assert!(window.app.arranging.carrying.is_some());
+    window.wait(0.1);
+    window.key(Key::Enter);
+    window.wait(0.1);
+    assert!(window.app.arranging.carrying.is_none(), "it was put down");
+    assert_eq!(at(&window), before, "where it stood");
+    // An arrow carries it a tile, along its length too.
+    window.arrow_to(&Target::Piece(rug));
+    window.key(Key::Enter);
+    window.key(Key::ArrowRight);
+    window.wait(0.1);
+    window.key(Key::Enter);
+    window.wait(0.1);
+    if window.app.arranging.carrying.is_none() {
+        assert_eq!(at(&window), (before.0 + 1, before.1));
+    }
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn the_arrows_pass_over_a_find_someone_is_wearing() {
+    let data = scratch("arrows-worn");
+    let mut window = Harness::open(&data);
+    let keeper = window.keeper();
+    let key = DisplayId::find(1);
+    assert!(window.app.targets().contains(&Target::Shown(key.clone())));
+    let now = window.app.now();
+    window.app.life.ask(keeper, Act::TryOn(key.clone()), now);
+    for _ in 0..80 {
+        if window.app.life.worn().contains(&key) {
+            break;
+        }
+        window.wait(0.25);
+    }
+    assert!(
+        window.app.life.worn().contains(&key),
+        "the key was never put on"
+    );
+    assert!(!window.app.targets().contains(&Target::Shown(key)));
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
 fn shift_and_the_arrows_move_about_a_house_seen_close() {
     let data = scratch("arrows-pan");
     let mut window = Harness::open(&data);

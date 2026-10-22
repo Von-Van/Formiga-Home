@@ -84,7 +84,8 @@ impl HomeApp {
 
     /// Who and what the arrows step through, in the house as it stands: everyone at home first,
     /// while living in it, then each piece and each thing on show, from the far corner forward.
-    fn targets(&self) -> Vec<Target> {
+    /// A find someone is wearing is not where it is shown, so it is passed over.
+    pub(super) fn targets(&self) -> Vec<Target> {
         let mut targets = Vec::new();
         if self.mode == Mode::Live {
             let present = self.life.present();
@@ -107,10 +108,12 @@ impl HomeApp {
             .collect();
         pieces.sort_by(|(a, _), (b, _)| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
         targets.extend(pieces.into_iter().map(|(_, target)| target));
+        let worn = self.life.worn();
         targets.extend(
             self.house
                 .shown
                 .iter()
+                .filter(|shown| !worn.contains(&shown.item))
                 .map(|shown| Target::Shown(shown.item.clone())),
         );
         targets
@@ -189,12 +192,17 @@ impl HomeApp {
         self.arranging.dragged = false;
     }
 
-    /// The floor tile something is over.
+    /// The floor tile something is over. A piece is held by its middle, as the pointer holds it,
+    /// or the tile nearer its back corner where a side is even: put down there, it lands where
+    /// it stood.
     fn tile_of(&mut self, target: &Target) -> Option<(u8, u8)> {
         if let Target::Piece(uid) = target {
             let placed = self.house.piece(*uid)?;
             let footprint = placement::footprint(placed);
-            return Some((footprint.x, footprint.y));
+            return Some((
+                footprint.x + footprint.w.saturating_sub(1) / 2,
+                footprint.y + footprint.d.saturating_sub(1) / 2,
+            ));
         }
         let (sx, sy) = self.on_scene(target)?;
         let (x, y) = self.scene.view.floor_at(sx, sy);
