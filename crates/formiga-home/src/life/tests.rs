@@ -1232,6 +1232,22 @@ fn what_a_room_is_for_comes_more_readily_to_mind_there() {
 }
 
 #[test]
+fn a_find_played_with_in_the_playroom_comes_more_readily_to_mind() {
+    let (household, mut layout) = with_nook();
+    layout.rooms[1].kind = Some(formiga_home_contract::CatalogId::known("room.playroom"));
+    let toy = household.snapshot.inventory[0].id.clone();
+    layout.shown.retain(|shown| shown.item != toy);
+    let (x, y) = (layout.rooms[1].x, layout.rooms[1].y);
+    layout.shown.push(crate::house::Shown {
+        item: toy.clone(),
+        at: At::Floor { x, y },
+    });
+    let mut options = vec![(Act::PlayWithFind(toy), 1.0)];
+    suit_rooms(&layout, &mut options);
+    assert!(options[0].1 > 1.0, "a playroom is for playing with toys");
+}
+
+#[test]
 fn a_tall_clock_is_wound() {
     let household = Household::new(sample::snapshot()).unwrap();
     let mut home = show_house::lived_in(&household, "floor.boards", "wall.leafy");

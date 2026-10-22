@@ -2720,6 +2720,7 @@ fn suit_rooms(house: &House, options: &mut [(Act, f32)]) {
                 act,
                 Act::Play(_)
                     | Act::PlayWith(..)
+                    | Act::PlayWithFind(_)
                     | Act::ShowOffToy(_)
                     | Act::PutOnShow(_)
                     | Act::PutOnShowFor(..)
