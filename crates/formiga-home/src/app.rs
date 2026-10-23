@@ -67,6 +67,10 @@ pub struct HomeApp {
     live_page: Drawer,
     selected: Option<Id>,
     hovered: Option<Target>,
+    /// Who or what in the house the arrow keys have come to, until the mouse moves.
+    focus: Option<Target>,
+    /// The floor tile what is carried by the keys is over, while it is carried by them.
+    key_tile: Option<(u8, u8)>,
     menu: Option<Menu>,
     arranging: Arranging,
     carried: Option<Id>,
@@ -75,8 +79,12 @@ pub struct HomeApp {
     thumbnails: HashMap<String, egui::TextureHandle>,
     /// The notebook's cover, painted for the window's size.
     chrome: notebook::Chrome,
-    /// The sticky note of how to do things, taped over the notes.
+    /// The sticky note of how to do things, taped over the notes: out the first time the house
+    /// is opened, until it is put away.
     help: bool,
+    /// The card over the house saying where a house of the owner's own comes from, while Home,
+    /// opened on its own, shows the sample's.
+    welcome: bool,
     /// Which set the furniture page shows, or every set.
     set_shown: Option<catalog::Set>,
     /// How close the house is seen.
@@ -102,6 +110,8 @@ pub struct HomeApp {
     project_chosen: Option<&'static str>,
     /// Whether the board lists everything made at home, or only the latest.
     made_shown_whole: bool,
+    /// Whether the owner has been told this visit that a keepsake had no room in the drawer.
+    drawer_full_said: bool,
     _open: Option<store::Open>,
     /// For review: a picture of the window itself to save, and when, after which it closes; and
     /// how many steps closer than fits to show the house in it.
@@ -149,8 +159,16 @@ impl HomeApp {
         notebook::style(ctx);
         ctx.set_zoom_factor(household.text_scale());
         let mut state = host.state().clone();
-        arrange::ensure_home(&mut state, &household.snapshot);
         let keeper = household.snapshot.household.keeper;
+        // The first time a household's house is opened, the note of how to do things is out.
+        let first_visit = state.household(keeper).is_none();
+        arrange::ensure_home(&mut state, &household.snapshot);
+        // Beds a stage finished before every bed could be made over are made over now.
+        if host.keeps_projects()
+            && let Some(home) = state.household_mut(keeper)
+        {
+            crate::projects::catch_up_beds(home);
+        }
         let mut household = household;
         keepsakes::stock(&mut household.snapshot, home_of(&state, keeper));
         let house = House::of(&home_of(&state, keeper).rooms);
@@ -180,6 +198,8 @@ impl HomeApp {
             drawer: Drawer::Finds,
             live_page: Drawer::Household,
             hovered: None,
+            focus: None,
+            key_tile: None,
             menu: None,
             arranging: Arranging::default(),
             carried: None,
@@ -187,7 +207,8 @@ impl HomeApp {
             texture: None,
             thumbnails: HashMap::new(),
             chrome: notebook::Chrome::default(),
-            help: false,
+            help: first_visit,
+            welcome: false,
             set_shown: None,
             zoom: Zoom::default(),
             clock: 0.0,
@@ -207,6 +228,7 @@ impl HomeApp {
             indoors_said: None,
             project_chosen: None,
             made_shown_whole: false,
+            drawer_full_said: false,
             _open: open,
             snap: None,
             snap_zoom: 0,
@@ -263,6 +285,8 @@ impl HomeApp {
         }
         let now = self.now();
         self.menu = None;
+        self.focus = None;
+        self.key_tile = None;
         if let Some(id) = self.carried.take() {
             self.life.put_down(&self.house, id, now);
         }
@@ -391,6 +415,18 @@ impl HomeApp {
         }
         .filter(|pos| visible.contains(*pos))
         .map(|pos| ((pos.x - rect.min.x) / scale, (pos.y - rect.min.y) / scale));
+        // The mouse taking over again puts away whatever the keys had come to.
+        if ctx
+            .input(|input| input.pointer.delta() != egui::Vec2::ZERO || input.pointer.any_pressed())
+        {
+            self.focus = None;
+            self.key_tile = None;
+        }
+        let pointer = self
+            .key_tile
+            .filter(|_| self.arranging.carrying.is_some())
+            .map(|(x, y)| view.tile_centre(x, y))
+            .or(pointer);
         let pixel = pointer.map(|(x, y)| (x as i32, y as i32));
         let released = ctx.input(|input| input.pointer.primary_released());
 
@@ -402,6 +438,13 @@ impl HomeApp {
             });
         } else if self.only_shown() {
             self.hovered = None;
+        }
+        // What the keys have come to is lit as if pointed at.
+        if self.menu.is_none()
+            && self.arranging.carrying.is_none()
+            && let Some(focus) = &self.focus
+        {
+            self.hovered = Some(focus.clone());
         }
 
         let mut overlay = Overlay {
@@ -638,6 +681,7 @@ impl HomeApp {
                     self.notes(ui, &ctx, layout.right, layout.unit);
                 });
                 self.help_note(ui, &ctx, layout.notes, layout.unit);
+                self.welcome_card(&ctx, &layout);
                 self.status_line(ui, &layout);
             });
         self.menu(&ctx);
@@ -749,6 +793,7 @@ mod arranging;
 mod cells;
 mod designs;
 mod events;
+mod keyboard;
 mod keys;
 pub(super) mod lines;
 mod living;
@@ -758,6 +803,7 @@ mod pages;
 mod photo;
 mod projects;
 mod visits;
+mod welcome;
 mod zoom;
 
 use menu::{Entry, Menu};

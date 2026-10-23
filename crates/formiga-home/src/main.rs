@@ -39,8 +39,10 @@ Usage: formiga-home [--sample | --formiga-home <VISIT DIRECTORY> | --from-save <
                     [--render-room <PNG> | --render-catalog <PNG> | --render-finds <PNG>
                      | --render-poses <PNG>]
 
-  --sample                 Open Desktop's sample household (the default): a rehearsal, kept in
-                           Home's own data folder as Desktop would keep it
+  --sample                 Open Desktop's sample household: a rehearsal, kept in Home's own
+                           data folder as Desktop would keep it. With no arguments at all it
+                           opens too, behind a card saying that a house of your own is opened
+                           from Formiga Desktop's village
   --formiga-home <DIR>     How Desktop opens a house: the visit it wrote, answered on leaving
   --from-save <FILE>       Development only: rehearse a house in a Desktop colony file, which is
                            only ever read
@@ -58,7 +60,7 @@ Usage: formiga-home [--sample | --formiga-home <VISIT DIRECTORY> | --from-save <
                            picture of the window itself and close, for review
   --page <PAGE>            With --snap: open arranging, on finds, furniture, rooms or designs; or the
                            journal, or the project board, or a project on it opened, by its
-                           id (project.hearth)
+                           id (project.hearth); or the welcome card
   --try <FILE>             With --snap: the designs page, trying the design in FILE in the house
   --theme <THEME>          With --snap: the notebook light or dark, whatever the household's
                            own preference
@@ -102,6 +104,10 @@ struct Args {
     hour: Option<f32>,
     month: Option<u8>,
     text: Option<u8>,
+    /// Home was started with no arguments at all, as someone opening the app from Applications
+    /// or the Start menu starts it, rather than by Desktop or for development: the sample house
+    /// opens behind a card that says where a house of the owner's own comes from.
+    welcome: bool,
 }
 
 impl Args {
@@ -122,7 +128,8 @@ impl Args {
     }
 }
 
-fn parse_args(mut args: impl Iterator<Item = std::ffi::OsString>) -> Result<Option<Args>> {
+fn parse_args(args: impl Iterator<Item = std::ffi::OsString>) -> Result<Option<Args>> {
+    let mut args = args.peekable();
     let mut parsed = Args {
         source: Source::Sample,
         house: 0,
@@ -141,6 +148,9 @@ fn parse_args(mut args: impl Iterator<Item = std::ffi::OsString>) -> Result<Opti
         hour: None,
         month: None,
         text: None,
+        // Desktop always says how it opens Home, and so does every development and review
+        // option, so only someone opening the app itself starts it with nothing at all.
+        welcome: args.peek().is_none(),
     };
     let value = |args: &mut dyn Iterator<Item = std::ffi::OsString>, flag: &str| {
         args.next()
@@ -376,6 +386,9 @@ fn main() -> Result<()> {
             if let Some(daylight) = daylight {
                 app.set_daylight(daylight);
             }
+            if args.welcome {
+                app.welcome();
+            }
             if let Some(path) = args.snap {
                 app.snap(
                     path,
@@ -480,4 +493,36 @@ pub(crate) fn write_png(path: &Path, canvas: &Canvas, scale: u32) -> Result<()> 
     encoder.set_depth(png::BitDepth::Eight);
     encoder.write_header()?.write_image_data(&bytes)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(args: &[&str]) -> Args {
+        parse_args(args.iter().map(std::ffi::OsString::from))
+            .unwrap()
+            .unwrap()
+    }
+
+    #[test]
+    fn only_home_opened_on_its_own_says_where_a_house_comes_from() {
+        let opened = parse(&[]);
+        assert!(opened.welcome, "opened from Applications or the Start menu");
+        assert!(matches!(opened.source, Source::Sample));
+        let sample = parse(&["--sample"]);
+        assert!(!sample.welcome, "the sample asked for by name");
+        assert!(matches!(sample.source, Source::Sample));
+        let visit = parse(&[formiga_home_contract::LAUNCH_ARGUMENT, "/visits/ab"]);
+        assert!(!visit.welcome, "a visit from Desktop");
+        assert!(matches!(visit.source, Source::Visit(_)));
+        for args in [
+            &["--from-save", "colony.json"][..],
+            &["--render-room", "room.png"],
+            &["--snap", "window.png"],
+            &["--rooms", "3"],
+        ] {
+            assert!(!parse(args).welcome, "{args:?}");
+        }
+    }
 }

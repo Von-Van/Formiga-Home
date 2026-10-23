@@ -6,6 +6,10 @@ use crate::life::{Event, Used};
 use crate::session::Lived;
 use formiga_home_contract::FavouriteKind;
 
+/// What is said when a keepsake has nowhere to go, after a "but".
+pub(super) const DRAWER_FULL: &str =
+    "the drawer of keepsakes is full. Let one go, from the finds page, to make room.";
+
 impl HomeApp {
     /// What has happened in the house since the last frame.
     pub(super) fn events(&mut self) {
@@ -28,15 +32,25 @@ impl HomeApp {
                     });
                 }
                 Event::Left(id, gift) => {
-                    let left = gift.and_then(|kind| {
-                        self.make_keepsake(kind, Some(id), Vec::new()).map(|_| kind)
+                    let left = gift.map(|kind| {
+                        let kept = self.make_keepsake(kind, Some(id), Vec::new()).is_some();
+                        (kind, kept)
                     });
                     match left {
-                        Some(kind) => self.say(format!(
+                        Some((kind, true)) => self.say(format!(
                             "{} has gone home, and left {} for the drawer.",
                             self.name(id),
                             keepsakes::a(kind)
                         )),
+                        Some((kind, false)) => {
+                            self.drawer_full_said = true;
+                            self.say(format!(
+                                "{} has gone home. There was {} for the drawer, but {}",
+                                self.name(id),
+                                keepsakes::a(kind),
+                                DRAWER_FULL
+                            ));
+                        }
                         None => self.say(format!("{} has gone home.", self.name(id))),
                     }
                     if self.selected == Some(id) {
@@ -51,18 +65,26 @@ impl HomeApp {
                     });
                 }
                 Event::Drew(by, of) => {
+                    let whom = if of == by {
+                        "itself".to_owned()
+                    } else {
+                        self.name(of)
+                    };
                     if self
                         .make_keepsake(MementoKind::Drawing, Some(by), vec![of])
                         .is_some()
                     {
-                        let whom = if of == by {
-                            "itself".to_owned()
-                        } else {
-                            self.name(of)
-                        };
                         self.say(format!(
                             "{} has drawn {whom}. The drawing is in the drawer.",
                             self.name(by)
+                        ));
+                    } else if !self.drawer_full_said {
+                        // Said once a visit: little ones draw often.
+                        self.drawer_full_said = true;
+                        self.say(format!(
+                            "{} has drawn {whom}, but {}",
+                            self.name(by),
+                            DRAWER_FULL
                         ));
                     }
                 }

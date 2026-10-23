@@ -1,5 +1,6 @@
 //! The keys: the modes, the notes' pages, whoever is chosen, the sticky note, closer and further,
 //! a photo; and while arranging, turning what is carried, putting it away, undoing and doing again.
+//! The house itself by the arrows and Enter is in `keyboard.rs`.
 
 use super::*;
 
@@ -45,6 +46,13 @@ impl HomeApp {
         if ctx.egui_wants_keyboard_input() {
             return;
         }
+        // While the welcome card is up, only Escape does anything: it puts the card away, as
+        // looking around with the sample does.
+        if self.welcome {
+            self.welcome = !escape;
+            return;
+        }
+        self.house_keys(ctx);
         if live {
             self.set_mode(Mode::Live);
         }
@@ -76,10 +84,12 @@ impl HomeApp {
             if self.placing.take().is_none()
                 && self.menu.take().is_none()
                 && self.arranging.carrying.take().is_none()
+                && self.focus.take().is_none()
             {
                 self.selected = None;
             }
             self.arranging.dragged = false;
+            self.key_tile = None;
         }
         if self.mode != Mode::Arrange {
             return;

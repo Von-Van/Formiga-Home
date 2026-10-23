@@ -19,6 +19,8 @@ pub(super) struct Menu {
     pub(super) title: String,
     pub(super) entries: Vec<(Entry, String)>,
     pub(super) opened: f32,
+    /// The entry the arrow keys have come to, if they have been used on it.
+    pub(super) highlight: Option<usize>,
 }
 
 impl HomeApp {
@@ -60,9 +62,10 @@ impl HomeApp {
                             notebook::kicker(ui, &menu.title);
                             ui.add_space(3.0);
                         }
-                        for (entry, label) in &menu.entries {
+                        for (index, (entry, label)) in menu.entries.iter().enumerate() {
                             let row = egui::Button::new(label)
                                 .frame(false)
+                                .selected(menu.highlight == Some(index))
                                 .min_size(egui::vec2(ui.available_width(), 20.0));
                             if ui.add(row).clicked() {
                                 chosen = Some(entry.clone());
@@ -99,10 +102,19 @@ impl HomeApp {
             && !area.response.contains_pointer()
             && self.now() - menu.opened > 0.2;
         if let Some(entry) = chosen {
+            self.choose_from_menu(entry);
+        } else if close || clicked_elsewhere {
             self.menu = None;
-            let Some(chosen_id) = self.selected else {
-                return;
-            };
+        }
+    }
+
+    /// What choosing `entry` from the menu does, by the pointer or the keys.
+    pub(super) fn choose_from_menu(&mut self, entry: Entry) {
+        self.menu = None;
+        let Some(chosen_id) = self.selected else {
+            return;
+        };
+        {
             match entry {
                 Entry::Ask(act) => self.ask(chosen_id, act),
                 Entry::Pet => {
@@ -120,8 +132,6 @@ impl HomeApp {
                     }
                 }
             }
-        } else if close || clicked_elsewhere {
-            self.menu = None;
         }
     }
 }

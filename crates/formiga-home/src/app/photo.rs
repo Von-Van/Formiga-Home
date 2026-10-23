@@ -14,6 +14,10 @@ impl HomeApp {
             Some("furniture") => Some(Drawer::Furniture),
             Some("rooms") => Some(Drawer::Room),
             Some("designs") => Some(Drawer::Designs),
+            Some("welcome") => {
+                self.welcome = true;
+                None
+            }
             Some("journal") => {
                 self.live_page = Drawer::Journal;
                 None
@@ -122,7 +126,10 @@ impl HomeApp {
                 {
                     self.say("Saved a picture of the room, and framed one for the drawer.");
                 } else {
-                    self.say("Saved a picture of the room.");
+                    self.say(format!(
+                        "Saved a picture of the room. One was not framed, as {}",
+                        super::events::DRAWER_FULL
+                    ));
                 }
             }
             Err(error) => self.say(format!("The picture could not be saved: {error}")),

@@ -79,6 +79,15 @@ pub enum Act {
     ShowOffToy(u16),
     Snack(u16),
     Share(u16, Id),
+    /// Sit by the fire a while.
+    WarmUp(u16),
+    /// Have supper at the family table.
+    Supper(u16),
+    /// Put on a puppet show, alone, or for someone who watches.
+    PutOnShow(u16),
+    PutOnShowFor(u16, Id),
+    /// Wind a clock.
+    Wind(u16),
     Inspect(DisplayId),
     Remember(DisplayId),
     ShowTo(DisplayId, Id),
@@ -105,6 +114,7 @@ impl Act {
             Self::InviteLittle(_, other)
             | Self::PlayWith(_, other)
             | Self::Share(_, other)
+            | Self::PutOnShowFor(_, other)
             | Self::ShowTo(_, other)
             | Self::Greet(other)
             | Self::SitTogether(other)
@@ -135,7 +145,12 @@ impl Act {
             | Self::PlayWith(uid, _)
             | Self::ShowOffToy(uid)
             | Self::Snack(uid)
-            | Self::Share(uid, _) => Some(*uid),
+            | Self::Share(uid, _)
+            | Self::WarmUp(uid)
+            | Self::Supper(uid)
+            | Self::PutOnShow(uid)
+            | Self::PutOnShowFor(uid, _)
+            | Self::Wind(uid) => Some(*uid),
             _ => None,
         }
     }
@@ -155,7 +170,9 @@ impl Act {
     /// How it is time spent together, as Desktop counts it, if it is.
     fn together(&self) -> Option<Together> {
         match self {
-            Self::PlayTogether(_) | Self::PlayWith(..) => Some(Together::Play),
+            Self::PlayTogether(_) | Self::PlayWith(..) | Self::PutOnShowFor(..) => {
+                Some(Together::Play)
+            }
             Self::SitTogether(_) | Self::Share(..) | Self::Hug(_) | Self::InviteLittle(..) => {
                 Some(Together::Cozy)
             }
@@ -178,6 +195,9 @@ impl Act {
             | Self::PlayWithFind(_)
             | Self::PlayTogether(_) => Some(Count::Games),
             Self::Tend(_) => Some(Count::Tending),
+            Self::WarmUp(_) => Some(Count::Hearthside),
+            Self::Supper(_) => Some(Count::Suppers),
+            Self::PutOnShow(_) | Self::PutOnShowFor(..) => Some(Count::Shows),
             Self::Inspect(_) | Self::Remember(_) | Self::ShowTo(..) | Self::Browse(_) => {
                 Some(Count::Looks)
             }
@@ -209,6 +229,8 @@ impl Act {
             | Self::Remember(_)
             | Self::SitAt(_)
             | Self::Tend(_)
+            | Self::WarmUp(_)
+            | Self::Supper(_)
             | Self::GrumbleAt(_) => Drive::Comfort,
             Self::Nap(_) | Self::Sleep(_) | Self::InviteLittle(..) | Self::Sprawl(_) => Drive::Rest,
             Self::Play(_)
@@ -220,10 +242,13 @@ impl Act {
             | Self::FussWith(_)
             | Self::TryOn(_)
             | Self::Draw(..)
+            | Self::PutOnShow(_)
+            | Self::PutOnShowFor(..)
             | Self::Bounce(_) => Drive::Play,
             Self::Inspect(_)
             | Self::Browse(_)
             | Self::SwitchLamp(_)
+            | Self::Wind(_)
             | Self::Wander(..)
             | Self::GoTo(..) => Drive::Curiosity,
             Self::Share(..)
@@ -276,6 +301,11 @@ impl Act {
             Self::ShowOffToy(uid) => format!("Show off with the {}", piece(uid)),
             Self::Snack(uid) => format!("Have a snack from the {}", piece(uid)),
             Self::Share(_, other) => format!("Share a snack with {}", who(other)),
+            Self::WarmUp(uid) => format!("Warm up by the {}", piece(uid)),
+            Self::Supper(uid) => format!("Have supper at the {}", piece(uid)),
+            Self::PutOnShow(uid) => format!("Put on a show at the {}", piece(uid)),
+            Self::PutOnShowFor(_, other) => format!("Put on a puppet show for {}", who(other)),
+            Self::Wind(uid) => format!("Wind the {}", piece(uid)),
             Self::Inspect(id) => format!("Look at the {}", item(id)),
             Self::Remember(id) => format!("Remember the {}", item(id)),
             Self::ShowTo(id, other) => format!("Show {} the {}", who(other), item(id)),
@@ -315,6 +345,9 @@ impl Act {
             "Play" => "playing",
             "Show" => "showing",
             "Have" => "having",
+            "Warm" => "warming",
+            "Wind" => "winding",
+            "Put" => "putting",
             "Share" => "sharing",
             "Look" => "looking",
             "Remember" => "remembering",
@@ -676,6 +709,12 @@ impl Life {
     /// What has happened since the window last asked.
     pub fn take_events(&mut self) -> Vec<Event> {
         std::mem::take(&mut self.events)
+    }
+
+    /// For tests: as if this had just happened.
+    #[cfg(test)]
+    pub fn push_event(&mut self, event: Event) {
+        self.events.push(event);
     }
 
     /// Whether a visitor is staying over.
@@ -1926,7 +1965,7 @@ impl Life {
             let mind = &mut self.minds[index];
             if mind.presence == Presence::Home && plan.part == Part::Leads {
                 let liked = match (&plan.act, plan.act.piece(), plan.act.item()) {
-                    (Act::SwitchLamp(_) | Act::Browse(_), _, _) => None,
+                    (Act::SwitchLamp(_) | Act::Browse(_) | Act::Wind(_), _, _) => None,
                     (_, Some(uid), _) => Some(Used::Piece(uid)),
                     (_, _, Some(item)) => Some(Used::Shown(item.clone())),
                     _ => None,
@@ -2020,6 +2059,7 @@ impl Life {
         for other in &choosing.others {
             company_whims(&choosing, *other, &mut options);
         }
+        suit_rooms(house, &mut options);
         let (room, leaving) = self.which_room(house, index);
         options.extend(self.look_round(house, index, room, leaving));
         keep_to_room(house, room, &mut options);
@@ -2140,7 +2180,7 @@ impl Life {
             options.push((Act::CurlUp(uid), 0.6 * bedroll * solitude));
         }
         if piece.has(Use::Sleep) && free && !visiting {
-            let basket = piece.id == "basket";
+            let basket = piece.is_basket();
             let fits = if resident.is_little() == basket {
                 1.4
             } else {
@@ -2191,8 +2231,23 @@ impl Life {
         if piece.family == Family::Plants && !visiting {
             options.push((Act::Tend(uid), 0.25 + character.axes.affection * 0.3));
         }
-        if piece.family == Family::Lights && character.fusses() {
+        if piece.has(Use::Warm) {
+            // A fire draws everyone as the evening comes, the idle most of all.
+            options.push((
+                Act::WarmUp(uid),
+                (0.3 + self.dark * 1.4) * if lazy { 1.4 } else { 1.0 } * solitude.max(0.6),
+            ));
+        } else if piece.family == Family::Lights && character.fusses() {
             options.push((Act::SwitchLamp(uid), 0.25));
+        }
+        if piece.has(Use::Wind) {
+            // A clock is kept by whoever minds such things.
+            let minds = if character.fusses() || character.studies() {
+                0.6
+            } else {
+                0.15
+            };
+            options.push((Act::Wind(uid), minds));
         }
         if piece.family == Family::Shelves && !shown_on(choosing.house, uid).is_empty() {
             let lots = if character.studies() || visiting {
@@ -2537,14 +2592,31 @@ fn play_whims(choosing: &Choosing, prospect: &Prospect, options: &mut Vec<(Act, 
             ));
         }
     }
+    if piece.has(Use::Show) {
+        // A show-off puts on a show sooner, and sooner still with someone to watch.
+        let keen = if character.shows_off() { 1.4 } else { 0.6 };
+        options.push((Act::PutOnShow(uid), keen * mine));
+        for other in &choosing.others {
+            let bond = household.bond(resident.id, *other);
+            if bond.friction < Band::High {
+                options.push((
+                    Act::PutOnShowFor(uid, *other),
+                    keen * (0.5 + band(bond.playfulness) * 0.6) * mine,
+                ));
+            }
+        }
+    }
+    let loves_food = resident
+        .traveler
+        .character
+        .trait_ids
+        .contains(&Trait::FoodMotivated)
+        || character.has_habit(Habit::LooksFoodOver);
     if piece.has(Use::Snack) {
-        let loves_food = resident
-            .traveler
-            .character
-            .trait_ids
-            .contains(&Trait::FoodMotivated)
-            || character.has_habit(Habit::LooksFoodOver);
         options.push((Act::Snack(uid), if loves_food { 1.5 } else { 0.6 }));
+    }
+    if piece.has(Use::Supper) {
+        options.push((Act::Supper(uid), if loves_food { 1.4 } else { 0.7 }));
     }
 }
 
@@ -2647,6 +2719,54 @@ fn company_whims(choosing: &Choosing, other: Id, options: &mut Vec<(Act, f32)>) 
     }
 }
 
+/// What a room is for comes the more readily to mind there: a nap in the bedroom, a game in the
+/// playroom, a snack in the kitchen.
+fn suit_rooms(house: &House, options: &mut [(Act, f32)]) {
+    use catalog::Purpose;
+    for (act, weight) in options {
+        let room = match (act.piece(), act.item()) {
+            (Some(uid), _) => house
+                .piece(uid)
+                .and_then(|placed| house.room_of_point(placement::footprint(placed).centre())),
+            (_, Some(item)) => item_room(house, item),
+            (None, None) => None,
+        };
+        let Some(purpose) = room
+            .and_then(|room| house.rooms.get(usize::from(room)))
+            .and_then(|room| room.kind.as_ref())
+            .and_then(catalog::template)
+            .map(|template| template.purpose)
+        else {
+            continue;
+        };
+        let suits = match purpose {
+            Purpose::Reading => matches!(act, Act::Browse(_) | Act::Inspect(_) | Act::Remember(_)),
+            Purpose::Rest => matches!(
+                act,
+                Act::Sleep(_) | Act::Nap(_) | Act::CurlUp(_) | Act::InviteLittle(..)
+            ),
+            Purpose::Looking => matches!(
+                act,
+                Act::Browse(_) | Act::Inspect(_) | Act::Remember(_) | Act::ShowTo(..)
+            ),
+            Purpose::Play => matches!(
+                act,
+                Act::Play(_)
+                    | Act::PlayWith(..)
+                    | Act::PlayWithFind(_)
+                    | Act::ShowOffToy(_)
+                    | Act::PutOnShow(_)
+                    | Act::PutOnShowFor(..)
+            ),
+            Purpose::Eating => matches!(act, Act::Snack(_) | Act::Share(..) | Act::Supper(_)),
+            Purpose::Writing => matches!(act, Act::SitAt(_) | Act::Draw(..) | Act::Wind(_)),
+        };
+        if suits {
+            *weight *= 1.5;
+        }
+    }
+}
+
 /// Only what is in `room` comes to mind, and the others, wherever they are: if anything there
 /// does.
 fn keep_to_room(house: &House, room: u8, options: &mut Vec<(Act, f32)>) {
@@ -2688,6 +2808,12 @@ fn joining_pose(household: &Household, resident: &Resident, leader: Id, act: &Ac
         }
         Act::ShowTo(..) => Pose::new(Gesture::Watch, ExpressionKind::Curious),
         Act::Share(..) => Pose::new(ActionKind::Eat, ExpressionKind::Content),
+        Act::PutOnShowFor(..) if character.kind == TemperamentKind::Grump => {
+            Pose::new(Gesture::Watch, ExpressionKind::Bored)
+        }
+        Act::PutOnShowFor(..) => {
+            Pose::new(Gesture::Watch, ExpressionKind::Joy).with_cue(Cue::Sparkle)
+        }
         Act::SitTogether(_) => Pose::new(ActionKind::Perch, character.settled_face()),
         Act::InviteLittle(..) => {
             Pose::new(ActionKind::Sleep, ExpressionKind::Sleepy).with_cue(Cue::Sleep)
@@ -2755,6 +2881,10 @@ fn leading_pose(
             4.0,
         ),
         Act::SwitchLamp(_) => (Pose::new(Gesture::Reach, ExpressionKind::Curious), 1.4),
+        Act::Wind(_) => (
+            Pose::new(Gesture::Reach, ExpressionKind::Focused).with_cue(Cue::Note),
+            3.0,
+        ),
         Act::Tend(_) => (
             Pose::new(Gesture::Reach, ExpressionKind::Content).with_cue(Cue::Heart),
             4.0,
@@ -2776,6 +2906,25 @@ fn leading_pose(
             3.5,
         ),
         Act::Snack(_) | Act::Share(..) => (Pose::new(ActionKind::Eat, snack_face(resident)), 5.0),
+        Act::Supper(_) => (
+            Pose::new(ActionKind::Eat, snack_face(resident)),
+            dice.between(7.0, 10.0),
+        ),
+        Act::WarmUp(_) => (
+            Pose::new(ActionKind::Perch, ExpressionKind::Content).with_cue(Cue::Heart),
+            dice.between(10.0, 14.0) * (1.0 + dark),
+        ),
+        Act::PutOnShow(_) | Act::PutOnShowFor(..) => {
+            let face = if character.shows_off() {
+                ExpressionKind::Smug
+            } else {
+                ExpressionKind::Joy
+            };
+            (
+                Pose::new(Gesture::Reach, face).with_cue(Cue::Note),
+                dice.between(6.0, 9.0),
+            )
+        }
         Act::Inspect(item) => inspecting_pose(snapshot, resident, item, dice),
         Act::Remember(_) => (
             Pose::new(Gesture::Watch, ExpressionKind::Affectionate).with_cue(Cue::Thought),
@@ -3122,8 +3271,20 @@ pub fn choices(
                     acts.push(Act::Draw(*uid, subject(household, id, &others)));
                 }
             }
-            if piece.family == Family::Lights {
+            if piece.has(Use::Warm) {
+                acts.push(Act::WarmUp(*uid));
+            } else if piece.family == Family::Lights {
                 acts.push(Act::SwitchLamp(*uid));
+            }
+            if piece.has(Use::Supper) {
+                acts.push(Act::Supper(*uid));
+            }
+            if piece.has(Use::Wind) {
+                acts.push(Act::Wind(*uid));
+            }
+            if piece.has(Use::Show) {
+                acts.push(Act::PutOnShow(*uid));
+                acts.extend(others.iter().map(|other| Act::PutOnShowFor(*uid, *other)));
             }
             if piece.family == Family::Plants {
                 acts.push(Act::Tend(*uid));
