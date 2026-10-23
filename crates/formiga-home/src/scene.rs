@@ -1036,6 +1036,9 @@ fn outline_tiles(canvas: &mut Canvas, view: &View, footprint: Footprint, color: 
 }
 
 #[cfg(test)]
+mod golden;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
