@@ -51,18 +51,25 @@ from Formiga Desktop's village, and offers a look round Desktop's sample househo
   if it will; nothing else about the colony changes.
 - **Keepsakes of its own.** Beyond the colony's finds, a house collects a few things that only
   happen at home: a gift from a visitor, a drawing by one of the little ones, or a framed copy of
-  a photo you took.
+  a photo you took. Its drawer holds twenty-four; once it is full, the notes say so, and letting
+  one go makes room for the next.
 - **A journal.** The notebook keeps short notes on what has happened in the house: who visited,
   what someone took a liking to, when a room was built.
 - **A house that grows.** Over time a house can gain a second and third room, all seen together
   in one cutaway, with doorways between them.
 - **Household projects.** A project board in the notebook lists a few things the household can
-  make of its home: a window garden, a puppet theatre, cosier beds, a family table and a hearth
-  that grows with the household's history. Each comes a stage at a time, from what happens at
-  home anyway (snacks shared, naps, games, plants tended, friends come over), from the days lived
-  and keepsakes made, and from souvenirs anyone in the colony has brought home from Formiga Hill.
-  Finishing a stage is up to you, whenever you like, and what it makes stands in the house for
-  good, with its own pieces, floors and walls to use. Each house's projects are its own.
+  make of its home: a window garden, a puppet theatre, cosier beds, a family table, a hearth
+  that grows with the household's history, and, once the colony has a cup or a medal from
+  Formiga Battle, a winners' podium to stand them on. Each comes a stage at a time, from what
+  happens at home anyway (snacks shared, naps, games, plants tended, friends come over), from the
+  days lived and keepsakes made, and from souvenirs anyone in the colony has brought home from
+  Formiga Hill. Every souvenir counts towards something, but none is ever needed, and nor are
+  friends from other houses: each can be made up for with a little more of life at home, so a
+  one-house colony that never goes to the Hill can finish every stage. Finishing a stage is up to
+  you, whenever you like, and what it makes stands in the house for good, and is used for what it
+  was made for: everyone warms up by the hearth of an evening, has supper at the family table,
+  and puts on shows at the puppet theatre, alone or for someone. Cosy beds makes over every bed
+  and basket in its own set's look. Each house's projects are its own.
 - **Day and night.** The house follows your own clock: as drawn by day, warm as the light goes,
   and blue at night but for the pools of its lamps, when everyone tires sooner and sleeps longer.
   The garden through the front door, and what comes in on the doormat, follow the year.
@@ -94,7 +101,7 @@ same rules Desktop would use, so a rehearsal proves the same loop a real visit w
 
 | Part | Status |
 | --- | --- |
-| The house: up to three rooms, doorways and a front door, seven floors, seven walls, thirty-two pieces of furniture in three sets plus the house's own | Released |
+| The house: up to three rooms, doorways and a front door, nine floors, ten walls, and sixty-two pieces of furniture in three sets, the house's own, and what the household makes | Released |
 | The notebook window: the leather cover as its frame, the house on one page and notes on the other | Released |
 | Residents living on their own, and the short list of things you can ask of each | Released |
 | Arranging, Found Things, and the card for anything without its own picture | Released |
@@ -111,7 +118,8 @@ same rules Desktop would use, so a rehearsal proves the same loop a real visit w
 The window is a notebook. Its leather cover acts as the frame: drag it to move the window, and use
 the brass studs to close it, put it away, open it wide or take a photo. The house is drawn on the
 left-hand page and notes are kept on the right. "How to…" at the foot of the notes lists
-everything the mouse and keys can do, so the walk-through below is a tour rather than a manual.
+everything the mouse and keys can do, and its note is out the first time a house is opened, so the
+walk-through below is a tour rather than a manual.
 
 ### Living in the house
 
@@ -170,15 +178,24 @@ arrange, everyone waits off the furniture. Four tabs stand up from the notes:
 - **Finds** shows everything the colony has, along with the house's own keepsakes. A red
   dot marks what is shown here, and a hollow one marks what is shown in another household's
   house. Moving something from another house moves it here, since one find can only be in one
-  place at a time.
+  place at a time. A keepsake no longer wanted can be let go, from its right-click menu or with
+  **Let it go** under the page while it is picked up; undo brings it back.
 - **Furniture** always has the starter pieces. More arrive as the colony lives and finds things,
-  and they stay: a sofa, a long rug, a toy box, a glass case, a bell jar, a curio cabinet, a glass
-  counter, and three matching sets (seaside, woodland and starlit). A guest bedroll is there from
-  the start, for whoever stays over.
+  and they stay; pointing at one not yet here says how many more days or finds it waits on, or
+  which project's stage makes it: a sofa, a long rug, a toy box, a glass case, a bell jar, a
+  curio cabinet, a glass counter, a writing desk, a blanket chest, a little stove, a kitchen
+  dresser, a tall clock to wind, and three matching sets (seaside, woodland and starlit). A guest
+  bedroll is there from the start, for whoever stays over. What the household makes appears once
+  it is made; the **Made at home** set shows all of it, with which stage makes each.
 - **Rooms** sets each room's floor and walls. After two weeks a second room can be built, and
-  after forty days a third. You choose its kind, preview the house with it in each place it could
-  go, and build it where it looks right. Any room but the first can be taken away again, and its
-  contents go back to the catalogue and the drawer.
+  after forty days a third; until then the page says how many more days to go. You choose its
+  kind (a reading nook, a bedroom, a gallery, a playroom, a kitchen or a study), preview the
+  house with it in each place it could go, and build it where it looks right. Each kind is for
+  something, and whoever is in it is the more inclined to do that there: nap in the bedroom,
+  look things over in the nook or the gallery, play in the playroom, eat in the kitchen, and sit
+  at the desk or draw in the study.
+  Any room but the first can be taken away again, and its contents go back to the catalogue and
+  the drawer.
 - **Designs** is the layout gallery. Save the house, or one room of it, by name, and try a saved
   design in the house before using it. The house is shown as the design would make it, with
   whatever it cannot bring named first: pieces that have not arrived yet, finds the colony does not
@@ -199,7 +216,12 @@ layout back to Desktop.
 The notebook answers to its keys as well as the mouse: L and A for living in the house and
 arranging it, [ and ] to turn the notes' pages, N (and Shift+N) to choose the next one in the
 house, P for a picture, + − and 0 to come closer and fit again, H for the help note, and Escape to
-put down or close whatever is open.
+put down or close whatever is open. The house itself can be used without the mouse too: the
+arrow keys step through who and what is in it, and Enter opens it as a click would, with the menu
+that opens answering to the arrows and Enter as well. Arranging, Enter picks up the piece or the
+thing the arrows have come to, the arrows carry it a tile at a time, R turns it, and Enter puts it
+down. Shift and the arrows move about a house seen close. Tab still steps through the notes'
+own buttons, and Escape or a click in the house gives the keys back to it.
 
 Closing the window with its stud ends the visit. The window remembers its size and position, and
 Desktop's reduced motion, theme and text size carry over, so the notebook is cream by daylight and

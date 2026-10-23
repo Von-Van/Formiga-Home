@@ -59,11 +59,17 @@ pub enum Count {
     Visits,
     /// A friend who stayed over.
     Sleepovers,
+    /// A while spent warming up by the hearth.
+    Hearthside,
+    /// A supper at the family table.
+    Suppers,
+    /// A show put on at the puppet theatre.
+    Shows,
 }
 
 impl Count {
     #[cfg(test)]
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 10] = [
         Self::Snacks,
         Self::Rests,
         Self::Games,
@@ -71,6 +77,9 @@ impl Count {
         Self::Looks,
         Self::Visits,
         Self::Sleepovers,
+        Self::Hearthside,
+        Self::Suppers,
+        Self::Shows,
     ];
 
     /// How the household's home keeps it.
@@ -83,6 +92,9 @@ impl Count {
             Self::Looks => "tally.looks",
             Self::Visits => "tally.visits",
             Self::Sleepovers => "tally.sleepovers",
+            Self::Hearthside => "tally.hearthside",
+            Self::Suppers => "tally.suppers",
+            Self::Shows => "tally.shows",
         }
     }
 
@@ -96,6 +108,9 @@ impl Count {
             Self::Looks => "Finds looked over",
             Self::Visits => "Friends come over",
             Self::Sleepovers => "Friends stayed over",
+            Self::Hearthside => "Evenings by the hearth",
+            Self::Suppers => "Suppers at the family table",
+            Self::Shows => "Puppet shows put on",
         }
     }
 }
@@ -114,6 +129,11 @@ pub enum Need {
     Keepsakes(u32),
     /// One of these pieces stands in the house.
     Has(&'static [&'static str]),
+    /// This many of Formiga Battle's keepsakes, brought home by anyone in the colony.
+    BattleKeepsakes(u32),
+    /// Any one of these will do: a souvenir from Formiga Hill, say, or more of what happens at
+    /// home, so that no stage waits on Formiga Hill or on friends from other houses.
+    AnyOf(&'static [Need]),
 }
 
 /// What finishing a stage gives the household.
@@ -154,11 +174,34 @@ pub struct Project {
     pub stages: &'static [Stage],
 }
 
-const BEDS: &[&str] = &["bed", "quilt_bed", "feather_bed", "canopy_bed"];
+/// Every bed a household might have, made cosier or not: what the cosy beds are for.
+const BEDS: &[&str] = &[
+    "bed",
+    "quilt_bed",
+    "feather_bed",
+    "canopy_bed",
+    "basket",
+    "quilt_basket",
+    "feather_basket",
+    "driftwood_bed",
+    "driftwood_quilt_bed",
+    "driftwood_feather_bed",
+    "driftwood_canopy_bed",
+    "moss_bed",
+    "moss_quilt_bed",
+    "moss_feather_bed",
+    "moss_canopy_bed",
+    "night_bed",
+    "night_quilt_bed",
+    "night_feather_bed",
+    "night_canopy_bed",
+];
 const TABLES: &[&str] = &["low_table", "gingham_table", "harvest_table"];
 
-/// Every project a household can take on, in the order the board lists them.
-pub static PROJECTS: [Project; 5] = [
+/// Every project a household can take on, in the order the board lists them. No stage waits on
+/// Formiga Hill, or on friends from other houses: what one would bring can be lived at home
+/// instead, a little more of it.
+pub static PROJECTS: [Project; 6] = [
     Project {
         id: "project.window_garden",
         name: "Window garden",
@@ -170,7 +213,10 @@ pub static PROJECTS: [Project; 5] = [
                 name: "Plant the window box",
                 about: "A window box to stand under a window, with seedlings in it.",
                 needs: &[
-                    Need::Souvenir("pressed_daisy"),
+                    Need::AnyOf(&[
+                        Need::Souvenir("pressed_daisy"),
+                        Need::Counted(Count::Tending, 10),
+                    ]),
                     Need::Counted(Count::Tending, 4),
                 ],
                 gifts: &[Gift::Piece("window_box")],
@@ -178,7 +224,13 @@ pub static PROJECTS: [Project; 5] = [
             Stage {
                 name: "In bloom",
                 about: "The window box flowers, and a trellis paper comes for the walls.",
-                needs: &[Need::Counted(Count::Tending, 12), Need::Days(10)],
+                needs: &[
+                    Need::AnyOf(&[
+                        Need::Souvenir("well_penny"),
+                        Need::Counted(Count::Tending, 12),
+                    ]),
+                    Need::Days(10),
+                ],
                 gifts: &[
                     Gift::Upgrade {
                         from: &["window_box"],
@@ -198,9 +250,13 @@ pub static PROJECTS: [Project; 5] = [
         stages: &[
             Stage {
                 name: "Build the booth",
-                about: "A puppet theatre, to play at alone or together.",
+                about: "A puppet theatre, to put on shows from, alone or for someone.",
                 needs: &[
-                    Need::Souvenir("hoopla_teddy"),
+                    Need::AnyOf(&[
+                        Need::Souvenir("hoopla_teddy"),
+                        Need::Souvenir("chest_marble"),
+                        Need::Counted(Count::Games, 14),
+                    ]),
                     Need::Counted(Count::Games, 6),
                 ],
                 gifts: &[Gift::Piece("puppet_theatre")],
@@ -209,9 +265,17 @@ pub static PROJECTS: [Project; 5] = [
                 name: "Fairground curtains",
                 about: "Striped curtains and bunting for the booth.",
                 needs: &[
-                    Need::Souvenir("fair_ticket"),
+                    Need::AnyOf(&[
+                        Need::Souvenir("fair_ticket"),
+                        Need::Souvenir("race_rosette"),
+                        Need::Souvenir("tug_rope"),
+                        Need::Counted(Count::Games, 30),
+                    ]),
                     Need::Counted(Count::Games, 16),
-                    Need::Counted(Count::Visits, 2),
+                    Need::AnyOf(&[
+                        Need::Counted(Count::Visits, 2),
+                        Need::Counted(Count::Shows, 6),
+                    ]),
                 ],
                 gifts: &[Gift::Upgrade {
                     from: &["puppet_theatre"],
@@ -229,30 +293,96 @@ pub static PROJECTS: [Project; 5] = [
         stages: &[
             Stage {
                 name: "Patchwork quilts",
-                about: "Every little bed in the house gets a patchwork quilt.",
+                about: "Every bed in the house, and every nest basket, gets a patchwork quilt.",
                 needs: &[Need::Counted(Count::Rests, 6)],
-                gifts: &[Gift::Upgrade {
-                    from: &["bed"],
-                    to: "quilt_bed",
-                }],
+                gifts: &[
+                    Gift::Upgrade {
+                        from: &["bed"],
+                        to: "quilt_bed",
+                    },
+                    Gift::Upgrade {
+                        from: &["driftwood_bed"],
+                        to: "driftwood_quilt_bed",
+                    },
+                    Gift::Upgrade {
+                        from: &["moss_bed"],
+                        to: "moss_quilt_bed",
+                    },
+                    Gift::Upgrade {
+                        from: &["night_bed"],
+                        to: "night_quilt_bed",
+                    },
+                    Gift::Upgrade {
+                        from: &["basket"],
+                        to: "quilt_basket",
+                    },
+                ],
             },
             Stage {
                 name: "Feather pillows",
-                about: "A second pillow on every bed, plump with feathers.",
-                needs: &[Need::Counted(Count::Rests, 14), Need::Days(12)],
-                gifts: &[Gift::Upgrade {
-                    from: &["bed", "quilt_bed"],
-                    to: "feather_bed",
-                }],
+                about: "A second pillow in every bed and basket, plump with feathers.",
+                needs: &[
+                    Need::AnyOf(&[
+                        Need::Souvenir("swing_feather"),
+                        Need::Counted(Count::Rests, 14),
+                    ]),
+                    Need::Days(12),
+                ],
+                gifts: &[
+                    Gift::Upgrade {
+                        from: &["bed", "quilt_bed"],
+                        to: "feather_bed",
+                    },
+                    Gift::Upgrade {
+                        from: &["driftwood_bed", "driftwood_quilt_bed"],
+                        to: "driftwood_feather_bed",
+                    },
+                    Gift::Upgrade {
+                        from: &["moss_bed", "moss_quilt_bed"],
+                        to: "moss_feather_bed",
+                    },
+                    Gift::Upgrade {
+                        from: &["night_bed", "night_quilt_bed"],
+                        to: "night_feather_bed",
+                    },
+                    Gift::Upgrade {
+                        from: &["basket", "quilt_basket"],
+                        to: "feather_basket",
+                    },
+                ],
             },
             Stage {
                 name: "A canopy",
-                about: "A canopy over each bed, for a friend to remember staying under.",
-                needs: &[Need::Counted(Count::Sleepovers, 1), Need::Days(20)],
-                gifts: &[Gift::Upgrade {
-                    from: &["bed", "quilt_bed", "feather_bed"],
-                    to: "canopy_bed",
-                }],
+                about: "A canopy over each long bed, to remember sleeping under.",
+                needs: &[
+                    Need::AnyOf(&[
+                        Need::Counted(Count::Sleepovers, 1),
+                        Need::Counted(Count::Rests, 30),
+                    ]),
+                    Need::Days(20),
+                ],
+                gifts: &[
+                    Gift::Upgrade {
+                        from: &["bed", "quilt_bed", "feather_bed"],
+                        to: "canopy_bed",
+                    },
+                    Gift::Upgrade {
+                        from: &[
+                            "driftwood_bed",
+                            "driftwood_quilt_bed",
+                            "driftwood_feather_bed",
+                        ],
+                        to: "driftwood_canopy_bed",
+                    },
+                    Gift::Upgrade {
+                        from: &["moss_bed", "moss_quilt_bed", "moss_feather_bed"],
+                        to: "moss_canopy_bed",
+                    },
+                    Gift::Upgrade {
+                        from: &["night_bed", "night_quilt_bed", "night_feather_bed"],
+                        to: "night_canopy_bed",
+                    },
+                ],
             },
         ],
     },
@@ -265,9 +395,13 @@ pub static PROJECTS: [Project; 5] = [
         stages: &[
             Stage {
                 name: "A gingham cloth",
-                about: "A gingham cloth like the picnic ribbon's, and a gingham paper for walls.",
+                about: "A gingham cloth like the picnic ribbon's, and a gingham paper for walls. \
+                        The household has its suppers there from then on.",
                 needs: &[
-                    Need::Souvenir("picnic_ribbon"),
+                    Need::AnyOf(&[
+                        Need::Souvenir("picnic_ribbon"),
+                        Need::Counted(Count::Snacks, 12),
+                    ]),
                     Need::Counted(Count::Snacks, 5),
                 ],
                 gifts: &[
@@ -280,12 +414,18 @@ pub static PROJECTS: [Project; 5] = [
             },
             Stage {
                 name: "Harvest supper",
-                about: "A bowl of apples, a candle, and a brass bell like the high striker's, to \
-                        ring when supper is ready.",
+                about: "A bowl of acorns and apples, a candle, and a brass bell like the high \
+                        striker's, to ring when supper is ready.",
                 needs: &[
-                    Need::Souvenir("striker_bell"),
-                    Need::Counted(Count::Snacks, 12),
-                    Need::Counted(Count::Visits, 3),
+                    Need::AnyOf(&[
+                        Need::Souvenir("striker_bell"),
+                        Need::Souvenir("oak_acorn"),
+                        Need::Counted(Count::Snacks, 20),
+                    ]),
+                    Need::AnyOf(&[
+                        Need::Counted(Count::Visits, 3),
+                        Need::Counted(Count::Suppers, 6),
+                    ]),
                 ],
                 gifts: &[Gift::Upgrade {
                     from: &["low_table", "gingham_table"],
@@ -303,7 +443,8 @@ pub static PROJECTS: [Project; 5] = [
         stages: &[
             Stage {
                 name: "Lay the hearth",
-                about: "A stone hearth with a fire in it, and hearthstone for the floors.",
+                about: "A stone hearth with a fire in it to warm up by, and hearthstone for the \
+                        floors.",
                 needs: &[Need::Days(7), Need::Keepsakes(1)],
                 gifts: &[Gift::Piece("hearth"), Gift::Finish("floor.hearthstone")],
             },
@@ -313,7 +454,10 @@ pub static PROJECTS: [Project; 5] = [
                 needs: &[
                     Need::Days(21),
                     Need::Keepsakes(3),
-                    Need::Counted(Count::Sleepovers, 1),
+                    Need::AnyOf(&[
+                        Need::Counted(Count::Sleepovers, 1),
+                        Need::Counted(Count::Hearthside, 6),
+                    ]),
                 ],
                 gifts: &[Gift::Upgrade {
                     from: &["hearth"],
@@ -326,11 +470,38 @@ pub static PROJECTS: [Project; 5] = [
                 needs: &[
                     Need::Days(40),
                     Need::Keepsakes(6),
-                    Need::Counted(Count::Visits, 6),
+                    Need::AnyOf(&[
+                        Need::Counted(Count::Visits, 6),
+                        Need::Counted(Count::Hearthside, 15),
+                    ]),
                 ],
                 gifts: &[Gift::Upgrade {
                     from: &["hearth", "hearth_mantel"],
                     to: "hearth_garland",
+                }],
+            },
+        ],
+    },
+    Project {
+        id: "project.podium",
+        name: "Winners' podium",
+        kind: Kind::Legacy,
+        about: "Somewhere to stand the cups and medals the colony has won at Formiga Battle.",
+        shows: &[Need::BattleKeepsakes(1)],
+        stages: &[
+            Stage {
+                name: "Build the podium",
+                about: "A podium of three steps, for a cup or a medal on each.",
+                needs: &[Need::BattleKeepsakes(1), Need::Counted(Count::Looks, 6)],
+                gifts: &[Gift::Piece("podium")],
+            },
+            Stage {
+                name: "Bunting for the winners",
+                about: "Bunting over the podium, in the colours of every cup.",
+                needs: &[Need::BattleKeepsakes(3), Need::Counted(Count::Looks, 16)],
+                gifts: &[Gift::Upgrade {
+                    from: &["podium"],
+                    to: "podium_bunting",
                 }],
             },
         ],
@@ -390,8 +561,18 @@ pub fn souvenir_name(id: &str) -> &'static str {
     formiga_core::Souvenir::from_id(id).map_or("a souvenir", |souvenir| souvenir.name())
 }
 
+/// How many of Formiga Battle's keepsakes anyone in the colony has brought home.
+pub fn battle_keepsakes(snapshot: &HomeSnapshot) -> u32 {
+    snapshot
+        .inventory
+        .iter()
+        .filter(|item| matches!(item.source, DisplaySource::BattleKeepsake { .. }))
+        .count() as u32
+}
+
 impl Need {
-    /// How far the household has come towards it, and how far it asks.
+    /// How far the household has come towards it, and how far it asks. Of several that would
+    /// each do, the one it is furthest along.
     pub fn progress(&self, facts: &Facts) -> (u32, u32) {
         let (have, want) = match *self {
             Self::Souvenir(id) => (u32::from(has_souvenir(facts.snapshot, id)), 1),
@@ -406,13 +587,27 @@ impl Need {
                 });
                 (u32::from(has), 1)
             }
+            Self::BattleKeepsakes(want) => (battle_keepsakes(facts.snapshot), want),
+            Self::AnyOf(needs) => needs
+                .iter()
+                .map(|need| need.progress(facts))
+                .max_by(|(a, x), (b, y)| {
+                    (f64::from(*a) / f64::from((*x).max(1)))
+                        .total_cmp(&(f64::from(*b) / f64::from((*y).max(1))))
+                })
+                .unwrap_or((0, 1)),
         };
         (have.min(want), want)
     }
 
     pub fn met(&self, facts: &Facts) -> bool {
-        let (have, want) = self.progress(facts);
-        have >= want
+        match self {
+            Self::AnyOf(needs) => needs.iter().any(|need| need.met(facts)),
+            _ => {
+                let (have, want) = self.progress(facts);
+                have >= want
+            }
+        }
     }
 
     /// What it asks for, in a few words.
@@ -429,13 +624,116 @@ impl Need {
                     .map_or("A piece", |piece| piece.name);
                 format!("{name} in the house")
             }
+            Self::BattleKeepsakes(_) => "Cups and medals from Formiga Battle".to_owned(),
+            Self::AnyOf(needs) => {
+                let souvenirs: Vec<String> = needs
+                    .iter()
+                    .filter_map(|need| match need {
+                        Self::Souvenir(id) => Some(souvenir_name(id).to_owned()),
+                        _ => None,
+                    })
+                    .collect();
+                let mut said = Vec::new();
+                if !souvenirs.is_empty() {
+                    said.push(format!("{} from Formiga Hill", or_list(&souvenirs)));
+                }
+                said.extend(
+                    needs
+                        .iter()
+                        .filter(|need| !matches!(need, Self::Souvenir(_)))
+                        .map(Need::label),
+                );
+                lower_after_first(said).join(", or ")
+            }
+        }
+    }
+
+    /// What it asks for and, where it is counted out and not yet met, how far along it is: "Plants
+    /// tended: 3 of 4", "Pressed daisy from Formiga Hill, or plants tended: 3 of 10".
+    pub fn line(&self, facts: &Facts) -> String {
+        match self {
+            // Met, it is whichever met it.
+            Self::AnyOf(needs) if self.met(facts) => needs
+                .iter()
+                .find(|need| need.met(facts))
+                .map_or_else(|| self.label(), |need| need.line(facts)),
+            Self::AnyOf(needs) if !self.met(facts) => {
+                let souvenirs: Vec<String> = needs
+                    .iter()
+                    .filter_map(|need| match need {
+                        Self::Souvenir(id) => Some(souvenir_name(id).to_owned()),
+                        _ => None,
+                    })
+                    .collect();
+                let mut said = Vec::new();
+                if !souvenirs.is_empty() {
+                    said.push(format!("{} from Formiga Hill", or_list(&souvenirs)));
+                }
+                said.extend(
+                    needs
+                        .iter()
+                        .filter(|need| !matches!(need, Self::Souvenir(_)))
+                        .map(|need| need.line(facts)),
+                );
+                lower_after_first(said).join(", or ")
+            }
+            _ if self.counts() && !self.met(facts) => {
+                let (have, want) = self.progress(facts);
+                format!("{}: {have} of {want}", self.label())
+            }
+            _ => self.label(),
         }
     }
 
     /// Whether it is counted out, so how far along it is is worth showing.
     pub fn counts(&self) -> bool {
-        matches!(self, Self::Counted(..) | Self::Days(_) | Self::Keepsakes(_))
+        match self {
+            Self::Counted(..) | Self::Days(_) | Self::Keepsakes(_) | Self::BattleKeepsakes(_) => {
+                true
+            }
+            Self::AnyOf(needs) => needs.iter().any(Need::counts),
+            Self::Souvenir(_) | Self::Has(_) => false,
+        }
     }
+
+    /// Whether Formiga Hill's souvenir `id` would do for it.
+    pub fn takes_souvenir(&self, id: &str) -> bool {
+        match self {
+            Self::Souvenir(wanted) => *wanted == id,
+            Self::AnyOf(needs) => needs.iter().any(|need| need.takes_souvenir(id)),
+            _ => false,
+        }
+    }
+}
+
+/// "the daisy", "the daisy or the penny", "the daisy, the penny or the acorn".
+fn or_list(things: &[String]) -> String {
+    match things {
+        [] => String::new(),
+        [one] => one.clone(),
+        [first, rest @ .., last] => {
+            let mut said = vec![first.clone()];
+            said.extend(rest.iter().map(|thing| thing.to_lowercase()));
+            format!("{} or {}", said.join(", "), last.to_lowercase())
+        }
+    }
+}
+
+/// Each of a list of things said after the first begins in lower case, as it goes on a
+/// sentence.
+fn lower_after_first(said: Vec<String>) -> Vec<String> {
+    said.into_iter()
+        .enumerate()
+        .map(|(at, line)| {
+            if at == 0 {
+                return line;
+            }
+            let mut letters = line.chars();
+            letters.next().map_or_else(String::new, |first| {
+                first.to_lowercase().chain(letters).collect()
+            })
+        })
+        .collect()
 }
 
 /// Where a project stands for a household.
@@ -595,6 +893,49 @@ pub fn give(home: &mut HouseholdHome, stage: &Stage) -> Vec<Given> {
     given
 }
 
+/// The beds the cosy beds made over before every bed and basket was: what a stage finished then
+/// made over already.
+const FIRST_BEDS: &[&str] = &["bed", "quilt_bed", "feather_bed"];
+
+/// Kept, as a tally, once a household's other beds have caught up with the stages it finished.
+const BEDS_CAUGHT_UP: &str = "caught_up.beds";
+
+/// A household that made its beds cosier before every bed and basket could be: its driftwood,
+/// moss and night beds and its nest baskets are made over now, as each stage it finished would
+/// make them today. Once only, so that a bed brought in plain since stays as it was chosen.
+pub fn catch_up_beds(home: &mut HouseholdHome) {
+    let caught_up = home
+        .tallies
+        .iter()
+        .any(|tally| tally.what.as_str() == BEDS_CAUGHT_UP);
+    let Some(beds) = project("project.cosy_beds") else {
+        return;
+    };
+    if caught_up {
+        return;
+    }
+    let done = beds.done(home);
+    for stage in &beds.stages[..done] {
+        for gift in stage.gifts {
+            let Gift::Upgrade { from, to } = *gift else {
+                continue;
+            };
+            let Some(piece) = catalog::piece(&CatalogId::known(to)) else {
+                continue;
+            };
+            for room in &mut home.rooms {
+                for placed in &mut room.pieces {
+                    let id = placed.piece.as_str();
+                    if from.contains(&id) && !FIRST_BEDS.contains(&id) {
+                        placed.piece = piece.catalog_id();
+                    }
+                }
+            }
+        }
+    }
+    bump(home, BEDS_CAUGHT_UP, 1);
+}
+
 /// Somewhere a new piece can stand in the house: against a far wall if it can, and never in a
 /// doorway's way or over anything but a rug. The front room first.
 fn spot_for(home: &HouseholdHome, piece: &'static Piece) -> Option<(usize, u8, u8, u8)> {
@@ -692,12 +1033,7 @@ pub fn counted_by(souvenir: &str, facts: &Facts) -> Vec<&'static Project> {
             let done = project.done(facts.home);
             project.stages[done.min(project.stages.len())..]
                 .iter()
-                .any(|stage| {
-                    stage
-                        .needs
-                        .iter()
-                        .any(|need| matches!(need, Need::Souvenir(id) if *id == souvenir))
-                })
+                .any(|stage| stage.needs.iter().any(|need| need.takes_souvenir(souvenir)))
                 && project.standing(facts) != Standing::Hidden
         })
         .collect()
@@ -726,11 +1062,11 @@ mod tests {
 
     #[test]
     fn the_projects_are_of_every_kind_and_give_only_what_the_catalogue_has_for_them() {
-        assert!((3..=5).contains(&PROJECTS.len()));
+        assert!((3..=6).contains(&PROJECTS.len()));
         assert!(PROJECTS.len() <= MAX_PROJECTS);
         assert!(
-            Count::ALL.len() < MAX_TALLIES,
-            "every count fits, and what is heard"
+            Count::ALL.len() + 2 <= MAX_TALLIES,
+            "every count fits, what is heard, and that the beds caught up"
         );
         for kind in [Kind::Construction, Kind::Improvement, Kind::Legacy] {
             assert!(
@@ -1038,5 +1374,199 @@ mod tests {
         );
         heard_of_souvenirs(&snapshot, &mut home);
         assert!(fresh_souvenirs(&snapshot, &home).is_empty());
+    }
+
+    /// Whether a need can be met by living at home alone: no souvenir from Formiga Hill, no
+    /// friend from another house, nothing from Formiga Battle.
+    fn lived_at_home(need: &Need) -> bool {
+        match need {
+            Need::Souvenir(_) | Need::BattleKeepsakes(_) => false,
+            Need::Counted(Count::Visits | Count::Sleepovers, _) => false,
+            Need::AnyOf(needs) => needs.iter().any(lived_at_home),
+            _ => true,
+        }
+    }
+
+    #[test]
+    fn no_stage_waits_on_formiga_hill_or_on_friends_from_other_houses() {
+        for project in &PROJECTS {
+            // What is for Formiga Battle's cups is on the board only once one has come home.
+            if project
+                .shows
+                .iter()
+                .any(|need| matches!(need, Need::BattleKeepsakes(_)))
+            {
+                continue;
+            }
+            for stage in project.stages {
+                for need in stage.needs {
+                    assert!(lived_at_home(need), "{}: {need:?}", stage.name);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_souvenir_from_formiga_hill_counts_towards_something_and_so_do_battle_keepsakes() {
+        for souvenir in formiga_core::Souvenir::ALL {
+            assert!(
+                PROJECTS
+                    .iter()
+                    .any(|project| project.stages.iter().any(|stage| stage
+                        .needs
+                        .iter()
+                        .any(|need| need.takes_souvenir(souvenir.id())))),
+                "{souvenir:?} counts for nothing"
+            );
+        }
+        let (mut snapshot, home) = home();
+        let podium = project("project.podium").unwrap();
+        snapshot
+            .inventory
+            .retain(|item| !matches!(item.source, DisplaySource::BattleKeepsake { .. }));
+        assert_eq!(standing(podium, &snapshot, &home), Standing::Hidden);
+        let cup = formiga_core::BattleKeepsake::BackyardCupTrophy.id();
+        snapshot.inventory.push(formiga_home_contract::DisplayItem {
+            id: DisplayId::battle_keepsake(cup).unwrap(),
+            source: DisplaySource::BattleKeepsake { id: cup.to_owned() },
+            name: "Backyard Cup trophy".to_owned(),
+            ink: None,
+            modes: vec![formiga_home_contract::DisplayMode::FallbackCard],
+            found_at_utc: AT,
+            finder_name: None,
+        });
+        assert_eq!(battle_keepsakes(&snapshot), 1);
+        assert_eq!(standing(podium, &snapshot, &home), Standing::Underway(0));
+    }
+
+    #[test]
+    fn a_stage_that_takes_a_souvenir_or_more_of_home_life_says_both() {
+        let (mut snapshot, mut home) = home();
+        snapshot.inventory.retain(|item| {
+            !matches!(&item.source, DisplaySource::HillSouvenir { id } if id == "pressed_daisy")
+        });
+        let garden = project("project.window_garden").unwrap();
+        let either = &garden.stages[0].needs[0];
+        for _ in 0..3 {
+            count(&mut home, Count::Tending);
+        }
+        let facts = Facts {
+            snapshot: &snapshot,
+            home: &home,
+        };
+        assert_eq!(
+            either.line(&facts),
+            "Pressed daisy from Formiga Hill, or plants tended: 3 of 10"
+        );
+        assert!(!either.met(&facts));
+        let fair = &project("project.puppet_theatre").unwrap().stages[1].needs[0];
+        assert!(
+            fair.label().starts_with(
+                "Fairground ticket, sack-race rosette or tug-of-war rope from Formiga Hill, or \
+                 games played"
+            ),
+            "{}",
+            fair.label()
+        );
+        for _ in 0..7 {
+            count(&mut home, Count::Tending);
+        }
+        let facts = Facts {
+            snapshot: &snapshot,
+            home: &home,
+        };
+        assert!(either.met(&facts), "ten plants tended do instead");
+        assert_eq!(either.line(&facts), "Plants tended");
+        assert_eq!(standing(garden, &snapshot, &home), Standing::Ready(0));
+    }
+
+    #[test]
+    fn every_bed_and_basket_is_made_cosier_in_its_own_set_s_look() {
+        let beds = project("project.cosy_beds").unwrap();
+        // The guest bedroll is rolled up, not made.
+        for bed in PIECES.iter().filter(|piece| {
+            piece.family == catalog::Family::Beds
+                && piece.set != catalog::Set::Made
+                && piece.id != "bedroll"
+        }) {
+            assert!(
+                beds.stages[0].gifts.iter().any(
+                    |gift| matches!(gift, Gift::Upgrade { from, .. } if from.contains(&bed.id))
+                ),
+                "{} gets no quilt",
+                bed.id
+            );
+            assert!(BEDS.contains(&bed.id), "{}", bed.id);
+        }
+        let (snapshot, mut home) = home();
+        for room in &mut home.rooms {
+            room.pieces
+                .retain(|placed| !BEDS.contains(&placed.piece.as_str()));
+        }
+        let moss = catalog::piece(&CatalogId::known("moss_bed")).unwrap();
+        let (room, x, y, turn) = spot_for(&home, moss).unwrap();
+        let uid = placement::add_piece(&mut home, room, moss, x, y, turn);
+        assert_ne!(
+            standing(beds, &snapshot, &home),
+            Standing::Hidden,
+            "a moss bed is a bed"
+        );
+        for _ in 0..6 {
+            count(&mut home, Count::Rests);
+        }
+        let stage = finish(&snapshot, &mut home, beds, AT).unwrap();
+        give(&mut home, stage);
+        assert_eq!(
+            home.rooms[room].piece(uid).unwrap().piece.as_str(),
+            "moss_quilt_bed"
+        );
+    }
+
+    #[test]
+    fn beds_a_stage_finished_before_every_bed_could_be_made_over_catch_up_once() {
+        let (_, mut home) = home();
+        for room in &mut home.rooms {
+            room.pieces
+                .retain(|placed| !BEDS.contains(&placed.piece.as_str()));
+        }
+        let mut placed = Vec::new();
+        for id in ["moss_bed", "basket", "bed"] {
+            let piece = catalog::piece(&CatalogId::known(id)).unwrap();
+            let (room, x, y, turn) = spot_for(&home, piece).unwrap();
+            placed.push((
+                room,
+                placement::add_piece(&mut home, room, piece, x, y, turn),
+            ));
+        }
+        let is = |home: &HouseholdHome, (room, uid): (usize, u16)| {
+            home.rooms[room]
+                .piece(uid)
+                .unwrap()
+                .piece
+                .as_str()
+                .to_owned()
+        };
+        // Quilts and pillows were finished when only the plain bed was made over, and the plain
+        // bed was brought in since.
+        let beds = project("project.cosy_beds").unwrap();
+        seen(&mut home, beds);
+        home.projects
+            .iter_mut()
+            .find(|record| record.project.as_str() == beds.id)
+            .unwrap()
+            .stages = vec![StageDone { at_utc: AT }, StageDone { at_utc: AT }];
+        catch_up_beds(&mut home);
+        assert_eq!(is(&home, placed[0]), "moss_feather_bed");
+        assert_eq!(is(&home, placed[1]), "feather_basket");
+        assert_eq!(is(&home, placed[2]), "bed", "chosen plain, it stays plain");
+        // Once only: a moss bed brought in plain from now on stays plain too.
+        let moss = catalog::piece(&CatalogId::known("moss_bed")).unwrap();
+        let (room, x, y, turn) = spot_for(&home, moss).unwrap();
+        let later = (
+            room,
+            placement::add_piece(&mut home, room, moss, x, y, turn),
+        );
+        catch_up_beds(&mut home);
+        assert_eq!(is(&home, later), "moss_bed");
     }
 }

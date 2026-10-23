@@ -1085,3 +1085,200 @@ fn residents_kept_out_start_out_and_a_friend_can_be_had_in_early_or_kept_away() 
     assert_eq!(life.inside(away), Some(Inside::Out), "it never comes over");
     assert!(!life.indoors().contains(&away) && !life.indoors().contains(&little));
 }
+
+/// The lived-in house, with what a household makes of it: the low table made the family table, a
+/// hearth and a puppet theatre.
+fn with_made_pieces() -> (Household, House) {
+    let household = Household::new(sample::snapshot()).unwrap();
+    let mut home = show_house::lived_in(&household, "floor.boards", "wall.leafy");
+    for placed in &mut home.rooms[0].pieces {
+        if placed.piece.as_str() == "low_table" {
+            placed.piece = formiga_home_contract::CatalogId::known("gingham_table");
+        }
+    }
+    let made = crate::projects::Stage {
+        name: "",
+        about: "",
+        needs: &[],
+        gifts: &[
+            crate::projects::Gift::Piece("hearth"),
+            crate::projects::Gift::Piece("puppet_theatre"),
+        ],
+    };
+    let given = crate::projects::give(&mut home, &made);
+    assert!(
+        given
+            .iter()
+            .all(|given| matches!(given, crate::projects::Given::Placed(..))),
+        "{given:?}"
+    );
+    (household, House::of(&home.rooms))
+}
+
+#[test]
+fn what_the_household_makes_is_used_for_what_it_was_made_for() {
+    let (household, layout) = with_made_pieces();
+    let keeper = household.keeper().id;
+    let pip = household.residents[1].id;
+    let present: Vec<Id> = household.residents.iter().map(|r| r.id).collect();
+    let offered = |uid: u16| {
+        choices(
+            &household,
+            &layout,
+            &household.snapshot,
+            &present,
+            &[],
+            keeper,
+            &crate::scene::Target::Piece(uid),
+        )
+    };
+    let (hearth, table, theatre) = (
+        piece(&layout, "hearth"),
+        piece(&layout, "gingham_table"),
+        piece(&layout, "puppet_theatre"),
+    );
+    let at_hearth = offered(hearth);
+    assert!(at_hearth.contains(&Act::WarmUp(hearth)));
+    assert!(
+        !at_hearth.contains(&Act::SwitchLamp(hearth)),
+        "a fire is not switched"
+    );
+    assert!(offered(table).contains(&Act::Supper(table)));
+    let at_theatre = offered(theatre);
+    assert!(at_theatre.contains(&Act::PutOnShow(theatre)));
+    assert!(at_theatre.contains(&Act::PutOnShowFor(theatre, pip)));
+    assert!(
+        !at_theatre.contains(&Act::Play(theatre)),
+        "a theatre is not a ball"
+    );
+    for (act, done, count) in [
+        (
+            Act::WarmUp(hearth),
+            formiga_art::BodyClip::from(ActionKind::Perch),
+            Count::Hearthside,
+        ),
+        (Act::Supper(table), ActionKind::Eat.into(), Count::Suppers),
+        (Act::PutOnShow(theatre), Gesture::Reach.into(), Count::Shows),
+    ] {
+        let mut life = Life::new(&household, &layout);
+        life.ask(keeper, act.clone(), 0.0);
+        let mut now = 0.0;
+        let mut seen = false;
+        let mut counted = false;
+        for _ in 0..200 {
+            now = run(&mut life, &household, &layout, now, 0.25);
+            let actor = life.actor(keeper).unwrap();
+            seen |= !actor.walking() && actor.pose.clip == done;
+            counted |= life.take_events().contains(&Event::Did(keeper, count));
+            if counted {
+                break;
+            }
+        }
+        assert!(seen, "{act:?} never happened");
+        assert!(counted, "{act:?} was never counted as {count:?}");
+    }
+}
+
+#[test]
+fn left_alone_the_household_warms_up_by_the_fire_of_an_evening() {
+    let (household, layout) = with_made_pieces();
+    let hearth = piece(&layout, "hearth");
+    let mut life = Life::new(&household, &layout);
+    life.set_dark(1.0);
+    let mut warmed = false;
+    let mut now = 0.0;
+    for _ in 0..600 {
+        now = run(&mut life, &household, &layout, now, 1.0);
+        warmed |= household.residents.iter().any(|r| {
+            life.current(r.id)
+                .is_some_and(|(act, _)| act == Act::WarmUp(hearth))
+        });
+        if warmed {
+            break;
+        }
+    }
+    assert!(warmed, "nobody sat by the fire all evening");
+}
+
+#[test]
+fn what_a_room_is_for_comes_more_readily_to_mind_there() {
+    let (_, layout) = with_nook();
+    let in_nook = |uid: u16| {
+        let placed = layout.piece(uid).unwrap();
+        layout.room_of_point(placement::footprint(placed).centre()) == Some(1)
+    };
+    let in_the_nook = |id: &str| {
+        layout
+            .pieces
+            .iter()
+            .find(|p| p.piece.as_str() == id && in_nook(p.uid))
+            .unwrap()
+            .uid
+    };
+    let (nook_shelf, nook_chair) = (in_the_nook("shelf"), in_the_nook("armchair"));
+    let bed = piece(&layout, "bed");
+    let mut options = vec![
+        (Act::Browse(nook_shelf), 1.0),
+        (Act::Nap(nook_chair), 1.0),
+        (Act::Sleep(bed), 1.0),
+    ];
+    suit_rooms(&layout, &mut options);
+    assert!(
+        options[0].1 > 1.0,
+        "a shelf in the reading nook is for looking over"
+    );
+    assert_eq!(options[1].1, 1.0, "a nap is not what it is for");
+    assert_eq!(options[2].1, 1.0, "the front room is for anything");
+}
+
+#[test]
+fn a_find_played_with_in_the_playroom_comes_more_readily_to_mind() {
+    let (household, mut layout) = with_nook();
+    layout.rooms[1].kind = Some(formiga_home_contract::CatalogId::known("room.playroom"));
+    let toy = household.snapshot.inventory[0].id.clone();
+    layout.shown.retain(|shown| shown.item != toy);
+    let (x, y) = (layout.rooms[1].x, layout.rooms[1].y);
+    layout.shown.push(crate::house::Shown {
+        item: toy.clone(),
+        at: At::Floor { x, y },
+    });
+    let mut options = vec![(Act::PlayWithFind(toy), 1.0)];
+    suit_rooms(&layout, &mut options);
+    assert!(options[0].1 > 1.0, "a playroom is for playing with toys");
+}
+
+#[test]
+fn a_tall_clock_is_wound() {
+    let household = Household::new(sample::snapshot()).unwrap();
+    let mut home = show_house::lived_in(&household, "floor.boards", "wall.leafy");
+    let clock = catalog::PIECES.iter().find(|p| p.id == "clock").unwrap();
+    let layout = &home.rooms[0];
+    let (x, y) = (0..layout.depth)
+        .flat_map(|y| (0..layout.width).map(move |x| (x, y)))
+        .find(|&(x, y)| placement::can_place(layout, clock, x, y, 0, None))
+        .unwrap();
+    let uid = placement::add_piece(&mut home, 0, clock, x, y, 0);
+    let layout = House::of(&home.rooms);
+    let keeper = household.keeper().id;
+    let present: Vec<Id> = household.residents.iter().map(|r| r.id).collect();
+    let offered = choices(
+        &household,
+        &layout,
+        &household.snapshot,
+        &present,
+        &[],
+        keeper,
+        &crate::scene::Target::Piece(uid),
+    );
+    assert_eq!(offered, vec![Act::Wind(uid)]);
+    let mut life = Life::new(&household, &layout);
+    life.ask(keeper, Act::Wind(uid), 0.0);
+    let mut now = 0.0;
+    let mut wound = false;
+    for _ in 0..120 {
+        now = run(&mut life, &household, &layout, now, 0.25);
+        let actor = life.actor(keeper).unwrap();
+        wound |= !actor.walking() && actor.pose.clip == Gesture::Reach.into();
+    }
+    assert!(wound);
+}

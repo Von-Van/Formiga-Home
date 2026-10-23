@@ -121,6 +121,19 @@ impl HomeApp {
             .map(|(index, room)| catalog::room_name(room.kind.as_ref(), index == 0).to_lowercase())
             .collect();
         let mut said = vec![format!("{}: done.", stage.name)];
+        // Improving what the house has, with none of it in the house just now: what it would
+        // have been made into waits on the furniture page.
+        let nothing_improved = !given.is_empty()
+            && given
+                .iter()
+                .all(|given| matches!(given, Given::Upgraded(_, 0)));
+        if nothing_improved {
+            said.push(
+                "There was nothing in the house to make over, so what it makes is on the \
+                 furniture page."
+                    .to_owned(),
+            );
+        }
         for given in given {
             said.push(match given {
                 Given::Placed(piece, room) if rooms.len() > 1 => format!(
@@ -353,9 +366,8 @@ impl HomeApp {
                     .needs
                     .iter()
                     .map(|need| NeedLine {
-                        label: need.label(),
+                        text: need.line(&facts),
                         met: need.met(&facts),
-                        progress: need.counts().then(|| need.progress(&facts)),
                     })
                     .collect()
             })
@@ -374,16 +386,8 @@ impl HomeApp {
             if let Some(stage) = project.stages.get(done) {
                 lines::write(ui, egui::RichText::new(stage.name).strong());
                 lines::write(ui, stage.about);
-                for NeedLine {
-                    label,
-                    met,
-                    progress,
-                } in &lines
-                {
-                    let text = match progress {
-                        Some((have, want)) if !*met => format!("{label}: {have} of {want}"),
-                        _ => label.clone(),
-                    };
+                for NeedLine { text, met } in &lines {
+                    let text = text.clone();
                     lines::ruled_row(ui, |ui| {
                         mark(ui, *met, unit);
                         lines::write(
@@ -505,12 +509,11 @@ impl HomeApp {
     }
 }
 
-/// One thing a stage asks for, as the board writes it: what, whether the household has it, and
-/// for what is counted, how far along it is.
+/// One thing a stage asks for, as the board writes it: what, with how far along it is if it is
+/// counted, and whether the household has it.
 struct NeedLine {
-    label: String,
+    text: String,
     met: bool,
-    progress: Option<(u32, u32)>,
 }
 
 /// What a project's picture on the board is: the piece its next stage makes, or the last one it
