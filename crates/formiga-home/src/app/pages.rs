@@ -388,23 +388,32 @@ impl HomeApp {
         };
         let text = match self.mode {
             Mode::Live => {
-                "Click someone to choose them, then click a seat, a toy, a find or someone else \
-                 to see what they could do there. Click the floor to send them over.\n\n\
-                 Drag someone to carry them, and right-click for a pat. Up to three things can \
-                 be asked at once; when nothing is, everyone does as they please. A friend \
-                 visiting can be asked to stay over, or to move in.\n\n\
-                 N chooses the next one, [ and ] turn the pages, A arranges, P saves a picture, \
-                 + and \u{2212} come closer, and H puts this note away."
-                    .to_owned()
+                let cells = if self.host.follows_indoors() {
+                    "The faces under the house are who is in: click one to send them out to the \
+                     desktop, or back in. "
+                } else {
+                    ""
+                };
+                format!(
+                    "Click someone, then a seat, a toy, a find or someone else, to see what they \
+                     could do there. Click the floor to send them over, drag them to carry them, \
+                     and right-click for a pat. Up to three things can be asked at once.\n\n\
+                     {cells}The project board, the next page, is what the household can make of \
+                     its home.\n\n\
+                     A pinch or + and \u{2212} come closer, and a drag across the floor moves \
+                     about. N chooses the next one, [ and ] turn the pages, A arranges, P saves a \
+                     picture, and H puts this note away."
+                )
             }
             Mode::Arrange => {
                 format!(
-                    "Drag something from these pages, or click it, to pick it up, and click again to \
-                 put it down. A doorway slides along its wall.\n\n\
-                 R or a right-click turns a piece, Delete puts it away, and {undo} undoes. \
-                 [ and ] turn the pages, L goes back to living in the house, and H puts this \
-                 note away.\n\n\
-                 Everyone waits while the house is arranged."
+                    "Drag or click something on these pages to pick it up, and click to put it \
+                     down. A doorway slides along its wall. R or a right-click turns a piece, \
+                     Delete puts it away, and {undo} undoes.\n\n\
+                     A keepsake can be let go from its right-click menu. Designs keeps the \
+                     house, or a room of it, to try again or share.\n\n\
+                     [ and ] turn the pages, L goes back to living in the house, and H puts this \
+                     note away. Everyone waits while the house is arranged."
                 )
             }
         };
@@ -671,6 +680,26 @@ impl HomeApp {
                     .small()
                     .color(ink::muted(dark)),
             );
+            // The drawer holds only so many: say how many, and how to make room.
+            let most = formiga_home_contract::limits::MAX_MEMENTOS;
+            let kept = if made.len() >= most {
+                format!("All {most} the drawer holds: let one go to make room for more")
+            } else {
+                format!(
+                    "{} of {most} \u{b7} right-click one to let it go",
+                    made.len()
+                )
+            };
+            ui.label(
+                egui::RichText::new(kept)
+                    .small()
+                    .italics()
+                    .color(if made.len() >= most {
+                        ink::stamp(dark)
+                    } else {
+                        ink::muted(dark)
+                    }),
+            );
             ui.add_space(4.0);
             chosen = chosen.or(self.thing_tiles(ui, ctx, &made, &house, unit));
         }
@@ -684,19 +713,22 @@ impl HomeApp {
                     self.changed("Back in the drawer.");
                 }
             }
-            Some(Tapped::LetGo(item)) => {
-                self.arranging.remember(&self.state);
-                if let Some(home) = self.state.household_mut(self.keeper) {
-                    keepsakes::let_go(home, &item);
-                }
-                if self.arranging.carrying == Some(Carry::Thing(item)) {
-                    self.arranging.carrying = None;
-                }
-                self.keepsakes_changed();
-                self.changed("Let go.");
-            }
+            Some(Tapped::LetGo(item)) => self.let_keepsake_go(item),
             None => {}
         }
+    }
+
+    /// Let one of the household's keepsakes go, as one change undo can take back.
+    fn let_keepsake_go(&mut self, item: DisplayId) {
+        self.arranging.remember(&self.state);
+        if let Some(home) = self.state.household_mut(self.keeper) {
+            keepsakes::let_go(home, &item);
+        }
+        if self.arranging.carrying == Some(Carry::Thing(item)) {
+            self.arranging.carrying = None;
+        }
+        self.keepsakes_changed();
+        self.changed("Let go.");
     }
 
     /// A tile for each of `items`, to pick one up by, and what was asked of one from its menu.
@@ -809,14 +841,15 @@ impl HomeApp {
         ui.horizontal_wrapped(|ui| {
             ui.selectable_value(&mut self.set_shown, None, "All");
             for set in catalog::Set::ALL {
+                let hint = if set == catalog::Set::Made {
+                    "Made by the household, as it finishes its projects".to_owned()
+                } else {
+                    set.arrives()
+                        .when(&now)
+                        .unwrap_or_else(|| "Here to use".to_owned())
+                };
                 ui.selectable_value(&mut self.set_shown, Some(set), set.name())
-                    .on_hover_text(if set == catalog::Set::Made {
-                        "Made by the household, as it finishes its projects"
-                    } else if set.arrives().come(&now) {
-                        "Here to use"
-                    } else {
-                        "Arrives in time"
-                    });
+                    .on_hover_text(hint);
             }
         });
         ui.add_space(4.0);
@@ -877,6 +910,7 @@ impl HomeApp {
                     }
                     let name = piece.name;
                     let set = piece.set;
+                    let when = piece.arrives.when(&now);
                     let response = response.on_hover_ui(|ui| {
                         ui.strong(name);
                         if set == catalog::Set::Made {
@@ -886,10 +920,8 @@ impl HomeApp {
                                 egui::RichText::new(format!("From the {} set", set.name())).small(),
                             );
                         }
-                        if !available && set == catalog::Set::Made {
-                            ui.label(egui::RichText::new("Made by finishing a project").small());
-                        } else if !available {
-                            ui.label(egui::RichText::new("Arrives in time").small());
+                        if let Some(when) = &when {
+                            ui.label(egui::RichText::new(when).small());
                         } else if count > 0 {
                             ui.label(egui::RichText::new(format!("{count} in the house")).small());
                         }
@@ -958,12 +990,9 @@ impl HomeApp {
                     },
                 );
                 let name = finish.name;
-                let response = response.on_hover_text(if arrived {
-                    name.to_owned()
-                } else if finish.set == catalog::Set::Made {
-                    format!("{name}: made by finishing a project")
-                } else {
-                    format!("{name}: arrives in time")
+                let response = response.on_hover_text(match finish.arrives.when(&now) {
+                    Some(when) => format!("{name}\n{when}"),
+                    None => name.to_owned(),
                 });
                 response.widget_info(|| {
                     egui::WidgetInfo::selected(egui::WidgetType::Button, arrived, chosen, name)
@@ -998,12 +1027,9 @@ impl HomeApp {
                     },
                 );
                 let name = finish.name;
-                let response = response.on_hover_text(if arrived {
-                    name.to_owned()
-                } else if finish.set == catalog::Set::Made {
-                    format!("{name}: made by finishing a project")
-                } else {
-                    format!("{name}: arrives in time")
+                let response = response.on_hover_text(match finish.arrives.when(&now) {
+                    Some(when) => format!("{name}\n{when}"),
+                    None => name.to_owned(),
                 });
                 response.widget_info(|| {
                     egui::WidgetInfo::selected(egui::WidgetType::Button, arrived, chosen, name)
@@ -1064,9 +1090,16 @@ impl HomeApp {
                     }
                 }
             });
-        } else if home.rooms.len() < formiga_home_contract::limits::MAX_ROOMS {
+        } else if let Some(days) =
+            catalog::days_to_next_room(home.rooms.len(), self.household.snapshot.days_lived)
+                .filter(|days| *days > 0)
+        {
+            let comes = match days {
+                1 => "Another room can be built after one more day lived.".to_owned(),
+                days => format!("Another room can be built after {days} more days lived."),
+            };
             ui.label(
-                egui::RichText::new("Another room comes with time.")
+                egui::RichText::new(comes)
                     .small()
                     .italics()
                     .color(ink::muted(dark)),
@@ -1129,6 +1162,20 @@ impl HomeApp {
     /// Under every arranging page: taking back, and the keys that save reaching for the mouse.
     fn arranging_foot(&mut self, ui: &mut egui::Ui) {
         let dark = ui.visuals().dark_mode;
+        // A keepsake picked up can be let go from here as well as from its menu.
+        let keepsake = match &self.arranging.carrying {
+            Some(Carry::Thing(item))
+                if self
+                    .household
+                    .snapshot
+                    .item(item)
+                    .is_some_and(keepsakes::is_keepsake) =>
+            {
+                Some(item.clone())
+            }
+            _ => None,
+        };
+        let mut let_go = false;
         ui.horizontal(|ui| {
             if ui
                 .add_enabled(self.arranging.can_undo(), egui::Button::new("Undo"))
@@ -1144,7 +1191,16 @@ impl HomeApp {
             {
                 self.changed("Done again.");
             }
+            if keepsake.is_some() {
+                let_go = ui
+                    .button("Let it go")
+                    .on_hover_text("Out of the drawer, to make room for more")
+                    .clicked();
+            }
         });
+        if let (true, Some(item)) = (let_go, keepsake) {
+            self.let_keepsake_go(item);
+        }
         ui.label(
             egui::RichText::new("Drag to place \u{b7} R turns \u{b7} Delete puts away")
                 .small()
