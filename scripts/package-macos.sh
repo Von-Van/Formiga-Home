@@ -32,6 +32,8 @@ chmod 755 "$app_dir/Contents/MacOS/Formiga Home"
 icon_dir="$(mktemp -d)"
 "$app_dir/Contents/MacOS/Formiga Home" --icon "$icon_dir" > /dev/null
 cp "$icon_dir/FormigaHome.icns" "$app_dir/Contents/Resources/FormigaHome.icns"
+# The MIT licence travels with every copy, as it does with Formiga Hill's.
+cp "$repo_dir/LICENSE" "$app_dir/Contents/Resources/LICENSE"
 rm -rf "$icon_dir"
 
 # The Home version comes from the binary itself, so the bundle can never claim another.
@@ -53,6 +55,7 @@ mkdir -p "$dmg_staging"
 ditto "$app_dir" "$dmg_staging/Formiga Home.app"
 ln -s /Applications "$dmg_staging/Applications"
 cp "$repo_dir/packaging/macos/README.txt" "$dmg_staging/Read Me.txt"
+cp "$repo_dir/LICENSE" "$dmg_staging/License.txt"
 hdiutil create -volname "Formiga Home" -srcfolder "$dmg_staging" -ov -format UDZO "$disk_image"
 
 if [[ -n "${FORMIGA_NOTARY_PROFILE:-}" ]]; then

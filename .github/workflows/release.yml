@@ -25,6 +25,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: release-macos
+          if-no-files-found: error
           path: |
             dist/Formiga-Home-*-macOS-universal.dmg
             dist/Formiga-Home-*-macOS-universal.dmg.sha256
@@ -48,6 +49,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: release-windows
+          if-no-files-found: error
           path: |
             dist/Formiga-Home-*-windows-x64.msi
             dist/Formiga-Home-*-windows-x64.msi.sha256
@@ -103,3 +105,4 @@ jobs:
           body_path: notes.md
           draft: ${{ steps.notes.outputs.draft == 'true' }}
           files: release/*
+          fail_on_unmatched_files: true

@@ -14,6 +14,7 @@ $Version = $Version.TrimStart("v")
 $Portable = Join-Path $DistDir "Formiga-Home-$Version-windows-x64.zip"
 $Installer = Join-Path $DistDir "Formiga-Home-$Version-windows-x64.msi"
 $PortableDir = Join-Path $DistDir "Formiga-Home-portable"
+$License = Join-Path $RepoDir "LICENSE"
 
 function Write-Checksum([string]$Path) {
     $Hash = (Get-FileHash -Algorithm SHA256 $Path).Hash.ToLowerInvariant()
@@ -41,6 +42,8 @@ try {
     New-Item -ItemType Directory -Force $PortableDir | Out-Null
     Copy-Item $Exe (Join-Path $PortableDir "Formiga Home.exe")
     Copy-Item (Join-Path $RepoDir "packaging\windows\README.txt") (Join-Path $PortableDir "Read Me.txt")
+    # The MIT licence travels with every copy, in the zip and installed beside the program.
+    Copy-Item $License (Join-Path $PortableDir "License.txt")
     Compress-Archive -Force -Path (Join-Path $PortableDir "*") -DestinationPath $Portable
     Write-Checksum $Portable
 
@@ -53,6 +56,7 @@ try {
             -d "HomeVersion=$Version" `
             -d "HomeContractVersion=$HomeContractVersion" `
             -d "HomeIcon=$Icon" `
+            -d "HomeLicense=$License" `
             -arch x64 `
             -o $Installer `
             (Join-Path $RepoDir "packaging\windows\FormigaHome.wxs")

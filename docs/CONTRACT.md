@@ -12,13 +12,15 @@ visit, the colony should not notice. Nearly every rule below exists to make that
 
 The contract itself is the `formiga-home-contract` crate, in Formiga Desktop's workspace since
 Desktop 0.67.0. Its `lib.rs` is the authority, followed by `snapshot.rs`, `state.rs`,
-`replies.rs`, `inventory.rs` and `accept.rs`. Example documents for every version (the "golden
+`replies.rs`, `inventory.rs`, `accept.rs`, `document.rs`, `ids.rs`, `projection.rs` and `sample.rs`. Example documents for every version (the "golden
 fixtures") are kept in its `tests/fixtures`. Home takes it by Desktop's release tag, with the
 other Desktop crates, so their types always agree.
 
 It follows the example of Desktop's `formiga-travel` crate, which plays the same role for Formiga
-Hill, and is built on top of it: a resident is exactly the `Traveler` a trip would carry,
-documents are written the same way, and text is made safe the same way.
+Hill, and is built on top of it: a resident is exactly the `Traveler` a trip would carry. The
+parts every companion app shares (the session id, bounded documents, text made safe, and the
+refusals an acknowledgement can carry) come from Desktop's `formiga-expansion-rulebook`, as they
+do for the travel contract since Desktop 0.67.3.
 
 ## Who owns what
 
@@ -56,7 +58,7 @@ else it lent out on the desktop: a resident the owner has sent out from the hous
 resident its home `stays_out`, and a friend until it comes over and once it has gone home again.
 Desktop looks for Home's word at most once a second, and someone in the owner's hand on the
 desktop goes in once put down. When Home
-exits, however it exits, Desktop reads the answers, keeps what [`accept_result`] allows, and lets
+exits, however it exits, Desktop reads the answers, keeps what `accept_result` allows, and lets
 the household back out through its ordinary village life. Everything is designed to fail toward
 home. If Home is missing, refuses, crashes, or writes something that does not check out, the
 household simply comes back out and the layouts Desktop last accepted still stand.
