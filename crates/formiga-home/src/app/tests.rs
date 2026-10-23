@@ -1408,7 +1408,17 @@ fn a_long_piece_picked_up_by_the_keys_and_put_straight_down_stays_where_it_stood
     let data = scratch("arrows-long");
     let mut window = Harness::open(&data);
     window.arrange();
-    let rug = window.piece("long_rug");
+    // The longest piece in the house, more than two tiles, which is held by its middle.
+    let rug = window
+        .app
+        .house
+        .pieces
+        .iter()
+        .map(|placed| (placement::footprint(placed), placed.uid))
+        .filter(|(footprint, _)| footprint.w * footprint.d > 2)
+        .max_by_key(|(footprint, _)| footprint.w.max(footprint.d))
+        .map(|(_, uid)| uid)
+        .expect("a piece larger than two tiles in the house");
     let at = |window: &Harness| {
         let placed = window.app.house.piece(rug).unwrap();
         (placed.x, placed.y)
@@ -1440,7 +1450,29 @@ fn the_arrows_pass_over_a_find_someone_is_wearing() {
     let data = scratch("arrows-worn");
     let mut window = Harness::open(&data);
     let keeper = window.keeper();
-    let key = DisplayId::find(1);
+    // A find small enough to pin on, set on the shelf from the drawer.
+    let key = window
+        .app
+        .household
+        .snapshot
+        .inventory
+        .iter()
+        .find(|item| {
+            matches!(
+                item.source,
+                formiga_home_contract::DisplaySource::DesktopFind { .. }
+            ) && item.ink.is_some()
+                && item.modes.first() != Some(&formiga_home_contract::DisplayMode::Floor)
+        })
+        .map(|item| item.id.clone())
+        .expect("the sample has a find small enough to wear");
+    window.arrange();
+    window.click_id(egui::Id::new(("find", key.as_str())));
+    let shelf = window.piece("shelf");
+    let at = window.find(&Target::Piece(shelf));
+    window.click(at);
+    window.click_id(notebook::mode_id(Mode::Live));
+    assert_eq!(window.app.state.shown_by(&key), Some(window.app.keeper));
     assert!(window.app.targets().contains(&Target::Shown(key.clone())));
     let now = window.app.now();
     window.app.life.ask(keeper, Act::TryOn(key.clone()), now);
