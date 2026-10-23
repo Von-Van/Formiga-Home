@@ -19,7 +19,7 @@ mod iso;
 mod journal;
 mod keepsakes;
 mod life;
-mod paint;
+use formiga_art::paint;
 mod path;
 mod placement;
 mod projects;

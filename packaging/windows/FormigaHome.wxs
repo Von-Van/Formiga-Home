@@ -37,6 +37,9 @@
               Type="integer"
               Value="$(HomeContractVersion)" />
         </Component>
+        <Component Id="HomeLicense" Guid="3C1E7B52-8E6B-4F0A-9D3B-2A7C5E1F6B84">
+          <File Id="HomeLicenseFile" Source="$(HomeLicense)" Name="License.txt" KeyPath="yes" />
+        </Component>
       </Directory>
     </StandardDirectory>
 
@@ -63,6 +66,7 @@
 
     <Feature Id="MainFeature" Title="Formiga Home" Level="1">
       <ComponentRef Id="HomeApplication" />
+      <ComponentRef Id="HomeLicense" />
       <ComponentRef Id="HomeShortcut" />
     </Feature>
   </Package>
