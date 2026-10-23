@@ -1085,3 +1085,117 @@ fn residents_kept_out_start_out_and_a_friend_can_be_had_in_early_or_kept_away() 
     assert_eq!(life.inside(away), Some(Inside::Out), "it never comes over");
     assert!(!life.indoors().contains(&away) && !life.indoors().contains(&little));
 }
+
+/// The lived-in house, with what a household makes of it: the low table made the family table, a
+/// hearth and a puppet theatre.
+fn with_made_pieces() -> (Household, House) {
+    let household = Household::new(sample::snapshot()).unwrap();
+    let mut home = show_house::lived_in(&household, "floor.boards", "wall.leafy");
+    for placed in &mut home.rooms[0].pieces {
+        if placed.piece.as_str() == "low_table" {
+            placed.piece = formiga_home_contract::CatalogId::known("gingham_table");
+        }
+    }
+    let made = crate::projects::Stage {
+        name: "",
+        about: "",
+        needs: &[],
+        gifts: &[
+            crate::projects::Gift::Piece("hearth"),
+            crate::projects::Gift::Piece("puppet_theatre"),
+        ],
+    };
+    let given = crate::projects::give(&mut home, &made);
+    assert!(
+        given
+            .iter()
+            .all(|given| matches!(given, crate::projects::Given::Placed(..))),
+        "{given:?}"
+    );
+    (household, House::of(&home.rooms))
+}
+
+#[test]
+fn what_the_household_makes_is_used_for_what_it_was_made_for() {
+    let (household, layout) = with_made_pieces();
+    let keeper = household.keeper().id;
+    let pip = household.residents[1].id;
+    let present: Vec<Id> = household.residents.iter().map(|r| r.id).collect();
+    let offered = |uid: u16| {
+        choices(
+            &household,
+            &layout,
+            &household.snapshot,
+            &present,
+            &[],
+            keeper,
+            &crate::scene::Target::Piece(uid),
+        )
+    };
+    let (hearth, table, theatre) = (
+        piece(&layout, "hearth"),
+        piece(&layout, "gingham_table"),
+        piece(&layout, "puppet_theatre"),
+    );
+    let at_hearth = offered(hearth);
+    assert!(at_hearth.contains(&Act::WarmUp(hearth)));
+    assert!(
+        !at_hearth.contains(&Act::SwitchLamp(hearth)),
+        "a fire is not switched"
+    );
+    assert!(offered(table).contains(&Act::Supper(table)));
+    let at_theatre = offered(theatre);
+    assert!(at_theatre.contains(&Act::PutOnShow(theatre)));
+    assert!(at_theatre.contains(&Act::PutOnShowFor(theatre, pip)));
+    assert!(
+        !at_theatre.contains(&Act::Play(theatre)),
+        "a theatre is not a ball"
+    );
+    for (act, done, count) in [
+        (
+            Act::WarmUp(hearth),
+            formiga_art::BodyClip::from(ActionKind::Perch),
+            Count::Hearthside,
+        ),
+        (Act::Supper(table), ActionKind::Eat.into(), Count::Suppers),
+        (Act::PutOnShow(theatre), Gesture::Reach.into(), Count::Shows),
+    ] {
+        let mut life = Life::new(&household, &layout);
+        life.ask(keeper, act.clone(), 0.0);
+        let mut now = 0.0;
+        let mut seen = false;
+        let mut counted = false;
+        for _ in 0..200 {
+            now = run(&mut life, &household, &layout, now, 0.25);
+            let actor = life.actor(keeper).unwrap();
+            seen |= !actor.walking() && actor.pose.clip == done;
+            counted |= life.take_events().contains(&Event::Did(keeper, count));
+            if counted {
+                break;
+            }
+        }
+        assert!(seen, "{act:?} never happened");
+        assert!(counted, "{act:?} was never counted as {count:?}");
+    }
+}
+
+#[test]
+fn left_alone_the_household_warms_up_by_the_fire_of_an_evening() {
+    let (household, layout) = with_made_pieces();
+    let hearth = piece(&layout, "hearth");
+    let mut life = Life::new(&household, &layout);
+    life.set_dark(1.0);
+    let mut warmed = false;
+    let mut now = 0.0;
+    for _ in 0..600 {
+        now = run(&mut life, &household, &layout, now, 1.0);
+        warmed |= household.residents.iter().any(|r| {
+            life.current(r.id)
+                .is_some_and(|(act, _)| act == Act::WarmUp(hearth))
+        });
+        if warmed {
+            break;
+        }
+    }
+    assert!(warmed, "nobody sat by the fire all evening");
+}
