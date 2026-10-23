@@ -191,6 +191,12 @@ pub struct Scene {
     pub view: View,
     shell_key: Option<ShellKey>,
     shell: Canvas,
+    /// How many times the shell has been drawn: the house's floor can only have changed when it
+    /// has been drawn again.
+    shell_drawn: u64,
+    /// How far each pixel is lit by the lamps, by night, and what for: the shell as last drawn,
+    /// the view, and the lamps that are on.
+    lamplight: Option<(LampKey, Vec<f32>)>,
     pieces: PieceCache,
     things: HashMap<(DisplayId, PlaceKey, Showing, Option<WallSide>), Sprite>,
     /// The household's keepsakes' pictures, by id: whoever is in each, in their own colours.
@@ -223,6 +229,8 @@ impl Scene {
             view,
             shell_key: None,
             shell: Canvas::new(view.size.0, view.size.1),
+            shell_drawn: 0,
+            lamplight: None,
             pieces: PieceCache::default(),
             things: HashMap::new(),
             pictures: HashMap::new(),
@@ -341,6 +349,33 @@ impl Scene {
         }
         self.shell = canvas;
         self.shell_key = Some(key);
+        self.shell_drawn += 1;
+    }
+
+    /// How far each pixel of a picture `size` big is lit by `lamps`, worked out again only when
+    /// they, the house's floor or the picture change.
+    fn lamplight(&mut self, house: &House, size: (u32, u32), lamps: &[Lamp]) -> &[f32] {
+        let fresh = self
+            .lamplight
+            .as_ref()
+            .is_some_and(|((drawn, view, drawn_size, lit), _)| {
+                *drawn == self.shell_drawn
+                    && *view == self.view
+                    && *drawn_size == size
+                    && lit.as_slice() == lamps
+            });
+        if !fresh {
+            let view = self.view;
+            let on_floor = |x: i32, y: i32| {
+                let point = view.floor_at(x as f32 + 0.5, y as f32 + 0.5);
+                house.room_of_point(point).is_some()
+            };
+            let lit = lamp_light(size.0, size.1, lamps, on_floor);
+            self.lamplight = Some(((self.shell_drawn, view, size, lamps.to_vec()), lit));
+        }
+        self.lamplight
+            .as_ref()
+            .map_or(&[], |(_, lit)| lit.as_slice())
     }
 
     /// Everything that stands on the floor, in the order it is drawn.
@@ -463,7 +498,7 @@ impl Scene {
                 .filter(|_| !overlay.lamps_off.contains(&placed.uid))
         };
         // A lamp's light shows on the floor only once the day's has begun to go.
-        let lamps: Vec<((i32, i32), i32)> = house
+        let lamps: Vec<Lamp> = house
             .pieces
             .iter()
             .filter_map(|placed| {
@@ -533,7 +568,10 @@ impl Scene {
                 }
             }
         }
-        light(&mut canvas, &overlay.daylight, &lamps, on_floor);
+        if overlay.daylight.dark().0 > 0.0 {
+            let lit = self.lamplight(house, (canvas.width(), canvas.height()), &lamps);
+            light(&mut canvas, &overlay.daylight, lit);
+        }
         if !overlay.arranging {
             for actor in actors.iter_mut().filter(|actor| !actor.hidden) {
                 actor.draw_cue(&mut canvas, &view, now);
@@ -858,26 +896,24 @@ static UNKNOWN: catalog::Piece = catalog::Piece {
 const LAMP_REACH: f32 = 48.0;
 const SHADE_REACH: f32 = 16.0;
 
-/// The house as the hour lights it: as drawn by day, and as the light goes, each pixel drawn
-/// towards the colour of the dark, except as far as a lit lamp reaches.
-fn light(
-    canvas: &mut Canvas,
-    daylight: &Daylight,
-    lamps: &[((i32, i32), i32)],
+/// A lamp that is on: where its foot is on the picture, and how high its bulb glows.
+type Lamp = ((i32, i32), i32);
+
+/// What the lamp light was last worked out for: the shell as drawn, the view, the picture's
+/// size, and the lamps.
+type LampKey = (u64, View, (u32, u32), Vec<Lamp>);
+
+/// How lit each pixel of a picture `width` by `height` is by the nearest lamp, row by row: a
+/// pool on the house's floor round its foot, and a glow round its shade, wherever that is.
+fn lamp_light(
+    width: u32,
+    height: u32,
+    lamps: &[Lamp],
     in_house: impl Fn(i32, i32) -> bool,
-) {
-    let (dark, tint) = daylight.dark();
-    if dark <= 0.0 {
-        return;
-    }
-    for y in 0..canvas.height() as i32 {
-        for x in 0..canvas.width() as i32 {
-            let pixel = canvas.get(x, y);
-            if pixel.a == 0 {
-                continue;
-            }
-            // How lit it is by the nearest lamp: a pool on the house's floor round its foot, and
-            // a glow round its shade, wherever that is.
+) -> Vec<f32> {
+    let mut lit = Vec::with_capacity(width as usize * height as usize);
+    for y in 0..height as i32 {
+        for x in 0..width as i32 {
             let floor = in_house(x, y);
             let lamp = lamps
                 .iter()
@@ -893,7 +929,27 @@ fn light(
                     pool.max(shade).clamp(0.0, 1.0)
                 })
                 .fold(0.0_f32, f32::max);
-            let lamp = lamp * lamp * (3.0 - 2.0 * lamp);
+            lit.push(lamp * lamp * (3.0 - 2.0 * lamp));
+        }
+    }
+    lit
+}
+
+/// The house as the hour lights it: as drawn by day, and as the light goes, each pixel drawn
+/// towards the colour of the dark, except as far as a lit lamp reaches, as `lamp_light` says.
+fn light(canvas: &mut Canvas, daylight: &Daylight, lamp_light: &[f32]) {
+    let (dark, tint) = daylight.dark();
+    if dark <= 0.0 {
+        return;
+    }
+    let width = canvas.width() as i32;
+    for y in 0..canvas.height() as i32 {
+        for x in 0..width {
+            let pixel = canvas.get(x, y);
+            if pixel.a == 0 {
+                continue;
+            }
+            let lamp = lamp_light[(y * width + x) as usize];
             let k = dark * (1.0 - lamp);
             let warm = dark * lamp;
             let channel = |value: u8, tint: f32, warmth: f32| {
@@ -1077,16 +1133,16 @@ mod tests {
             }
         }
         let lamp = [((60, 50), 30)];
-        let everywhere = |_: i32, _: i32| true;
+        let lit = lamp_light(120, 80, &lamp, |_, _| true);
         let mut day = picture.clone();
-        light(&mut day, &Daylight::default(), &lamp, everywhere);
+        light(&mut day, &Daylight::default(), &lit);
         assert_eq!(day.get(5, 5), grey);
         let mut night = picture.clone();
         let late = Daylight {
             hour: 23.0,
             month: time::Month::June,
         };
-        light(&mut night, &late, &lamp, everywhere);
+        light(&mut night, &late, &lit);
         let (far, near) = (night.get(5, 75), night.get(60, 50));
         assert!(
             far.r < 120 && far.b > far.r,
