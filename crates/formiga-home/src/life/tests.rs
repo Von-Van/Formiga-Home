@@ -1282,3 +1282,142 @@ fn a_tall_clock_is_wound() {
     }
     assert!(wound);
 }
+
+/// The sample household with its keeper reshaped in Formiga Farm on `plan`, and lazy, so it rests
+/// on things as often as anybody would.
+fn reshaped(plan: formiga_core::forms::Plan) -> (Household, House) {
+    use formiga_core::forms::{Design, Form, Sculpt};
+    let mut snapshot = sample::snapshot();
+    let keeper = &mut snapshot.residents[0];
+    keeper.character.temperament = TemperamentKind::Lazybones.into();
+    let base = keeper.appearance.to_genome().unwrap();
+    let genome = Design {
+        form: Form::Sculpted {
+            sculpt: Sculpt::starter(plan),
+        },
+        face: base.face,
+    }
+    .genome(&base);
+    keeper.appearance = (&genome).into();
+    let household = Household::new(snapshot).unwrap();
+    let layout = House::of(&show_house::lived_in(&household, "floor.boards", "wall.leafy").rooms);
+    (household, layout)
+}
+
+#[test]
+fn a_turtle_is_never_offered_a_seat_it_cannot_climb_onto() {
+    let (household, layout) = reshaped(formiga_core::forms::Plan::Crawler);
+    let keeper = household.keeper().id;
+    let present: Vec<Id> = household.residents.iter().map(|r| r.id).collect();
+    let offered = |id: &str| {
+        choices(
+            &household,
+            &layout,
+            &household.snapshot,
+            &present,
+            &[],
+            keeper,
+            &crate::scene::Target::Piece(piece(&layout, id)),
+        )
+    };
+    for id in ["armchair", "bed"] {
+        let acts = offered(id);
+        assert!(!acts.is_empty(), "the {id} still offers something");
+        assert!(
+            !acts.iter().any(|act| act.settles()),
+            "the {id} offered {acts:?}"
+        );
+    }
+    // Anyone else in the house is offered the armchair as always.
+    let pip = household.residents[1].id;
+    let chair = piece(&layout, "armchair");
+    let theirs = choices(
+        &household,
+        &layout,
+        &household.snapshot,
+        &present,
+        &[],
+        pip,
+        &crate::scene::Target::Piece(chair),
+    );
+    assert!(theirs.contains(&Act::Sit(chair)));
+}
+
+#[test]
+fn left_alone_each_body_keeps_to_what_it_can_do() {
+    use formiga_core::forms::Plan;
+    for plan in [Plan::Crawler, Plan::Floater, Plan::TallQuadruped] {
+        let (household, layout) = reshaped(plan);
+        let keeper = household.keeper().id;
+        let body = Body::of(household.keeper().genome());
+        let mut life = Life::new(&household, &layout);
+        let mut now = 0.0;
+        let mut did = std::collections::BTreeSet::new();
+        for _ in 0..600 {
+            now = run(&mut life, &household, &layout, now, 0.5);
+            if let Some((act, _)) = life.current(keeper) {
+                assert!(suits(body, &layout, &act), "{plan:?} went to {act:?}");
+                did.insert(format!("{:?}", std::mem::discriminant(&act)));
+            }
+            let actor = life.actors.iter().find(|actor| actor.id == keeper).unwrap();
+            if let Some(uid) = actor.on_piece {
+                assert!(
+                    body.settles_on_placed(&layout, uid),
+                    "{plan:?} got up onto {uid}"
+                );
+            }
+        }
+        assert!(did.len() >= 3, "{plan:?} only ever did {did:?}");
+    }
+}
+
+#[test]
+fn a_little_turtle_is_not_asked_to_turn_in_where_it_cannot_climb() {
+    use formiga_core::forms::{Design, Form, Plan, Sculpt};
+    let mut snapshot = sample::snapshot();
+    let little = &mut snapshot.residents[1];
+    let base = little.appearance.to_genome().unwrap();
+    let genome = Design {
+        form: Form::Sculpted {
+            sculpt: Sculpt::starter(Plan::Crawler),
+        },
+        face: base.face,
+    }
+    .genome(&base);
+    little.appearance = (&genome).into();
+    let household = Household::new(snapshot).unwrap();
+    let layout = House::of(&show_house::lived_in(&household, "floor.boards", "wall.leafy").rooms);
+    let (keeper, pip) = (household.keeper().id, household.residents[1].id);
+    assert_eq!(household.residents[1].parent(), Some(keeper));
+    let bed = piece(&layout, "bed");
+    let present: Vec<Id> = household.residents.iter().map(|r| r.id).collect();
+    let offered = choices(
+        &household,
+        &layout,
+        &household.snapshot,
+        &present,
+        &[],
+        keeper,
+        &crate::scene::Target::Piece(bed),
+    );
+    assert!(offered.contains(&Act::Sleep(bed)), "{offered:?}");
+    assert!(
+        !offered.contains(&Act::InviteLittle(bed, pip)),
+        "{offered:?}"
+    );
+    // Asked all the same, neither turns in, and the turtle sleeps on no floor.
+    let mut life = Life::new(&household, &layout);
+    life.ask(keeper, Act::InviteLittle(bed, pip), 0.0);
+    let mut now = 0.0;
+    for _ in 0..60 {
+        now = run(&mut life, &household, &layout, now, 0.25);
+        for id in [keeper, pip] {
+            assert!(
+                life.current(id)
+                    .is_none_or(|(act, _)| !matches!(act, Act::InviteLittle(..))),
+                "{:?}",
+                life.current(id)
+            );
+        }
+    }
+}

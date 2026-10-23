@@ -6,6 +6,7 @@
 //! the household's simulation; the actor only walks where it is sent and holds the pose it is given.
 
 use crate::art::cues::Cue;
+use crate::body::Body;
 use crate::household::{Id, Resident};
 use crate::iso::View;
 use crate::paint;
@@ -94,6 +95,7 @@ const SPIN_TURN: f32 = 0.22;
 pub struct Actor {
     pub id: Id,
     appearance: AppearanceGenome,
+    body: Body,
     dress: Option<AccessoryArt>,
     foot_row: i32,
     /// Where its feet are on the floor, in tiles.
@@ -131,6 +133,7 @@ impl Actor {
         Self {
             id: resident.id,
             appearance: resident.genome().clone(),
+            body: Body::of(resident.genome()),
             dress: resident.dress,
             foot_row: FRAME_SIZE as i32 - 1 - baseline as i32,
             pos,
@@ -151,6 +154,11 @@ impl Actor {
             blink: (3.2 + seed * 2.4, seed * 5.0),
             reduce_motion,
         }
+    }
+
+    /// The body it gets about the house with.
+    pub fn body(&self) -> Body {
+        self.body
     }
 
     /// Wear something else for a while, or what it came in again: every frame is drawn afresh.
@@ -308,12 +316,18 @@ impl Actor {
     }
 
     /// Partway along a leg towards `next`: stepping down off a piece near the end of the first,
-    /// or up onto one near the start of the last, and drawn with that piece meanwhile.
+    /// or up onto one near the start of the last, and drawn with that piece meanwhile. A floater
+    /// has no step to take: it rises or sinks over the whole leg.
     fn climb(&mut self, next: (f32, f32)) {
         let between =
             |a: (f32, f32), b: (f32, f32)| ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
         let length = between(self.leg_from, next);
-        let step = CLIMB_STEP.min(length).max(f32::EPSILON);
+        let step = if self.body.floats() {
+            length
+        } else {
+            CLIMB_STEP.min(length)
+        }
+        .max(f32::EPSILON);
         if let Some(down) = self.down {
             self.on_piece = Some(down.piece);
             self.lift = down.height * (between(self.pos, next) / step).min(1.0);
