@@ -85,6 +85,8 @@ pub enum Act {
     /// Put on a puppet show, alone, or for someone who watches.
     PutOnShow(u16),
     PutOnShowFor(u16, Id),
+    /// Wind a clock.
+    Wind(u16),
     Inspect(DisplayId),
     Remember(DisplayId),
     ShowTo(DisplayId, Id),
@@ -146,7 +148,8 @@ impl Act {
             | Self::WarmUp(uid)
             | Self::Supper(uid)
             | Self::PutOnShow(uid)
-            | Self::PutOnShowFor(uid, _) => Some(*uid),
+            | Self::PutOnShowFor(uid, _)
+            | Self::Wind(uid) => Some(*uid),
             _ => None,
         }
     }
@@ -244,6 +247,7 @@ impl Act {
             Self::Inspect(_)
             | Self::Browse(_)
             | Self::SwitchLamp(_)
+            | Self::Wind(_)
             | Self::Wander(..)
             | Self::GoTo(..) => Drive::Curiosity,
             Self::Share(..)
@@ -300,6 +304,7 @@ impl Act {
             Self::Supper(uid) => format!("Have supper at the {}", piece(uid)),
             Self::PutOnShow(uid) => format!("Put on a show at the {}", piece(uid)),
             Self::PutOnShowFor(_, other) => format!("Put on a puppet show for {}", who(other)),
+            Self::Wind(uid) => format!("Wind the {}", piece(uid)),
             Self::Inspect(id) => format!("Look at the {}", item(id)),
             Self::Remember(id) => format!("Remember the {}", item(id)),
             Self::ShowTo(id, other) => format!("Show {} the {}", who(other), item(id)),
@@ -340,6 +345,7 @@ impl Act {
             "Show" => "showing",
             "Have" => "having",
             "Warm" => "warming",
+            "Wind" => "winding",
             "Put" => "putting",
             "Share" => "sharing",
             "Look" => "looking",
@@ -1936,7 +1942,7 @@ impl Life {
             let mind = &mut self.minds[index];
             if mind.presence == Presence::Home && plan.part == Part::Leads {
                 let liked = match (&plan.act, plan.act.piece(), plan.act.item()) {
-                    (Act::SwitchLamp(_) | Act::Browse(_), _, _) => None,
+                    (Act::SwitchLamp(_) | Act::Browse(_) | Act::Wind(_), _, _) => None,
                     (_, Some(uid), _) => Some(Used::Piece(uid)),
                     (_, _, Some(item)) => Some(Used::Shown(item.clone())),
                     _ => None,
@@ -2030,6 +2036,7 @@ impl Life {
         for other in &choosing.others {
             company_whims(&choosing, *other, &mut options);
         }
+        suit_rooms(house, &mut options);
         let (room, leaving) = self.which_room(house, index);
         options.extend(self.look_round(house, index, room, leaving));
         keep_to_room(house, room, &mut options);
@@ -2207,6 +2214,15 @@ impl Life {
             ));
         } else if piece.family == Family::Lights && character.fusses() {
             options.push((Act::SwitchLamp(uid), 0.25));
+        }
+        if piece.has(Use::Wind) {
+            // A clock is kept by whoever minds such things.
+            let minds = if character.fusses() || character.studies() {
+                0.6
+            } else {
+                0.15
+            };
+            options.push((Act::Wind(uid), minds));
         }
         if piece.family == Family::Shelves && !shown_on(choosing.house, uid).is_empty() {
             let lots = if character.studies() || visiting {
@@ -2670,6 +2686,54 @@ fn company_whims(choosing: &Choosing, other: Id, options: &mut Vec<(Act, f32)>) 
     }
 }
 
+/// What a room is for comes the more readily to mind there: a nap in the bedroom, a game in the
+/// playroom, a snack in the kitchen.
+fn suit_rooms(house: &House, options: &mut [(Act, f32)]) {
+    use catalog::Purpose;
+    for (act, weight) in options {
+        let room = match (act.piece(), act.item()) {
+            (Some(uid), _) => house
+                .piece(uid)
+                .and_then(|placed| house.room_of_point(placement::footprint(placed).centre())),
+            (_, Some(item)) => item_room(house, item),
+            (None, None) => None,
+        };
+        let Some(purpose) = room
+            .and_then(|room| house.rooms.get(usize::from(room)))
+            .and_then(|room| room.kind.as_ref())
+            .and_then(catalog::template)
+            .map(|template| template.purpose)
+        else {
+            continue;
+        };
+        let suits = match purpose {
+            Purpose::Reading => matches!(act, Act::Browse(_) | Act::Inspect(_) | Act::Remember(_)),
+            Purpose::Rest => matches!(
+                act,
+                Act::Sleep(_) | Act::Nap(_) | Act::CurlUp(_) | Act::InviteLittle(..)
+            ),
+            Purpose::Looking => matches!(
+                act,
+                Act::Browse(_) | Act::Inspect(_) | Act::Remember(_) | Act::ShowTo(..)
+            ),
+            Purpose::Play => matches!(
+                act,
+                Act::Play(_)
+                    | Act::PlayWith(..)
+                    | Act::PlayWithFind(_)
+                    | Act::ShowOffToy(_)
+                    | Act::PutOnShow(_)
+                    | Act::PutOnShowFor(..)
+            ),
+            Purpose::Eating => matches!(act, Act::Snack(_) | Act::Share(..) | Act::Supper(_)),
+            Purpose::Writing => matches!(act, Act::SitAt(_) | Act::Draw(..) | Act::Wind(_)),
+        };
+        if suits {
+            *weight *= 1.5;
+        }
+    }
+}
+
 /// Only what is in `room` comes to mind, and the others, wherever they are: if anything there
 /// does.
 fn keep_to_room(house: &House, room: u8, options: &mut Vec<(Act, f32)>) {
@@ -2784,6 +2848,10 @@ fn leading_pose(
             4.0,
         ),
         Act::SwitchLamp(_) => (Pose::new(Gesture::Reach, ExpressionKind::Curious), 1.4),
+        Act::Wind(_) => (
+            Pose::new(Gesture::Reach, ExpressionKind::Focused).with_cue(Cue::Note),
+            3.0,
+        ),
         Act::Tend(_) => (
             Pose::new(Gesture::Reach, ExpressionKind::Content).with_cue(Cue::Heart),
             4.0,
@@ -3147,6 +3215,9 @@ pub fn choices(
             }
             if piece.has(Use::Supper) {
                 acts.push(Act::Supper(*uid));
+            }
+            if piece.has(Use::Wind) {
+                acts.push(Act::Wind(*uid));
             }
             if piece.has(Use::Show) {
                 acts.push(Act::PutOnShow(*uid));

@@ -27,6 +27,8 @@ pub enum Use {
     Supper,
     /// A stage to put on a show from.
     Show,
+    /// A clock to wind.
+    Wind,
 }
 
 /// What a surface takes.
@@ -118,10 +120,11 @@ pub enum Family {
     Plants,
     Toys,
     Food,
+    Clocks,
 }
 
 impl Family {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Seats,
         Self::Beds,
         Self::Tables,
@@ -131,6 +134,7 @@ impl Family {
         Self::Plants,
         Self::Toys,
         Self::Food,
+        Self::Clocks,
     ];
 
     pub const fn label(self) -> &'static str {
@@ -143,7 +147,8 @@ impl Family {
             Self::Lights => "Lights",
             Self::Plants => "Plants",
             Self::Toys => "Toys",
-            Self::Food => "Snacks",
+            Self::Food => "Food and cooking",
+            Self::Clocks => "Clocks",
         }
     }
 }
@@ -436,7 +441,7 @@ const PODIUM: [Surface; 3] = [
 
 const COSY: &str = "project.cosy_beds";
 
-pub static PIECES: [Piece; 57] = [
+pub static PIECES: [Piece; 62] = [
     Piece {
         id: "cushion",
         name: "Floor cushion",
@@ -1101,6 +1106,109 @@ pub static PIECES: [Piece; 57] = [
         lift: 0,
         set: Set::Made,
     },
+    // For a kitchen, a study, and keeping things in.
+    Piece {
+        id: "stove",
+        name: "Little stove",
+        family: Family::Food,
+        size: (1, 1),
+        height: 32,
+        flat: false,
+        uses: &[Use::Snack],
+        surfaces: &[],
+        arrives: Arrival::AfterDays(14),
+        lift: 0,
+        set: Set::Home,
+    },
+    Piece {
+        id: "dresser",
+        name: "Kitchen dresser",
+        family: Family::Shelves,
+        size: (2, 1),
+        height: 46,
+        flat: false,
+        uses: &[],
+        surfaces: &[
+            Surface {
+                at: (0.5, 0.62),
+                height: 17,
+                holds: Holds::Top,
+                cover: None,
+            },
+            Surface {
+                at: (1.5, 0.62),
+                height: 17,
+                holds: Holds::Top,
+                cover: None,
+            },
+            Surface {
+                at: (1.0, 0.2),
+                height: 27,
+                holds: Holds::Shelf,
+                cover: Some(Cover::Board(17)),
+            },
+        ],
+        arrives: Arrival::AfterDays(14),
+        lift: 0,
+        set: Set::Home,
+    },
+    Piece {
+        id: "desk",
+        name: "Writing desk",
+        family: Family::Tables,
+        size: (2, 1),
+        height: 24,
+        flat: false,
+        uses: &[],
+        surfaces: &[Surface {
+            at: (0.45, 0.62),
+            height: 15,
+            holds: Holds::Top,
+            cover: None,
+        }],
+        arrives: Arrival::AfterDays(8),
+        lift: 0,
+        set: Set::Home,
+    },
+    Piece {
+        id: "clock",
+        name: "Tall clock",
+        family: Family::Clocks,
+        size: (1, 1),
+        height: 50,
+        flat: false,
+        uses: &[Use::Wind],
+        surfaces: &[],
+        arrives: Arrival::AfterDays(14),
+        lift: 0,
+        set: Set::Home,
+    },
+    Piece {
+        id: "chest",
+        name: "Blanket chest",
+        family: Family::Shelves,
+        size: (2, 1),
+        height: 13,
+        flat: false,
+        uses: &[],
+        surfaces: &[
+            Surface {
+                at: (0.5, 0.5),
+                height: 13,
+                holds: Holds::Top,
+                cover: None,
+            },
+            Surface {
+                at: (1.5, 0.5),
+                height: 13,
+                holds: Holds::Top,
+                cover: None,
+            },
+        ],
+        arrives: Arrival::AfterDays(6),
+        lift: 0,
+        set: Set::Home,
+    },
     // Every bed made cosier, a stage at a time, in the look of its own set.
     long_bed(
         "driftwood_quilt_bed",
@@ -1348,24 +1456,58 @@ pub static WALLS: [Finish; 10] = [
     },
 ];
 
-/// A kind of room a house can grow: its size, and the few pieces it comes with, placed in its own
-/// tiles as `(piece, x, y, turn)`. The room's finishes start as the first room's.
+/// A kind of room a house can grow: its size, the few pieces it comes with, placed in its own
+/// tiles as `(piece, x, y, turn)`, and what it is for. The room's finishes start as the first
+/// room's.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Template {
     pub id: &'static str,
     pub name: &'static str,
     pub size: (u8, u8),
     pub pieces: &'static [(&'static str, u8, u8, u8)],
+    pub purpose: Purpose,
+}
+
+/// What a kind of room is for: what anyone in it is the more inclined to do there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Purpose {
+    /// Sitting quietly, and looking things over.
+    Reading,
+    /// Sleeping and napping.
+    Rest,
+    /// Looking at what is shown, and showing it.
+    Looking,
+    /// Playing, alone or together, and putting on shows.
+    Play,
+    /// Snacks and suppers.
+    Eating,
+    /// Sitting at a table, drawing, and keeping the clock.
+    Writing,
+}
+
+impl Purpose {
+    /// What the room is for, in a few words, for the rooms page.
+    pub const fn about(self) -> &'static str {
+        match self {
+            Self::Reading => "For sitting quietly with something to look at",
+            Self::Rest => "For naps and a good night's sleep",
+            Self::Looking => "For showing finds off, and looking them over",
+            Self::Play => "For games, and shows",
+            Self::Eating => "For snacks and suppers",
+            Self::Writing => "For sitting at the desk, and drawing",
+        }
+    }
 }
 
 /// Every kind of room a house can grow. Rooms come slowly, with the days a colony has lived:
 /// see [`rooms_allowed`].
-pub static ROOMS: [Template; 4] = [
+pub static ROOMS: [Template; 6] = [
     Template {
         id: "room.nook",
         name: "Reading nook",
         size: (4, 4),
         pieces: &[("lamp", 0, 0, 0), ("armchair", 0, 2, 1), ("shelf", 2, 0, 0)],
+        purpose: Purpose::Reading,
     },
     Template {
         id: "room.bedroom",
@@ -1377,6 +1519,7 @@ pub static ROOMS: [Template; 4] = [
             ("basket", 4, 0, 0),
             ("round_rug", 2, 2, 0),
         ],
+        purpose: Purpose::Rest,
     },
     Template {
         id: "room.gallery",
@@ -1389,6 +1532,7 @@ pub static ROOMS: [Template; 4] = [
             ("shelf", 3, 0, 0),
             ("plinth", 2, 4, 0),
         ],
+        purpose: Purpose::Looking,
     },
     Template {
         id: "room.playroom",
@@ -1399,6 +1543,31 @@ pub static ROOMS: [Template; 4] = [
             ("long_rug", 2, 2, 0),
             ("ball", 4, 1, 0),
         ],
+        purpose: Purpose::Play,
+    },
+    Template {
+        id: "room.kitchen",
+        name: "Kitchen",
+        size: (5, 4),
+        pieces: &[
+            ("stove", 0, 0, 0),
+            ("dresser", 1, 0, 0),
+            ("snack_bowl", 4, 0, 0),
+            ("low_table", 2, 2, 0),
+        ],
+        purpose: Purpose::Eating,
+    },
+    Template {
+        id: "room.study",
+        name: "Study",
+        size: (4, 5),
+        pieces: &[
+            ("desk", 0, 0, 0),
+            ("clock", 3, 0, 0),
+            ("cushion", 1, 1, 0),
+            ("shelf", 0, 2, 1),
+        ],
+        purpose: Purpose::Writing,
     },
 ];
 
@@ -1521,6 +1690,31 @@ mod tests {
         }
         assert_eq!(rooms_allowed(0), 1);
         assert_eq!(rooms_allowed(40), formiga_home_contract::limits::MAX_ROOMS);
+    }
+
+    #[test]
+    fn a_kitchen_and_a_study_come_furnished_as_soon_as_a_room_can_be_built() {
+        let now = Arrived {
+            days: ROOMS_COME[0],
+            things: 0,
+            made: &[],
+        };
+        for id in ["room.kitchen", "room.study"] {
+            let template = template(&CatalogId::known(id)).unwrap();
+            for (piece, ..) in template.pieces {
+                let piece = PIECES.iter().find(|p| p.id == *piece).unwrap();
+                assert!(piece.available(&now), "{id}: {}", piece.id);
+            }
+        }
+        let purposes: BTreeSet<_> = ROOMS
+            .iter()
+            .map(|template| format!("{:?}", template.purpose))
+            .collect();
+        assert_eq!(
+            purposes.len(),
+            ROOMS.len(),
+            "every kind of room is for something"
+        );
     }
 
     #[test]
