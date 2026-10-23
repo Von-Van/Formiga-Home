@@ -46,6 +46,12 @@ impl HomeApp {
         if ctx.egui_wants_keyboard_input() {
             return;
         }
+        // While the welcome card is up, only Escape does anything: it puts the card away, as
+        // looking around with the sample does.
+        if self.welcome {
+            self.welcome = !escape;
+            return;
+        }
         self.house_keys(ctx);
         if live {
             self.set_mode(Mode::Live);

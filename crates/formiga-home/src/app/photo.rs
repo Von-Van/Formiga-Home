@@ -14,6 +14,10 @@ impl HomeApp {
             Some("furniture") => Some(Drawer::Furniture),
             Some("rooms") => Some(Drawer::Room),
             Some("designs") => Some(Drawer::Designs),
+            Some("welcome") => {
+                self.welcome = true;
+                None
+            }
             Some("journal") => {
                 self.live_page = Drawer::Journal;
                 None
