@@ -116,15 +116,30 @@ impl Harness {
     }
 
     fn key(&mut self, key: Key) {
+        self.key_with(key, Modifiers::NONE);
+    }
+
+    fn key_with(&mut self, key: Key, modifiers: Modifiers) {
         let event = |pressed| Event::Key {
             key,
             physical_key: None,
             pressed,
             repeat: false,
-            modifiers: Modifiers::NONE,
+            modifiers,
         };
-        self.step(vec![event(true)]);
-        self.step(vec![event(false)]);
+        self.step(vec![Event::ModifiersChanged(modifiers), event(true)]);
+        self.step(vec![event(false), Event::ModifiersChanged(Modifiers::NONE)]);
+    }
+
+    /// Step the arrow keys along the house until they come to `target`.
+    fn arrow_to(&mut self, target: &Target) {
+        for _ in 0..80 {
+            if self.app.focus.as_ref() == Some(target) {
+                return;
+            }
+            self.key(Key::ArrowRight);
+        }
+        panic!("the arrows never came to {target:?}");
     }
 
     /// Where a piece of text was drawn last frame: a button, a tab, a name in the drawer.
@@ -1293,5 +1308,199 @@ fn the_rooms_page_says_how_long_until_another_room() {
             .text("Another room can be built after 11 more days lived.")
             .is_some()
     );
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn the_arrows_and_enter_ask_for_something_without_the_mouse() {
+    let data = scratch("arrows-live");
+    let mut window = Harness::open(&data);
+    let keeper = window.keeper();
+    window.app.selected = Some(keeper);
+    let chair = window.piece("armchair");
+    window.arrow_to(&Target::Piece(chair));
+    window.wait(0.1);
+    assert_eq!(
+        window.app.hovered,
+        Some(Target::Piece(chair)),
+        "lit as if pointed at"
+    );
+    window.key(Key::Enter);
+    let entries = window
+        .app
+        .menu
+        .as_ref()
+        .expect("a menu opens")
+        .entries
+        .len();
+    assert!(entries > 0);
+    window.key(Key::ArrowDown);
+    assert_eq!(window.app.menu.as_ref().unwrap().highlight, Some(0));
+    window.key(Key::Enter);
+    assert!(window.app.menu.is_none());
+    assert_eq!(window.app.life.queue(keeper).len(), 1);
+    // The arrows come to whoever is home too, and Enter chooses them.
+    window.app.selected = None;
+    window.app.focus = None;
+    window.key(Key::ArrowRight);
+    let first = window.app.focus.clone();
+    assert!(matches!(first, Some(Target::Resident(_))), "{first:?}");
+    window.key(Key::Enter);
+    assert_eq!(
+        window.app.selected,
+        first.and_then(|target| match target {
+            Target::Resident(id) => Some(id),
+            _ => None,
+        })
+    );
+    window.key(Key::Escape);
+    assert!(window.app.focus.is_none());
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn a_piece_is_picked_up_carried_and_put_down_by_the_keys() {
+    let data = scratch("arrows-arrange");
+    let mut window = Harness::open(&data);
+    window.arrange();
+    let cushion = window.piece("armchair");
+    window.arrow_to(&Target::Piece(cushion));
+    window.key(Key::Enter);
+    assert!(matches!(
+        window.app.arranging.carrying,
+        Some(Carry::Piece { name, .. }) if name == cushion
+    ));
+    let at = |window: &Harness| {
+        let placed = window.app.house.piece(cushion).unwrap();
+        (placed.x, placed.y)
+    };
+    let before = at(&window);
+    let mut moved = false;
+    for key in [
+        Key::ArrowRight,
+        Key::ArrowDown,
+        Key::ArrowLeft,
+        Key::ArrowUp,
+    ] {
+        window.key(key);
+        window.wait(0.1);
+        window.key(Key::Enter);
+        window.wait(0.1);
+        if at(&window) != before {
+            moved = true;
+            break;
+        }
+        if window.app.arranging.carrying.is_none() {
+            window.arrow_to(&Target::Piece(cushion));
+            window.key(Key::Enter);
+        }
+    }
+    assert!(moved, "the cushion never moved");
+    assert!(
+        window.app.arranging.carrying.is_none(),
+        "and it was put down"
+    );
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn a_long_piece_picked_up_by_the_keys_and_put_straight_down_stays_where_it_stood() {
+    let data = scratch("arrows-long");
+    let mut window = Harness::open(&data);
+    window.arrange();
+    // The longest piece in the house, more than two tiles, which is held by its middle.
+    let rug = window
+        .app
+        .house
+        .pieces
+        .iter()
+        .map(|placed| (placement::footprint(placed), placed.uid))
+        .filter(|(footprint, _)| footprint.w * footprint.d > 2)
+        .max_by_key(|(footprint, _)| footprint.w.max(footprint.d))
+        .map(|(_, uid)| uid)
+        .expect("a piece larger than two tiles in the house");
+    let at = |window: &Harness| {
+        let placed = window.app.house.piece(rug).unwrap();
+        (placed.x, placed.y)
+    };
+    let before = at(&window);
+    window.arrow_to(&Target::Piece(rug));
+    window.key(Key::Enter);
+    assert!(window.app.arranging.carrying.is_some());
+    window.wait(0.1);
+    window.key(Key::Enter);
+    window.wait(0.1);
+    assert!(window.app.arranging.carrying.is_none(), "it was put down");
+    assert_eq!(at(&window), before, "where it stood");
+    // An arrow carries it a tile, along its length too.
+    window.arrow_to(&Target::Piece(rug));
+    window.key(Key::Enter);
+    window.key(Key::ArrowRight);
+    window.wait(0.1);
+    window.key(Key::Enter);
+    window.wait(0.1);
+    if window.app.arranging.carrying.is_none() {
+        assert_eq!(at(&window), (before.0 + 1, before.1));
+    }
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn the_arrows_pass_over_a_find_someone_is_wearing() {
+    let data = scratch("arrows-worn");
+    let mut window = Harness::open(&data);
+    let keeper = window.keeper();
+    // A find small enough to pin on, set on the shelf from the drawer.
+    let key = window
+        .app
+        .household
+        .snapshot
+        .inventory
+        .iter()
+        .find(|item| {
+            matches!(
+                item.source,
+                formiga_home_contract::DisplaySource::DesktopFind { .. }
+            ) && item.ink.is_some()
+                && item.modes.first() != Some(&formiga_home_contract::DisplayMode::Floor)
+        })
+        .map(|item| item.id.clone())
+        .expect("the sample has a find small enough to wear");
+    window.arrange();
+    window.click_id(egui::Id::new(("find", key.as_str())));
+    let shelf = window.piece("shelf");
+    let at = window.find(&Target::Piece(shelf));
+    window.click(at);
+    window.click_id(notebook::mode_id(Mode::Live));
+    assert_eq!(window.app.state.shown_by(&key), Some(window.app.keeper));
+    assert!(window.app.targets().contains(&Target::Shown(key.clone())));
+    let now = window.app.now();
+    window.app.life.ask(keeper, Act::TryOn(key.clone()), now);
+    for _ in 0..80 {
+        if window.app.life.worn().contains(&key) {
+            break;
+        }
+        window.wait(0.25);
+    }
+    assert!(
+        window.app.life.worn().contains(&key),
+        "the key was never put on"
+    );
+    assert!(!window.app.targets().contains(&Target::Shown(key)));
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn shift_and_the_arrows_move_about_a_house_seen_close() {
+    let data = scratch("arrows-pan");
+    let mut window = Harness::open(&data);
+    window.key(Key::Plus);
+    window.key(Key::Plus);
+    window.wait(0.1);
+    let before = window.app.room_rect.unwrap();
+    window.key_with(Key::ArrowRight, Modifiers::SHIFT);
+    window.wait(0.1);
+    let after = window.app.room_rect.unwrap();
+    assert!(after.min.x < before.min.x, "{before:?} to {after:?}");
     let _ = std::fs::remove_dir_all(&data);
 }

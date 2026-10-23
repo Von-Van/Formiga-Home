@@ -213,7 +213,12 @@ layout back to Desktop.
 The notebook answers to its keys as well as the mouse: L and A for living in the house and
 arranging it, [ and ] to turn the notes' pages, N (and Shift+N) to choose the next one in the
 house, P for a picture, + − and 0 to come closer and fit again, H for the help note, and Escape to
-put down or close whatever is open.
+put down or close whatever is open. The house itself can be used without the mouse too: the
+arrow keys step through who and what is in it, and Enter opens it as a click would, with the menu
+that opens answering to the arrows and Enter as well. Arranging, Enter picks up the piece or the
+thing the arrows have come to, the arrows carry it a tile at a time, R turns it, and Enter puts it
+down. Shift and the arrows move about a house seen close. Tab still steps through the notes'
+own buttons, and Escape or a click in the house gives the keys back to it.
 
 Closing the window with its stud ends the visit. The window remembers its size and position, and
 Desktop's reduced motion, theme and text size carry over, so the notebook is cream by daylight and

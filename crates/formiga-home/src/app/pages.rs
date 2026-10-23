@@ -400,9 +400,10 @@ impl HomeApp {
                      and right-click for a pat. Up to three things can be asked at once.\n\n\
                      {cells}The project board, the next page, is what the household can make of \
                      its home.\n\n\
-                     A pinch or + and \u{2212} come closer, and a drag across the floor moves \
-                     about. N chooses the next one, [ and ] turn the pages, A arranges, P saves a \
-                     picture, and H puts this note away."
+                     The arrows step through who and what is in the house, and Enter opens it. \
+                     A pinch or + and \u{2212} come closer, and a drag across the floor or Shift \
+                     and the arrows move about. N chooses the next one, [ and ] turn the pages, A \
+                     arranges, P saves a picture, and H puts this note away."
                 )
             }
             Mode::Arrange => {
@@ -410,6 +411,8 @@ impl HomeApp {
                     "Drag or click something on these pages to pick it up, and click to put it \
                      down. A doorway slides along its wall. R or a right-click turns a piece, \
                      Delete puts it away, and {undo} undoes.\n\n\
+                     The arrows come to a piece or a thing, Enter picks it up, the arrows carry \
+                     it a tile at a time, and Enter puts it down.\n\n\
                      A keepsake can be let go from its right-click menu. Designs keeps the \
                      house, or a room of it, to try again or share.\n\n\
                      [ and ] turn the pages, L goes back to living in the house, and H puts this \
