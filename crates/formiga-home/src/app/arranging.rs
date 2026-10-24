@@ -141,12 +141,12 @@ impl HomeApp {
         let Some((landing, showing)) = self.landing(point) else {
             return (None, None);
         };
-        let house = self.house.clone();
+        let house = &self.house;
         if let Landing::Wall { room, door } = landing {
             let wall = house.wall(room, door.side, door.at).copied();
             return (None, wall.map(|wall| (wall, showing.is_some())));
         }
-        if let Some((piece, turn, _)) = self.arranging.carried_piece(&house) {
+        if let Some((piece, turn, _)) = self.arranging.carried_piece(house) {
             let Landing::Floor { room, x, y } = landing else {
                 return (None, None);
             };
@@ -169,7 +169,7 @@ impl HomeApp {
         let Some(Carry::Thing(id)) = &self.arranging.carrying else {
             return (None, None);
         };
-        let Some(item) = self.household.snapshot.item(id).cloned() else {
+        let Some(item) = self.household.snapshot.item(id) else {
             return (None, None);
         };
         let Landing::Spot { room, spot } = landing else {
@@ -181,11 +181,11 @@ impl HomeApp {
         let place = house.place_of(at).unwrap_or(Place::Top);
         let anchor = self
             .scene
-            .spot_anchor(&house, at)
+            .spot_anchor(house, at)
             .unwrap_or((point.0 as i32, point.1 as i32));
         let sprite = self
             .scene
-            .thing_at(&item, at, place, showing.unwrap_or(Showing::Card))
+            .thing_at(item, at, place, showing.unwrap_or(Showing::Card))
             .clone();
         let footprint = match at {
             At::Floor { x, y } => Some(placement::Footprint { x, y, w: 1, d: 1 }),

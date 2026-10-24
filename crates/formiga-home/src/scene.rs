@@ -23,6 +23,7 @@ use crate::placement::{self, Footprint, Place, Showing};
 use formiga_art::{Canvas, Rgba};
 use formiga_home_contract::{DisplayId, DisplayItem, HomeSnapshot, WallSide};
 use std::collections::HashMap;
+use std::rc::Rc;
 
 /// How high on a wall something hangs, in pixels above the floor.
 pub const HANG_HEIGHT: i32 = 32;
@@ -39,7 +40,7 @@ pub enum Target {
 
 /// A piece or a thing being carried in Arrange Mode, shown where it would go.
 pub struct Ghost {
-    pub sprite: Sprite,
+    pub sprite: Rc<Sprite>,
     /// Where its anchor would land.
     pub at: (i32, i32),
     pub fits: bool,
@@ -198,7 +199,7 @@ pub struct Scene {
     /// the view, and the lamps that are on.
     lamplight: Option<(LampKey, Vec<f32>)>,
     pieces: PieceCache,
-    things: HashMap<(DisplayId, PlaceKey, Showing, Option<WallSide>), Sprite>,
+    things: HashMap<(DisplayId, PlaceKey, Showing, Option<WallSide>), Rc<Sprite>>,
     /// The household's keepsakes' pictures, by id: whoever is in each, in their own colours.
     pictures: HashMap<DisplayId, Canvas>,
 }
@@ -255,7 +256,7 @@ impl Scene {
     }
 
     /// A thing's picture as it is shown in a place of this kind.
-    pub fn thing(&mut self, item: &DisplayItem, place: Place, showing: Showing) -> &Sprite {
+    pub fn thing(&mut self, item: &DisplayItem, place: Place, showing: Showing) -> &Rc<Sprite> {
         self.drawn(item, place, showing, None)
     }
 
@@ -266,7 +267,7 @@ impl Scene {
         at: At,
         place: Place,
         showing: Showing,
-    ) -> &Sprite {
+    ) -> &Rc<Sprite> {
         let side = match at {
             At::Wall { side, .. } => Some(side),
             At::On { .. } | At::Floor { .. } => None,
@@ -280,7 +281,7 @@ impl Scene {
         place: Place,
         showing: Showing,
         side: Option<WallSide>,
-    ) -> &Sprite {
+    ) -> &Rc<Sprite> {
         let key = (item.id.clone(), place.into(), showing, side);
         if !self.things.contains_key(&key) {
             let flat = displays::dress(self.icon(item), item, place, showing);
@@ -288,12 +289,12 @@ impl Scene {
                 Some(side) => flat.along_wall(side),
                 None => flat,
             };
-            self.things.insert(key.clone(), sprite);
+            self.things.insert(key.clone(), Rc::new(sprite));
         }
         &self.things[&key]
     }
 
-    pub fn piece_sprite(&mut self, piece: &'static catalog::Piece, turn: u8) -> &Sprite {
+    pub fn piece_sprite(&mut self, piece: &'static catalog::Piece, turn: u8) -> &Rc<Sprite> {
         self.pieces.get(piece, turn)
     }
 
@@ -306,23 +307,37 @@ impl Scene {
         backdrop: bool,
         season: Season,
     ) {
-        let mut hung: Vec<_> = house
+        let mut hung: Vec<(&DisplayId, At)> = house
             .shown
             .iter()
             .filter(|shown| matches!(shown.at, At::Wall { .. }))
-            .map(|shown| (shown.item.clone(), shown.at))
+            .map(|shown| (&shown.item, shown.at))
             .collect();
         hung.sort_by_key(|shown| shown.1);
-        let key = (
+        let same = self.shell_key.as_ref().is_some_and(|key| {
+            key.0 == house.rooms
+                && key.1 == house.walls
+                && key.2.len() == hung.len()
+                && key
+                    .2
+                    .iter()
+                    .zip(&hung)
+                    .all(|(was, now)| &was.0 == now.0 && was.1 == now.1)
+                && key.3 == backdrop
+                && key.4 == season
+        });
+        if same {
+            return;
+        }
+        let key: ShellKey = (
             house.rooms.clone(),
             house.walls.clone(),
-            hung,
+            hung.iter()
+                .map(|(item, at)| ((*item).clone(), *at))
+                .collect(),
             backdrop,
             season,
         );
-        if self.shell_key.as_ref() == Some(&key) {
-            return;
-        }
         self.view = View::of(house);
         let mut canvas = shell::draw(&self.view, house, backdrop, season);
         for (item, hung) in &key.2 {
@@ -344,8 +359,7 @@ impl Scene {
             let at_screen = self.view.on_wall(wall, HANG_HEIGHT);
             let sprite = self.thing_at(item, *hung, Place::Wall, showing);
             let (ox, oy) = sprite.origin(at_screen);
-            let picture = sprite.canvas.clone();
-            paint::blit(&mut canvas, &picture, ox, oy);
+            paint::blit(&mut canvas, &sprite.canvas, ox, oy);
         }
         self.shell = canvas;
         self.shell_key = Some(key);
@@ -549,10 +563,9 @@ impl Scene {
                     let at = floor_anchor(&view, x, y);
                     let sprite = self.thing(item, Place::Floor, Showing::Itself);
                     let (ox, oy) = sprite.origin(at);
-                    let picture = sprite.canvas.clone();
-                    paint::blit(&mut canvas, &picture, ox, oy);
+                    paint::blit(&mut canvas, &sprite.canvas, ox, oy);
                     let room = house.room_at(i32::from(x), i32::from(y)).unwrap_or(0);
-                    behind.mark_picture(&picture, ox, oy, THING + room);
+                    behind.mark_picture(&sprite.canvas, ox, oy, THING + room);
                 }
                 Drawn::Resident(index) => {
                     let actor = &mut actors[index];
@@ -659,7 +672,7 @@ impl Scene {
             mark if mark >= THING && stands && mark - THING != room => 110,
             _ => 255,
         };
-        let sprite = self.pieces.get(kind, placed.turn).clone();
+        let sprite = Rc::clone(self.pieces.get(kind, placed.turn));
         let (ox, oy) = sprite.origin(at);
         let mut sitters: Vec<usize> = actors
             .iter()
@@ -699,7 +712,6 @@ impl Scene {
             let point = surface_anchor(&view, surface);
             let thing = self.thing(item, place, showing);
             let (ix, iy) = thing.origin(point);
-            let picture = thing.canvas.clone();
             // Anything taller than its shelf's room, shown there before shelves were measured,
             // is trimmed at what is over it rather than drawn through it.
             let top = surface
@@ -707,7 +719,7 @@ impl Scene {
                 .map_or(i32::MIN, |clearance| point.1 - clearance);
             paint::blit_through(
                 canvas,
-                &picture,
+                &thing.canvas,
                 ix,
                 iy,
                 |_, y| if y < top { 0 } else { 255 },
@@ -755,11 +767,10 @@ impl Scene {
                 if let Some(actor) = actors.iter_mut().find(|actor| actor.id == *id) {
                     let (l, t, r, b) = actor.bounds(&view, now);
                     let mut frame = Canvas::new((r - l + 1) as u32, (b - t + 1) as u32);
-                    let snap = canvas.clone();
                     for y in 0..frame.height() as i32 {
                         for x in 0..frame.width() as i32 {
                             if actor.covers(&view, now, (l + x, t + y)) {
-                                frame.set(x, y, snap.get(l + x, t + y));
+                                frame.set(x, y, canvas.get(l + x, t + y));
                             }
                         }
                     }
@@ -773,8 +784,7 @@ impl Scene {
                     let sprite = self.pieces.get(kind, placed.turn);
                     let at = view.pixel(f32::from(placed.x), f32::from(placed.y));
                     let (ox, oy) = sprite.origin(at);
-                    let picture = sprite.canvas.clone();
-                    paint::ring(canvas, &picture, ox, oy, color);
+                    paint::ring(canvas, &sprite.canvas, ox, oy, color);
                 }
             }
             Target::Shown(item) => {
@@ -816,13 +826,16 @@ impl Scene {
         house: &House,
         snapshot: &HomeSnapshot,
         item: &DisplayId,
-    ) -> Option<(Sprite, (i32, i32))> {
+    ) -> Option<(Rc<Sprite>, (i32, i32))> {
         let shown = house.shown.iter().find(|shown| &shown.item == item)?;
         let thing = snapshot.item(item)?;
         let place = house.place_of(shown.at)?;
         let showing = placement::showing(thing, place)?;
         let at = self.spot_anchor(house, shown.at)?;
-        Some((self.thing_at(thing, shown.at, place, showing).clone(), at))
+        Some((
+            Rc::clone(self.thing_at(thing, shown.at, place, showing)),
+            at,
+        ))
     }
 
     /// What is under a point of the scene: a resident first, then what is shown, then furniture,

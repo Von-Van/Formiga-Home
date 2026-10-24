@@ -469,8 +469,7 @@ impl Actor {
     pub fn draw(&mut self, canvas: &mut Canvas, view: &View, now: f32, opacity: u8) {
         let key = self.key(now);
         let (x, y) = self.origin(view);
-        let frame = self.frame(key);
-        paint::blit_faded(canvas, &frame.clone(), x, y, opacity);
+        paint::blit_faded(canvas, self.frame(key), x, y, opacity);
     }
 
     /// The cue over its head, if its pose has one.
