@@ -603,4 +603,102 @@ mod tests {
         assert!(!dir.join(RESULT_FILE).exists() && !dir.join(RECEIPT_FILE).exists());
         let _ = std::fs::remove_dir_all(dir.parent().unwrap());
     }
+
+    /// The homes a Desktop of household version 3 kept for the sample colony, as the contract's
+    /// golden fixture for that version has them: the neighbour has hung a find and a souvenir on
+    /// its walls. Frozen here so that a Home that stops reading it is caught by its own tests.
+    const STATE_V3: &str = r#"{
+  "format": "formiga.home.state",
+  "version": 3,
+  "min_reader_version": 1,
+  "colony_key": "da079ed6830d00f6",
+  "households": [
+    {
+      "keeper": "a5cdeae193601ce1",
+      "rooms": [
+        {
+          "width": 6,
+          "depth": 6,
+          "floor": "floor.checks",
+          "wall": "wall.stripes",
+          "pieces": [],
+          "displays": [
+            { "item": "find.26", "spot": { "kind": "wall", "side": "west", "at": 1 } },
+            {
+              "item": "souvenir.picnic_ribbon",
+              "spot": { "kind": "wall", "side": "north", "at": 2 }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+"#;
+
+    /// The same homes as a Desktop of household version 8 kept them, when it first kept who
+    /// stays out of the house.
+    const STATE_V8: &str = r#"{
+  "format": "formiga.home.state",
+  "version": 8,
+  "min_reader_version": 1,
+  "colony_key": "da079ed6830d00f6",
+  "households": [
+    {
+      "keeper": "a5cdeae193601ce1",
+      "rooms": [
+        {
+          "width": 6,
+          "depth": 6,
+          "floor": "floor.checks",
+          "wall": "wall.stripes",
+          "pieces": [],
+          "displays": [
+            { "item": "find.26", "spot": { "kind": "wall", "side": "west", "at": 1 } },
+            {
+              "item": "souvenir.picnic_ribbon",
+              "spot": { "kind": "wall", "side": "north", "at": 2 }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+"#;
+
+    #[test]
+    fn the_homes_an_older_desktop_kept_still_open_the_house_and_are_answered() {
+        let snapshot = sample::snapshot();
+        for (version, kept) in [(3, STATE_V3), (8, STATE_V8)] {
+            let dir = visit_dir(&format!("older-v{version}"), &snapshot, &sample::state());
+            std::fs::write(dir.join(STATE_FILE), kept).unwrap();
+            let (visit, _household) =
+                arrive(&dir, false).unwrap_or_else(|error| panic!("version {version}: {error}"));
+            assert!(ack(&dir).accepted, "version {version}");
+            // Kept as Desktop sent them, not set aside for a fresh state: the neighbour's home
+            // with both its hangings.
+            let sent: HomeState = decode(kept.as_bytes()).unwrap();
+            assert_eq!(sent.version, version);
+            assert_eq!(visit.state.households.len(), 1, "version {version}");
+            let home = &visit.state.households[0];
+            assert!(
+                snapshot.neighbour(home.keeper).is_some(),
+                "version {version}"
+            );
+            assert_eq!(home.rooms[0].displays.len(), 2, "version {version}");
+            // And what Home hands back answers a Desktop that still holds that state.
+            visit.keep(&visit.state).unwrap();
+            let seal = SessionSeal::of(&snapshot, &encode(&snapshot).unwrap(), kept.as_bytes());
+            let (result, _) = read_document::<HomeResult>(&dir.join(RESULT_FILE)).unwrap();
+            let accepted = accept_result(&seal, &snapshot, &sent, &result);
+            assert!(
+                accepted.set_aside.is_empty(),
+                "version {version}: {:?}",
+                accepted.set_aside
+            );
+            assert_eq!(accepted.state.households, visit.state.households);
+            let _ = std::fs::remove_dir_all(dir.parent().unwrap());
+        }
+    }
 }
