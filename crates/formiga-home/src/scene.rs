@@ -657,7 +657,7 @@ impl Scene {
             .room_at(i32::from(placed.x), i32::from(placed.y))
             .unwrap_or(0);
         let Some(kind) = catalog::piece(&placed.piece) else {
-            let sprite = crate::art::furniture::draw(&UNKNOWN, false);
+            let sprite = self.pieces.get(&UNKNOWN, 0);
             let (ox, oy) = sprite.origin(at);
             paint::blit(canvas, &sprite.canvas, ox, oy);
             behind.mark_picture(&sprite.canvas, ox, oy, THING + room);
