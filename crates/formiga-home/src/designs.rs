@@ -237,6 +237,38 @@ pub struct Kept {
     file: Option<PathBuf>,
 }
 
+/// When a design file in the gallery was kept, for putting them in order: the second and the
+/// number its name gives, for a file the gallery named; otherwise when the file was last written.
+/// Its name settles a tie.
+type KeptAt = (i64, u64, String);
+
+fn kept_at(path: &Path) -> KeptAt {
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let (at, n) = stamp_of(path).unwrap_or_else(|| {
+        let written = std::fs::metadata(path)
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |since| since.as_secs() as i64);
+        (written, 0)
+    });
+    (at, n, name)
+}
+
+/// The second and number in a design file's name, as the gallery names them:
+/// `saved-<second>-<number>.json`, or `opened-` for one opened from a file.
+fn stamp_of(path: &Path) -> Option<(i64, u64)> {
+    let stem = path.file_stem()?.to_str()?;
+    let rest = stem
+        .strip_prefix("saved-")
+        .or_else(|| stem.strip_prefix("opened-"))?;
+    let (at, n) = rest.split_once('-')?;
+    Some((at.parse().ok()?, n.parse().ok()?))
+}
+
 /// Every design kept, in the order they were kept.
 pub struct Gallery {
     folder: Option<PathBuf>,
@@ -244,8 +276,10 @@ pub struct Gallery {
 }
 
 impl Gallery {
-    /// The gallery in Home's data folder `data`, or one kept only while the window is open. A
-    /// file in it that does not read is left where it is, and passed over.
+    /// The gallery in Home's data folder `data`, or one kept only while the window is open, in
+    /// the order its designs were kept. A file in it that does not read is left where it is, and
+    /// passed over; so are any more than the gallery keeps, the oldest of them, which only a
+    /// folder filled by hand can have.
     pub fn open(data: Option<&Path>) -> Self {
         let folder = data.map(|data| data.join("designs"));
         let mut kept = Vec::new();
@@ -253,12 +287,19 @@ impl Gallery {
             .as_deref()
             .and_then(|dir| std::fs::read_dir(dir).ok())
         {
-            let mut files: Vec<PathBuf> = entries
+            let mut files: Vec<(KeptAt, PathBuf)> = entries
                 .filter_map(|entry| entry.ok().map(|entry| entry.path()))
                 .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+                .map(|path| (kept_at(&path), path))
                 .collect();
             files.sort();
-            for path in files.into_iter().take(MAX_DESIGNS * 2) {
+            // Newest first, until the gallery is full; then back into the order they were kept.
+            let mut left_over = 0;
+            for (_, path) in files.into_iter().rev() {
+                if kept.len() == MAX_DESIGNS {
+                    left_over += 1;
+                    continue;
+                }
                 match read(&path) {
                     Ok(design) => kept.push(Kept {
                         design,
@@ -272,8 +313,14 @@ impl Gallery {
                     }
                 }
             }
+            if left_over > 0 {
+                eprintln!(
+                    "formiga-home: the gallery keeps its newest {MAX_DESIGNS} designs; passing over \
+                     {left_over} older files"
+                );
+            }
+            kept.reverse();
         }
-        kept.truncate(MAX_DESIGNS);
         Self { folder, kept }
     }
 
@@ -294,7 +341,17 @@ impl Gallery {
                 std::fs::create_dir_all(folder).map_err(|error| DesignError(error.to_string()))?;
                 let stamp = OffsetDateTime::now_utc().unix_timestamp();
                 let prefix = if opened { "opened" } else { "saved" };
-                let path = (0..)
+                // Numbered after any kept the same second, saved or opened, so the names keep
+                // the order they were kept in.
+                let after = self
+                    .kept
+                    .iter()
+                    .filter_map(|kept| kept.file.as_deref().and_then(stamp_of))
+                    .filter(|&(at, _)| at == stamp)
+                    .map(|(_, n)| n + 1)
+                    .max()
+                    .unwrap_or(0);
+                let path = (after..)
                     .map(|n| folder.join(format!("{prefix}-{stamp}-{n}.json")))
                     .find(|path| !path.exists())
                     .expect("one of the names is free");
