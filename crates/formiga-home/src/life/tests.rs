@@ -1,3 +1,4 @@
+use super::whims::suit_rooms;
 use super::*;
 use crate::show_house;
 use crate::starter;

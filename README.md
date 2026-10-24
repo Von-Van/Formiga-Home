@@ -323,7 +323,10 @@ crates/formiga-home/src/
   household.rs     the residents, ready to draw, and how they get on
   character.rs     who each resident is, turned into what it feels like doing
   life.rs, life/   the household's life: what each resident does, asked or not, favourites, and
-                   visitors coming and going; and its tests
+                   visitors coming and going; and its tests. life/act.rs is what an act is and
+                   means, life/whims.rs what a resident chooses for itself, life/poses.rs the
+                   pose each act is done in, life/choices.rs the owner's menu and where things
+                   are done from, and life/visitors.rs the friends who drop by
   keepsakes.rs     gifts, drawings and framed photos the household comes by at home
   journal.rs       how the Journal page words what has happened
   projects.rs      household projects: what each stage asks for and gives, and what a household

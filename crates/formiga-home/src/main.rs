@@ -128,6 +128,47 @@ impl Args {
     }
 }
 
+/// What the packaging scripts ask of Home: the newest Home version this build reads, which goes
+/// in the macOS bundle and the Windows registry for Desktop to find; or Home's icon, for the
+/// bundle and the installer. Either comes first on the command line and nothing else is read, so
+/// no visit or review option is ever mistaken for one.
+enum Packaging {
+    Version,
+    Icon(PathBuf),
+}
+
+/// The packaging request `args`, the program's own name left off, begin with, if they begin with
+/// one.
+fn packaging_request(
+    mut args: impl Iterator<Item = std::ffi::OsString>,
+) -> Result<Option<Packaging>> {
+    match args.next() {
+        Some(first) if first == "--home-version" => Ok(Some(Packaging::Version)),
+        Some(first) if first == "--icon" => Ok(Some(Packaging::Icon(
+            args.next()
+                .map(PathBuf::from)
+                .context("--icon needs a folder to write the icon into")?,
+        ))),
+        _ => Ok(None),
+    }
+}
+
+impl Packaging {
+    /// Carry it out, and say what was done: the line Home prints before it exits.
+    fn carry_out(&self) -> Result<String> {
+        match self {
+            Self::Version => Ok(formiga_home_contract::HOME_FORMAT_VERSION.to_string()),
+            Self::Icon(folder) => {
+                std::fs::create_dir_all(folder)?;
+                std::fs::write(folder.join("FormigaHome.icns"), icon::icns())?;
+                std::fs::write(folder.join("FormigaHome.ico"), icon::ico())?;
+                std::fs::write(folder.join("FormigaHome.png"), icon::png(&icon::at(1024)))?;
+                Ok(format!("Wrote Home's icon to {}", folder.display()))
+            }
+        }
+    }
+}
+
 fn parse_args(args: impl Iterator<Item = std::ffi::OsString>) -> Result<Option<Args>> {
     let mut args = args.peekable();
     let mut parsed = Args {
@@ -254,29 +295,9 @@ fn parse_args(args: impl Iterator<Item = std::ffi::OsString>) -> Result<Option<A
 fn main() -> Result<()> {
     // Before anything else starts a thread, while the clock's offset can be read soundly.
     journal::read_local_offset();
-    // For the packaging scripts: the newest Home version this build reads, which goes in the
-    // macOS bundle and the Windows registry for Desktop to find.
-    if std::env::args_os()
-        .nth(1)
-        .is_some_and(|arg| arg == "--home-version")
-    {
-        println!("{}", formiga_home_contract::HOME_FORMAT_VERSION);
-        return Ok(());
-    }
-    // For the packaging scripts too: Home's icon, for the bundle and the installer.
-    if std::env::args_os()
-        .nth(1)
-        .is_some_and(|arg| arg == "--icon")
-    {
-        let folder = std::env::args_os()
-            .nth(2)
-            .map(PathBuf::from)
-            .context("--icon needs a folder to write the icon into")?;
-        std::fs::create_dir_all(&folder)?;
-        std::fs::write(folder.join("FormigaHome.icns"), icon::icns())?;
-        std::fs::write(folder.join("FormigaHome.ico"), icon::ico())?;
-        std::fs::write(folder.join("FormigaHome.png"), icon::png(&icon::at(1024)))?;
-        println!("Wrote Home's icon to {}", folder.display());
+    // For the packaging scripts, before anything else is read.
+    if let Some(request) = packaging_request(std::env::args_os().skip(1))? {
+        println!("{}", request.carry_out()?);
         return Ok(());
     }
     let Some(args) = parse_args(std::env::args_os().skip(1))? else {
@@ -498,11 +519,151 @@ pub(crate) fn write_png(path: &Path, canvas: &Canvas, scale: u32) -> Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use formiga_home_contract::sample;
+    use std::ffi::OsString;
 
     fn parse(args: &[&str]) -> Args {
-        parse_args(args.iter().map(std::ffi::OsString::from))
+        try_parse(args).unwrap().unwrap()
+    }
+
+    fn try_parse(args: &[&str]) -> Result<Option<Args>> {
+        parse_args(args.iter().map(OsString::from))
+    }
+
+    /// A scratch folder of this test's own.
+    fn scratch(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("formiga-home-main-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn desktop_opens_a_visit_by_its_directory_and_every_review_flag_parses() {
+        let visit = parse(&[formiga_home_contract::LAUNCH_ARGUMENT, "/visits/0e0e"]);
+        assert!(matches!(&visit.source, Source::Visit(dir) if dir == Path::new("/visits/0e0e")));
+        assert_eq!(visit.house, 0, "a visit is one house, which Desktop chose");
+        let review = parse(&[
+            "--from-save",
+            "colony.json",
+            "--house",
+            "1",
+            "--rooms",
+            "3",
+            "--at",
+            "45",
+            "--page",
+            "journal",
+            "--theme",
+            "dark",
+        ]);
+        assert!(matches!(&review.source, Source::Save(file) if file == Path::new("colony.json")));
+        assert_eq!((review.house, review.rooms, review.at), (1, 3, Some(45.0)));
+        assert_eq!(review.page.as_deref(), Some("journal"));
+        assert_eq!(review.theme.as_deref(), Some("dark"));
+    }
+
+    #[test]
+    fn an_argument_home_does_not_know_is_refused_with_the_usage() {
+        let refused = try_parse(&["--nonsense"])
+            .err()
+            .expect("an argument Home does not know is refused")
+            .to_string();
+        assert!(
+            refused.contains("unexpected argument --nonsense"),
+            "{refused}"
+        );
+        assert!(refused.contains(USAGE), "the usage follows the refusal");
+        assert!(try_parse(&["--house"]).is_err(), "a flag without its value");
+        assert!(
+            try_parse(&["--house", "two"]).is_err(),
+            "a house that is not a number"
+        );
+        assert!(
+            try_parse(&["--help"]).unwrap().is_none(),
+            "help prints the usage and stops"
+        );
+    }
+
+    #[test]
+    fn the_packaging_scripts_are_answered_only_when_their_flag_comes_first() {
+        let request = |args: &[&str]| packaging_request(args.iter().map(OsString::from));
+        let version = request(&["--home-version"])
             .unwrap()
+            .expect("asked for first");
+        assert!(matches!(version, Packaging::Version));
+        assert_eq!(
+            version.carry_out().unwrap(),
+            formiga_home_contract::HOME_FORMAT_VERSION.to_string(),
+            "what the bundle and the registry are given"
+        );
+        assert!(request(&[]).unwrap().is_none());
+        assert!(
+            request(&["--sample", "--home-version"]).unwrap().is_none(),
+            "anywhere else it is an argument like any other"
+        );
+        assert!(
+            try_parse(&["--home-version"]).is_err(),
+            "and one Home does not know"
+        );
+        assert!(request(&["--icon"]).is_err(), "the icon needs a folder");
+        let folder = scratch("icon").join("icons");
+        let icon = request(&["--icon", folder.to_str().unwrap()])
             .unwrap()
+            .expect("asked for first");
+        let said = icon.carry_out().unwrap();
+        assert!(said.ends_with(&folder.display().to_string()), "{said}");
+        for name in ["FormigaHome.icns", "FormigaHome.ico", "FormigaHome.png"] {
+            assert!(
+                std::fs::metadata(folder.join(name)).is_ok_and(|file| file.len() > 0),
+                "{name} is written for the packaging scripts"
+            );
+        }
+        let _ = std::fs::remove_dir_all(folder.parent().unwrap());
+    }
+
+    #[test]
+    fn a_colony_file_opens_each_house_as_desktops_sample_colony_does() {
+        let dir = scratch("from-save");
+        let file = dir.join("colony.json");
+        formiga_core::SaveStore::new(file.clone())
+            .save(&sample::colony())
+            .unwrap();
+        let colony = host::Colony::Save(file);
+        for house in 0..2 {
+            let opened = colony.open(host::Which::Nth(house)).unwrap();
+            let mut expected = host::Colony::Sample.open(host::Which::Nth(house)).unwrap();
+            // A colony file is opened now, in a visit of its own and by Home rather than by
+            // Desktop's sample; everything about the household itself agrees.
+            expected.session_id = opened.session_id.clone();
+            expected.created_at_utc = opened.created_at_utc;
+            expected.desktop_version = opened.desktop_version.clone();
+            expected.days_lived = opened.days_lived;
+            // Desktop's sample wears a find its scrapbook never found; read from a file, as
+            // Desktop's own checks read it, nobody wears what the colony has not got.
+            let never_found = |worn: &formiga_travel::TravelAccessory| match worn.item {
+                formiga_travel::AccessoryItem::Pin { trinket } => opened
+                    .item(&formiga_home_contract::DisplayId::find(trinket))
+                    .is_none(),
+                formiga_travel::AccessoryItem::Worn { .. } => false,
+            };
+            for traveler in expected
+                .residents
+                .iter_mut()
+                .chain(expected.visitors.iter_mut())
+            {
+                if traveler
+                    .accessory
+                    .as_ref()
+                    .is_some_and(|worn| never_found(worn))
+                {
+                    traveler.accessory = None;
+                }
+            }
+            assert_eq!(opened, expected, "house {house}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
