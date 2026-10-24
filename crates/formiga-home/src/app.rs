@@ -108,6 +108,8 @@ pub struct HomeApp {
     move_in: Option<Id>,
     /// Who Desktop was last told is in the house.
     indoors_said: Option<Vec<Id>>,
+    /// When telling Desktop who is in last failed, until it is told.
+    indoors_failed: Option<f32>,
     /// The project opened on the project board, if one is.
     project_chosen: Option<&'static str>,
     /// Whether the board lists everything made at home, or only the latest.
@@ -229,6 +231,7 @@ impl HomeApp {
             next_door: None,
             move_in: None,
             indoors_said: None,
+            indoors_failed: None,
             project_chosen: None,
             made_shown_whole: false,
             drawer_full_said: false,

@@ -934,7 +934,7 @@ fn a_cell_sends_someone_out_to_the_desktop_and_the_house_remembers_who_stays_out
 }
 
 #[test]
-fn who_is_indoors_is_said_again_after_a_word_that_could_not_be_written() {
+fn who_is_indoors_is_said_again_a_second_after_a_word_that_could_not_be_written() {
     use formiga_home_contract::{INDOORS_FILE, SNAPSHOT_FILE, STATE_FILE, write_document};
     let snapshot = sample::snapshot();
     let root = scratch("indoors-again");
@@ -957,6 +957,12 @@ fn who_is_indoors_is_said_again_after_a_word_that_could_not_be_written() {
     assert_eq!(app.indoors_said, None);
     assert!(word.is_dir());
     std::fs::remove_dir_all(&word).unwrap();
+    // Not tried again every frame, but a second later.
+    app.clock += 0.5;
+    app.say_who_is_indoors();
+    assert_eq!(app.indoors_said, None);
+    assert!(!word.exists());
+    app.clock += 0.6;
     app.say_who_is_indoors();
     assert_eq!(app.indoors_said, Some(app.life.indoors()));
     assert!(word.is_file());
