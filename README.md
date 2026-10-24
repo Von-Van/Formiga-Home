@@ -260,6 +260,9 @@ cargo run -p formiga-home -- --formiga-home <visit directory>
   wrote, as [docs/CONTRACT.md](docs/CONTRACT.md) describes.
 - **`--home-version`** prints the newest contract version this build reads, and
   **`--icon <folder>`** writes the app icon. Both exist for the packaging scripts.
+- On Windows Home is a windowed program with no console, so a shell neither waits for it nor shows
+  what it prints: run it with `Start-Process -Wait -NoNewWindow -RedirectStandardOutput <file>`
+  to read what it says, as the packaging script does.
 
 ### Seeing changes without a window
 
