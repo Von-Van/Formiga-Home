@@ -141,7 +141,7 @@ enum Drawn {
     Wall(usize),
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Placed {
     what: Drawn,
     x: (f32, f32),
@@ -202,6 +202,9 @@ pub struct Scene {
     things: HashMap<(DisplayId, PlaceKey, Showing, Option<WallSide>), Rc<Sprite>>,
     /// The household's keepsakes' pictures, by id: whoever is in each, in their own colours.
     pictures: HashMap<DisplayId, Canvas>,
+    /// Everything last put in order to draw, and the order it went in: the same again, as when
+    /// only the pointer has moved, goes in the same order without working it out again.
+    order: Option<(Vec<Placed>, Vec<Placed>)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -235,6 +238,7 @@ impl Scene {
             pieces: PieceCache::default(),
             things: HashMap::new(),
             pictures: HashMap::new(),
+            order: None,
         }
     }
 
@@ -476,7 +480,14 @@ impl Scene {
                 flat: false,
             });
         }
-        sort_back_to_front(placed)
+        if let Some((was, order)) = &self.order
+            && *was == placed
+        {
+            return order.clone();
+        }
+        let order = sort_back_to_front(placed.clone());
+        self.order = Some((placed, order.clone()));
+        order
     }
 
     /// The house as it is at `now`, in a picture as big as [`Self::view`] says.
