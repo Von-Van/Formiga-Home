@@ -377,9 +377,12 @@ CI runs the same three checks on macOS and Windows:
 
 ```sh
 cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
 ```
+
+A release runs them again on the tagged commit, with `scripts/set-version.sh --check` on macOS,
+and publishes nothing unless they pass.
 
 The household contract, with its tests and its saved example documents for every version (its
 "golden fixtures"), lives in Formiga Desktop's workspace, and changes there.
