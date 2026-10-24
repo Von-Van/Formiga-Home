@@ -19,7 +19,7 @@ use crate::store::{self, WindowPlace};
 use eframe::egui;
 use formiga_art::Canvas;
 use formiga_home_contract::{
-    DisplayId, HomeMoment, HomeState, HouseholdHome, Liked, MementoKind, TravelerId,
+    DisplayId, HomeMoment, HomeState, HouseholdHome, JournalEntry, Liked, MementoKind, TravelerId,
 };
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -99,8 +99,9 @@ pub struct HomeApp {
     data: Option<PathBuf>,
     place: Option<WindowPlace>,
     left: bool,
-    /// When the house was opened, to the second: the journal's lines since are this visit's.
-    opened_at_utc: OffsetDateTime,
+    /// The journal as it was when the house was opened: the lines after it are this visit's,
+    /// whatever the clock said when each was written.
+    journal_at_open: Vec<JournalEntry>,
     /// The house the owner is going over to, if they are going next door.
     next_door: Option<TravelerId>,
     /// A friend asked to move in this visit, who would like to.
@@ -184,6 +185,7 @@ impl HomeApp {
                 .collect();
             life.start_out(&out);
         }
+        let journal_at_open = home_of(&state, keeper).journal.clone();
         let mut app = Self {
             selected: life.present().first().copied(),
             household,
@@ -223,7 +225,7 @@ impl HomeApp {
             removing: None,
             data,
             left: false,
-            opened_at_utc: now_utc(),
+            journal_at_open,
             next_door: None,
             move_in: None,
             indoors_said: None,

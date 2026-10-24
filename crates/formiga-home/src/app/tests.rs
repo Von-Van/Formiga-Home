@@ -731,6 +731,36 @@ fn the_journal_page_says_who_came_over_today() {
 }
 
 #[test]
+fn a_clock_changed_during_a_visit_neither_loses_its_moments_nor_sends_old_ones_again() {
+    let data = scratch("journal-clock");
+    let mut window = Harness::open(&data);
+    let (first, second) = (
+        TravelerId(window.app.household.visitors[0].id),
+        TravelerId(window.app.household.residents[0].id),
+    );
+    let keeper = window.app.keeper;
+    let now = now_utc();
+    // A line written on an earlier visit while the computer's clock was a day ahead, there when
+    // the house was opened.
+    let home = window.app.state.household_mut(keeper).unwrap();
+    home.note(
+        now + time::Duration::days(1),
+        HomeMoment::Visit { visitor: first },
+    );
+    window.app.journal_at_open = home.journal.clone();
+    // And one this visit, after the clock was put back an hour.
+    home.note(
+        now - time::Duration::hours(1),
+        HomeMoment::Visit { visitor: second },
+    );
+    assert_eq!(
+        window.app.lived().moments,
+        vec![HomeMoment::Visit { visitor: second }]
+    );
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
 fn a_rehearsal_goes_next_door_in_the_same_window_and_back_again() {
     let data = scratch("next-door");
     let mut window = Harness::open(&data);
