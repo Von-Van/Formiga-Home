@@ -55,15 +55,25 @@ fn picture(cue: Cue) -> (&'static [&'static str], Rgba) {
 }
 
 /// Draws `cue` centred on `x`, its foot at `y`, `seconds` into it.
+/// How a cue `seconds` into its pose is moving: how far it bobs, and for a sleeper's, how far up
+/// its second z has drifted and how clear it is. Whatever is the same, it is drawn the same.
+pub fn motion(cue: Cue, seconds: f32, still: bool) -> (i32, Option<(i32, u8)>) {
+    if still {
+        return (0, None);
+    }
+    let bob = ((seconds * 3.0).sin() * 1.2).round() as i32;
+    let drift = (cue == Cue::Sleep).then(|| {
+        let drift = (seconds * 0.8).fract();
+        ((drift * 4.0) as i32, (255.0 * (1.0 - drift)) as u8)
+    });
+    (bob, drift)
+}
+
 pub fn draw(canvas: &mut Canvas, cue: Cue, x: i32, y: i32, seconds: f32, still: bool) {
     let (rows, ink) = picture(cue);
     let height = rows.len() as i32;
     let width = rows.iter().map(|row| row.len()).max().unwrap_or(0) as i32;
-    let bob = if still {
-        0
-    } else {
-        ((seconds * 3.0).sin() * 1.2).round() as i32
-    };
+    let (bob, drift) = motion(cue, seconds, still);
     let mut glyph = Canvas::new((width + 2) as u32, (height + 2) as u32);
     for (dy, row) in rows.iter().enumerate() {
         for (dx, code) in row.bytes().enumerate() {
@@ -92,17 +102,11 @@ pub fn draw(canvas: &mut Canvas, cue: Cue, x: i32, y: i32, seconds: f32, still: 
         y - glyph.height() as i32 + bob,
     );
     paint::blit(canvas, &glyph, left, top);
-    if cue == Cue::Sleep && !still {
+    if let Some((up, clear)) = drift {
         // A second, smaller z drifting up after the first.
-        let drift = (seconds * 0.8).fract();
-        let (zx, zy) = (left + width + 1, top - 2 - (drift * 4.0) as i32);
+        let (zx, zy) = (left + width + 1, top - 2 - up);
         for (dx, dy) in [(0, 0), (1, 0), (1, 1), (0, 2), (1, 2)] {
-            paint::put(
-                canvas,
-                zx + dx,
-                zy + dy,
-                paint::faded(ink, (255.0 * (1.0 - drift)) as u8),
-            );
+            paint::put(canvas, zx + dx, zy + dy, paint::faded(ink, clear));
         }
     }
 }

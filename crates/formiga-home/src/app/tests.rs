@@ -1617,3 +1617,54 @@ fn shift_and_the_arrows_move_about_a_house_seen_close() {
     assert!(after.min.x < before.min.x, "{before:?} to {after:?}");
     let _ = std::fs::remove_dir_all(&data);
 }
+
+#[test]
+fn a_picture_goes_to_the_screen_exactly_as_drawn() {
+    // Every shade at every clearness, as egui would take the picture's bytes.
+    let mut picture = Canvas::new(64, 64);
+    for y in 0..64 {
+        for x in 0..64 {
+            let (r, a) = ((x * 4) as u8, (y * 4) as u8);
+            picture.set(x, y, formiga_art::Rgba::new(r, 255 - r, r / 2, a));
+        }
+    }
+    let expected = egui::ColorImage::from_rgba_unmultiplied([64, 64], &picture.rgba_bytes());
+    assert!(notebook::image_of(&picture) == expected);
+}
+
+#[test]
+fn behind_other_windows_the_house_goes_on_at_five_frames_a_second() {
+    let data = scratch("behind");
+    let mut window = Harness::open(&data);
+    let delay = |window: &mut Harness, focused: Option<bool>, minimized: Option<bool>| {
+        let mut input = RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1100.0, 800.0))),
+            time: Some(window.time),
+            ..RawInput::default()
+        };
+        let root = input.viewports.entry(egui::ViewportId::ROOT).or_default();
+        root.focused = focused;
+        root.minimized = minimized;
+        let app = &mut window.app;
+        let mut output = window.ctx.run_ui(input, |ui| app.frame(ui));
+        output.textures_delta.clear();
+        window.time += 0.2;
+        // What the window asks for itself; egui may ask for sooner while something animates.
+        window.app.frame_interval(&window.ctx)
+    };
+    assert_eq!(
+        delay(&mut window, Some(true), Some(false)),
+        Duration::from_millis(FRAME_MS)
+    );
+    assert_eq!(
+        delay(&mut window, Some(false), Some(false)),
+        Duration::from_millis(BEHIND_FRAME_MS)
+    );
+    assert_eq!(
+        delay(&mut window, Some(true), Some(true)),
+        Duration::from_millis(BEHIND_FRAME_MS)
+    );
+    // However slowly it is drawn, no step of the household's life is longer than its longest.
+    assert!(BEHIND_FRAME_MS as f32 / 1000.0 < 0.25);
+    let _ = std::fs::remove_dir_all(&data);
+}

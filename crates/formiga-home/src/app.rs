@@ -28,6 +28,9 @@ use std::time::Duration;
 use time::OffsetDateTime;
 
 const NOTICE_SECS: f32 = 4.0;
+/// How long between frames while the window is in front, and while it is not.
+const FRAME_MS: u64 = 33;
+const BEHIND_FRAME_MS: u64 = 200;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Mode {
@@ -516,15 +519,25 @@ impl HomeApp {
         let worn = self.life.worn();
         let tried = designs::tried(self.mode, self.drawer, &self.trying);
         let house = shown_house(&self.placing, tried, &self.house, &worn);
-        let canvas = self.scene.compose(
-            &house,
-            &self.household.snapshot,
-            &mut self.life.actors,
-            now,
-            &overlay,
-        );
+        // Drawn and handed to the screen again only when it would look any different: a house
+        // where everyone is asleep, or nobody is home, is drawn once.
+        let unchanged = self
+            .scene
+            .as_last_seen(&house, &self.life.actors, now, &overlay);
+        let texture = match &self.texture {
+            Some(texture) if unchanged => texture.id(),
+            _ => {
+                let canvas = self.scene.compose(
+                    &house,
+                    &self.household.snapshot,
+                    &mut self.life.actors,
+                    now,
+                    &overlay,
+                );
+                notebook::show_in(&mut self.texture, ctx, "room", &canvas)
+            }
+        };
         drop(house);
-        let texture = notebook::show_in(&mut self.texture, ctx, "room", &canvas);
         self.zoom_input(&response, ctx, page);
         let painter = ui.painter_at(page);
         painter.image(
@@ -707,7 +720,25 @@ impl HomeApp {
             });
         self.menu(&ctx);
         self.take_snap(&ctx);
-        ctx.request_repaint_after(Duration::from_millis(33));
+        ctx.request_repaint_after(self.frame_interval(&ctx));
+    }
+
+    /// How soon the next frame comes when nothing asks for one sooner: about thirty a second
+    /// while the window is in front, and five while it is behind another or put away, when the
+    /// household lives on but nobody is watching closely. Five is still more often than the
+    /// longest step of the household's life, so no time is lost. A window opened for its picture
+    /// stays behind everything, and is drawn at the full rate all the same.
+    fn frame_interval(&self, ctx: &egui::Context) -> Duration {
+        let (focused, minimized) = ctx.input(|input| {
+            let viewport = input.viewport();
+            (viewport.focused, viewport.minimized)
+        });
+        let away = focused == Some(false) || minimized == Some(true);
+        if away && self.snap.is_none() {
+            Duration::from_millis(BEHIND_FRAME_MS)
+        } else {
+            Duration::from_millis(FRAME_MS)
+        }
     }
 
     /// The line along the foot of the cover: what whoever is chosen is doing, or what has just

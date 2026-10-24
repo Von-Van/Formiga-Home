@@ -11,7 +11,7 @@
 //! is drawn see-through, but only where it covers them and in their own shape, so nobody and
 //! nothing is lost and the piece is otherwise drawn as it is.
 
-use crate::actor::Actor;
+use crate::actor::{Actor, Look};
 use crate::art::{PieceCache, Sprite, displays, shell};
 use crate::catalog;
 use crate::daylight::{Daylight, Season};
@@ -39,6 +39,7 @@ pub enum Target {
 }
 
 /// A piece or a thing being carried in Arrange Mode, shown where it would go.
+#[derive(Clone, PartialEq)]
 pub struct Ghost {
     pub sprite: Rc<Sprite>,
     /// Where its anchor would land.
@@ -48,7 +49,7 @@ pub struct Ghost {
     pub footprint: Option<Footprint>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default, PartialEq)]
 pub struct Overlay {
     pub hovered: Option<Target>,
     pub selected: Option<Id>,
@@ -205,6 +206,18 @@ pub struct Scene {
     /// Everything last put in order to draw, and the order it went in: the same again, as when
     /// only the pointer has moved, goes in the same order without working it out again.
     order: Option<(Vec<Placed>, Vec<Placed>)>,
+    /// What the window's last frame was drawn from, as far as it shows.
+    seen: Option<Sight>,
+}
+
+/// What a frame of the house is drawn from, as far as it shows: the house, how each resident
+/// looks and where, and what is laid over it all. The snapshot is not among it: it changes only
+/// with the keepsakes, and whatever was seen is forgotten when they do.
+#[derive(PartialEq)]
+struct Sight {
+    house: House,
+    looks: Vec<Look>,
+    overlay: Overlay,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -239,6 +252,7 @@ impl Scene {
             things: HashMap::new(),
             pictures: HashMap::new(),
             order: None,
+            seen: None,
         }
     }
 
@@ -248,7 +262,45 @@ impl Scene {
         self.things
             .retain(|(id, ..), _| id.source() != DisplayId::MEMENTO);
         self.shell_key = None;
+        self.seen = None;
         self.pictures = pictures;
+    }
+
+    /// Whether the house would be drawn now just as it was the last time this was asked, from
+    /// the same snapshot: nothing in it, nobody's look and nothing over it changed. Remembers
+    /// what it is drawn from now, for next time.
+    pub fn as_last_seen(
+        &mut self,
+        house: &House,
+        actors: &[Actor],
+        now: f32,
+        overlay: &Overlay,
+    ) -> bool {
+        let view = View::of(house);
+        let looks: Vec<Look> = actors
+            .iter()
+            .map(|actor| {
+                let pointed_at = overlay.hovered == Some(Target::Resident(actor.id));
+                actor.look(&view, now, pointed_at)
+            })
+            .collect();
+        if let Some(seen) = &mut self.seen {
+            let same = seen.looks == looks && seen.overlay == *overlay && seen.house == *house;
+            if !same {
+                if seen.house != *house {
+                    seen.house = house.clone();
+                }
+                seen.looks = looks;
+                seen.overlay = overlay.clone();
+            }
+            return same;
+        }
+        self.seen = Some(Sight {
+            house: house.clone(),
+            looks,
+            overlay: overlay.clone(),
+        });
+        false
     }
 
     /// A thing's own picture: a keepsake's with whoever is in it.
@@ -1173,6 +1225,43 @@ mod tests {
             "dark and blue away from the lamp: {far:?}"
         );
         assert!(near.r >= grey.r, "lit at the lamp's foot: {near:?}");
+    }
+
+    #[test]
+    fn a_frame_is_as_last_seen_until_something_in_it_changes() {
+        use crate::household::Household;
+        let household = Household::new(formiga_home_contract::sample::snapshot()).unwrap();
+        let home = crate::starter::home(&household.snapshot);
+        let house = House::of(&home.rooms);
+        // With motion reduced nobody breathes or blinks, so only what happens changes them.
+        let mut actors = crate::show_house::pose(&household, &house, true);
+        let mut scene = Scene::new(&house);
+        let mut overlay = Overlay::default();
+        assert!(
+            !scene.as_last_seen(&house, &actors, 0.5, &overlay),
+            "never seen"
+        );
+        assert!(scene.as_last_seen(&house, &actors, 2.5, &overlay));
+        overlay.hovered = Some(Target::Resident(actors[1].id));
+        assert!(
+            !scene.as_last_seen(&house, &actors, 2.5, &overlay),
+            "pointed at"
+        );
+        assert!(scene.as_last_seen(&house, &actors, 2.5, &overlay));
+        actors[1].pos.0 += 0.25;
+        assert!(!scene.as_last_seen(&house, &actors, 2.5, &overlay), "moved");
+        let mut moved = house.clone();
+        moved.pieces.pop();
+        assert!(
+            !scene.as_last_seen(&moved, &actors, 2.5, &overlay),
+            "a piece gone"
+        );
+        assert!(scene.as_last_seen(&moved, &actors, 2.5, &overlay));
+        scene.set_pictures(HashMap::new());
+        assert!(
+            !scene.as_last_seen(&moved, &actors, 2.5, &overlay),
+            "new keepsakes"
+        );
     }
 
     #[test]
