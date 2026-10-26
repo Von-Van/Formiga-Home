@@ -2,6 +2,9 @@
 //! household's house, arranges it, shows the things the colony has found, and spends a little
 //! time with the residents.
 
+// On Windows, a window of its own and no console window behind it.
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 mod actor;
 mod app;
 mod arrange;

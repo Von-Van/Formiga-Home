@@ -17,10 +17,12 @@ pub(super) fn unit(pixels_per_point: f32) -> f32 {
 
 /// A picture as egui takes it.
 pub(super) fn image_of(canvas: &Canvas) -> egui::ColorImage {
-    egui::ColorImage::from_rgba_unmultiplied(
-        [canvas.width() as usize, canvas.height() as usize],
-        &canvas.rgba_bytes(),
-    )
+    let pixels = canvas
+        .pixels()
+        .iter()
+        .map(|pixel| egui::Color32::from_rgba_unmultiplied(pixel.r, pixel.g, pixel.b, pixel.a))
+        .collect();
+    egui::ColorImage::new([canvas.width() as usize, canvas.height() as usize], pixels)
 }
 
 /// `canvas` put in the texture kept in `slot`, which is made, as `name`, the first time, and

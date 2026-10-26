@@ -19,14 +19,18 @@ use crate::store::{self, WindowPlace};
 use eframe::egui;
 use formiga_art::Canvas;
 use formiga_home_contract::{
-    DisplayId, HomeMoment, HomeState, HouseholdHome, Liked, MementoKind, TravelerId,
+    DisplayId, HomeMoment, HomeState, HouseholdHome, JournalEntry, Liked, MementoKind, TravelerId,
 };
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 use time::OffsetDateTime;
 
 const NOTICE_SECS: f32 = 4.0;
+/// How long between frames while the window is in front, and while it is not.
+const FRAME_MS: u64 = 33;
+const BEHIND_FRAME_MS: u64 = 200;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Mode {
@@ -98,14 +102,17 @@ pub struct HomeApp {
     data: Option<PathBuf>,
     place: Option<WindowPlace>,
     left: bool,
-    /// When the house was opened, to the second: the journal's lines since are this visit's.
-    opened_at_utc: OffsetDateTime,
+    /// The journal as it was when the house was opened: the lines after it are this visit's,
+    /// whatever the clock said when each was written.
+    journal_at_open: Vec<JournalEntry>,
     /// The house the owner is going over to, if they are going next door.
     next_door: Option<TravelerId>,
     /// A friend asked to move in this visit, who would like to.
     move_in: Option<Id>,
     /// Who Desktop was last told is in the house.
     indoors_said: Option<Vec<Id>>,
+    /// When telling Desktop who is in last failed, until it is told.
+    indoors_failed: Option<f32>,
     /// The project opened on the project board, if one is.
     project_chosen: Option<&'static str>,
     /// Whether the board lists everything made at home, or only the latest.
@@ -183,6 +190,7 @@ impl HomeApp {
                 .collect();
             life.start_out(&out);
         }
+        let journal_at_open = home_of(&state, keeper).journal.clone();
         let mut app = Self {
             selected: life.present().first().copied(),
             household,
@@ -222,10 +230,11 @@ impl HomeApp {
             removing: None,
             data,
             left: false,
-            opened_at_utc: now_utc(),
+            journal_at_open,
             next_door: None,
             move_in: None,
             indoors_said: None,
+            indoors_failed: None,
             project_chosen: None,
             made_shown_whole: false,
             drawer_full_said: false,
@@ -378,24 +387,26 @@ impl HomeApp {
         (texture.id(), size)
     }
 
-    /// The house as it is drawn just now: the one being built, if a room is being placed, or
-    /// the one a design would make, if one is being tried.
-    fn shown_house(&self) -> House {
-        match &self.placing {
-            Some((places, shown)) => House::of(&places[*shown].rooms),
-            None => self.tried_house().unwrap_or_else(|| self.house_as_seen()),
-        }
+    /// The house as it is drawn just now: see [`shown_house`].
+    fn shown_house(&self) -> Cow<'_, House> {
+        shown_house(&self.placing, self.tried(), &self.house, &self.life.worn())
     }
 
     /// Whether the house shown is only a picture of what could be: nothing in it can be picked
     /// up.
     fn only_shown(&self) -> bool {
-        self.placing.is_some() || self.tried_house().is_some()
+        self.placing.is_some() || self.tried().is_some()
     }
 
     fn room_view(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let now = self.now();
-        let house = self.shown_house();
+        let only_shown = self.only_shown();
+        // The house as it is before the pointer does anything to it, borrowed rather than copied
+        // where it can be, as the window has it.
+        let worn = self.life.worn();
+        let tried = designs::tried(self.mode, self.drawer, &self.trying);
+        let house = shown_house(&self.placing, tried, &self.house, &worn);
+        let rooms = house.rooms.len();
         let page = ui.available_rect_before_wrap();
         let view = crate::iso::View::of(&house);
         let ppp = ctx.pixels_per_point();
@@ -430,15 +441,20 @@ impl HomeApp {
         let pixel = pointer.map(|(x, y)| (x as i32, y as i32));
         let released = ctx.input(|input| input.pointer.primary_released());
 
-        let snapshot = self.household.snapshot.clone();
-        if self.menu.is_none() && !self.only_shown() {
+        if self.menu.is_none() && !only_shown {
             self.hovered = pixel.and_then(|point| {
-                self.scene
-                    .hit(&house, &snapshot, &mut self.life.actors, now, point)
+                self.scene.hit(
+                    &house,
+                    &self.household.snapshot,
+                    &mut self.life.actors,
+                    now,
+                    point,
+                )
             });
-        } else if self.only_shown() {
+        } else if only_shown {
             self.hovered = None;
         }
+        drop(house);
         // What the keys have come to is lit as if pointed at.
         if self.menu.is_none()
             && self.arranging.carrying.is_none()
@@ -463,16 +479,16 @@ impl HomeApp {
                     .as_ref()
                     .map(|(places, _)| (places[0].rooms.len() - 1) as u8);
             }
-            Mode::Arrange if self.only_shown() => {
+            Mode::Arrange if only_shown => {
                 if let Some(trying) = &self.trying
                     && !trying.design.whole_house
-                    && house.rooms.len() > 1
+                    && rooms > 1
                 {
                     overlay.chosen_room = Some(trying.room);
                 }
             }
             Mode::Arrange => {
-                if matches!(self.drawer, Drawer::Room | Drawer::Designs) && house.rooms.len() > 1 {
+                if matches!(self.drawer, Drawer::Room | Drawer::Designs) && rooms > 1 {
                     overlay.chosen_room = Some(self.room_page);
                 }
                 self.arrange_pointer(&response, pointer, released);
@@ -499,11 +515,29 @@ impl HomeApp {
             );
         }
 
-        let house = self.shown_house();
-        let canvas = self
+        // And as it is now the pointer has done whatever it did.
+        let worn = self.life.worn();
+        let tried = designs::tried(self.mode, self.drawer, &self.trying);
+        let house = shown_house(&self.placing, tried, &self.house, &worn);
+        // Drawn and handed to the screen again only when it would look any different: a house
+        // where everyone is asleep, or nobody is home, is drawn once.
+        let unchanged = self
             .scene
-            .compose(&house, &snapshot, &mut self.life.actors, now, &overlay);
-        let texture = notebook::show_in(&mut self.texture, ctx, "room", &canvas);
+            .as_last_seen(&house, &self.life.actors, now, &overlay);
+        let texture = match &self.texture {
+            Some(texture) if unchanged => texture.id(),
+            _ => {
+                let canvas = self.scene.compose(
+                    &house,
+                    &self.household.snapshot,
+                    &mut self.life.actors,
+                    now,
+                    &overlay,
+                );
+                notebook::show_in(&mut self.texture, ctx, "room", &canvas)
+            }
+        };
+        drop(house);
         self.zoom_input(&response, ctx, page);
         let painter = ui.painter_at(page);
         painter.image(
@@ -513,7 +547,7 @@ impl HomeApp {
             egui::Color32::WHITE,
         );
         // What is pointed at, in a tag over it: who, or what and whose favourite it is.
-        if let Some((name, (x, y))) = self.tag(&house, now)
+        if let Some((name, (x, y))) = self.tag(now)
             && self.mode == Mode::Live
         {
             // A slip of card with the notebook's stepped edge, written in its ink.
@@ -545,10 +579,7 @@ impl HomeApp {
 
     /// The house as it looks just now: with any find being worn lifted out of it.
     fn house_as_seen(&self) -> House {
-        let mut house = self.house.clone();
-        let worn = self.life.worn();
-        house.shown.retain(|shown| !worn.contains(&shown.item));
-        house
+        as_seen(&self.house, &self.life.worn()).into_owned()
     }
 
     /// Whose favourite something in the house is: "Mochi's favourite".
@@ -573,20 +604,23 @@ impl HomeApp {
     }
 
     /// The tag for whatever is pointed at, and where over it on the scene.
-    fn tag(&mut self, house: &House, now: f32) -> Option<(String, (f32, f32))> {
+    fn tag(&mut self, now: f32) -> Option<(String, (f32, f32))> {
         let view = self.scene.view;
-        match self.hovered.clone()? {
-            Target::Resident(id) => {
-                let actor = self.life.actors.iter_mut().find(|actor| actor.id == id)?;
-                let (l, t, r, _) = actor.bounds(&view, now);
-                let mut name = self.name(id);
-                if self.life.staying(id) {
-                    name.push_str(", staying over");
-                } else if self.household.is_visitor(id) {
-                    name.push_str(", visiting");
-                }
-                Some((name, ((l + r) as f32 / 2.0, t as f32 - 9.0)))
+        let hovered = self.hovered.clone()?;
+        if let Target::Resident(id) = hovered {
+            let actor = self.life.actors.iter_mut().find(|actor| actor.id == id)?;
+            let (l, t, r, _) = actor.bounds(&view, now);
+            let mut name = self.name(id);
+            if self.life.staying(id) {
+                name.push_str(", staying over");
+            } else if self.household.is_visitor(id) {
+                name.push_str(", visiting");
             }
+            return Some((name, ((l + r) as f32 / 2.0, t as f32 - 9.0)));
+        }
+        let house = self.shown_house();
+        let house = house.as_ref();
+        match hovered {
             Target::Piece(uid) => {
                 let placed = house.piece(uid)?;
                 let piece = catalog::piece(&placed.piece)?;
@@ -607,7 +641,7 @@ impl HomeApp {
                 }
                 Some((name, (x as f32, y as f32 - 16.0)))
             }
-            Target::Floor(..) => None,
+            Target::Resident(_) | Target::Floor(..) => None,
         }
     }
 
@@ -686,7 +720,25 @@ impl HomeApp {
             });
         self.menu(&ctx);
         self.take_snap(&ctx);
-        ctx.request_repaint_after(Duration::from_millis(33));
+        ctx.request_repaint_after(self.frame_interval(&ctx));
+    }
+
+    /// How soon the next frame comes when nothing asks for one sooner: about thirty a second
+    /// while the window is in front, and five while it is behind another or put away, when the
+    /// household lives on but nobody is watching closely. Five is still more often than the
+    /// longest step of the household's life, so no time is lost. A window opened for its picture
+    /// stays behind everything, and is drawn at the full rate all the same.
+    fn frame_interval(&self, ctx: &egui::Context) -> Duration {
+        let (focused, minimized) = ctx.input(|input| {
+            let viewport = input.viewport();
+            (viewport.focused, viewport.minimized)
+        });
+        let away = focused == Some(false) || minimized == Some(true);
+        if away && self.snap.is_none() {
+            Duration::from_millis(BEHIND_FRAME_MS)
+        } else {
+            Duration::from_millis(FRAME_MS)
+        }
     }
 
     /// The line along the foot of the cover: what whoever is chosen is doing, or what has just
@@ -733,6 +785,32 @@ impl HomeApp {
             painter.galley(at, galley, notebook::ink::deboss(dark));
         }
     }
+}
+
+/// The house as it is drawn just now: the one being built, if a room is being placed; the one a
+/// design would make, if one is being tried; otherwise the house as it looks, borrowed as it is
+/// unless someone is wearing a find from it.
+fn shown_house<'a>(
+    placing: &Option<(Vec<HouseholdHome>, usize)>,
+    tried: Option<&'a designs::Trying>,
+    house: &'a House,
+    worn: &[DisplayId],
+) -> Cow<'a, House> {
+    match (placing, tried) {
+        (Some((places, shown)), _) => Cow::Owned(House::of(&places[*shown].rooms)),
+        (None, Some(trying)) => Cow::Borrowed(&trying.house),
+        (None, None) => as_seen(house, worn),
+    }
+}
+
+/// The house as it looks just now: with any find being `worn` lifted out of it.
+fn as_seen<'a>(house: &'a House, worn: &[DisplayId]) -> Cow<'a, House> {
+    if !house.shown.iter().any(|shown| worn.contains(&shown.item)) {
+        return Cow::Borrowed(house);
+    }
+    let mut house = house.clone();
+    house.shown.retain(|shown| !worn.contains(&shown.item));
+    Cow::Owned(house)
 }
 
 /// Where in this house a thing is shown, as the drawer says it: "on the open shelf", or in a

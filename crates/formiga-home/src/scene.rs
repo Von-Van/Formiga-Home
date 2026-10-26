@@ -11,7 +11,7 @@
 //! is drawn see-through, but only where it covers them and in their own shape, so nobody and
 //! nothing is lost and the piece is otherwise drawn as it is.
 
-use crate::actor::Actor;
+use crate::actor::{Actor, Look};
 use crate::art::{PieceCache, Sprite, displays, shell};
 use crate::catalog;
 use crate::daylight::{Daylight, Season};
@@ -23,6 +23,7 @@ use crate::placement::{self, Footprint, Place, Showing};
 use formiga_art::{Canvas, Rgba};
 use formiga_home_contract::{DisplayId, DisplayItem, HomeSnapshot, WallSide};
 use std::collections::HashMap;
+use std::rc::Rc;
 
 /// How high on a wall something hangs, in pixels above the floor.
 pub const HANG_HEIGHT: i32 = 32;
@@ -38,8 +39,9 @@ pub enum Target {
 }
 
 /// A piece or a thing being carried in Arrange Mode, shown where it would go.
+#[derive(Clone, PartialEq)]
 pub struct Ghost {
-    pub sprite: Sprite,
+    pub sprite: Rc<Sprite>,
     /// Where its anchor would land.
     pub at: (i32, i32),
     pub fits: bool,
@@ -47,7 +49,7 @@ pub struct Ghost {
     pub footprint: Option<Footprint>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default, PartialEq)]
 pub struct Overlay {
     pub hovered: Option<Target>,
     pub selected: Option<Id>,
@@ -140,7 +142,7 @@ enum Drawn {
     Wall(usize),
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Placed {
     what: Drawn,
     x: (f32, f32),
@@ -191,10 +193,31 @@ pub struct Scene {
     pub view: View,
     shell_key: Option<ShellKey>,
     shell: Canvas,
+    /// How many times the shell has been drawn: the house's floor can only have changed when it
+    /// has been drawn again.
+    shell_drawn: u64,
+    /// How far each pixel is lit by the lamps, by night, and what for: the shell as last drawn,
+    /// the view, and the lamps that are on.
+    lamplight: Option<(LampKey, Vec<f32>)>,
     pieces: PieceCache,
-    things: HashMap<(DisplayId, PlaceKey, Showing, Option<WallSide>), Sprite>,
+    things: HashMap<(DisplayId, PlaceKey, Showing, Option<WallSide>), Rc<Sprite>>,
     /// The household's keepsakes' pictures, by id: whoever is in each, in their own colours.
     pictures: HashMap<DisplayId, Canvas>,
+    /// Everything last put in order to draw, and the order it went in: the same again, as when
+    /// only the pointer has moved, goes in the same order without working it out again.
+    order: Option<(Vec<Placed>, Vec<Placed>)>,
+    /// What the window's last frame was drawn from, as far as it shows.
+    seen: Option<Sight>,
+}
+
+/// What a frame of the house is drawn from, as far as it shows: the house, how each resident
+/// looks and where, and what is laid over it all. The snapshot is not among it: it changes only
+/// with the keepsakes, and whatever was seen is forgotten when they do.
+#[derive(PartialEq)]
+struct Sight {
+    house: House,
+    looks: Vec<Look>,
+    overlay: Overlay,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -223,9 +246,13 @@ impl Scene {
             view,
             shell_key: None,
             shell: Canvas::new(view.size.0, view.size.1),
+            shell_drawn: 0,
+            lamplight: None,
             pieces: PieceCache::default(),
             things: HashMap::new(),
             pictures: HashMap::new(),
+            order: None,
+            seen: None,
         }
     }
 
@@ -235,7 +262,45 @@ impl Scene {
         self.things
             .retain(|(id, ..), _| id.source() != DisplayId::MEMENTO);
         self.shell_key = None;
+        self.seen = None;
         self.pictures = pictures;
+    }
+
+    /// Whether the house would be drawn now just as it was the last time this was asked, from
+    /// the same snapshot: nothing in it, nobody's look and nothing over it changed. Remembers
+    /// what it is drawn from now, for next time.
+    pub fn as_last_seen(
+        &mut self,
+        house: &House,
+        actors: &[Actor],
+        now: f32,
+        overlay: &Overlay,
+    ) -> bool {
+        let view = View::of(house);
+        let looks: Vec<Look> = actors
+            .iter()
+            .map(|actor| {
+                let pointed_at = overlay.hovered == Some(Target::Resident(actor.id));
+                actor.look(&view, now, pointed_at)
+            })
+            .collect();
+        if let Some(seen) = &mut self.seen {
+            let same = seen.looks == looks && seen.overlay == *overlay && seen.house == *house;
+            if !same {
+                if seen.house != *house {
+                    seen.house = house.clone();
+                }
+                seen.looks = looks;
+                seen.overlay = overlay.clone();
+            }
+            return same;
+        }
+        self.seen = Some(Sight {
+            house: house.clone(),
+            looks,
+            overlay: overlay.clone(),
+        });
+        false
     }
 
     /// A thing's own picture: a keepsake's with whoever is in it.
@@ -247,7 +312,7 @@ impl Scene {
     }
 
     /// A thing's picture as it is shown in a place of this kind.
-    pub fn thing(&mut self, item: &DisplayItem, place: Place, showing: Showing) -> &Sprite {
+    pub fn thing(&mut self, item: &DisplayItem, place: Place, showing: Showing) -> &Rc<Sprite> {
         self.drawn(item, place, showing, None)
     }
 
@@ -258,7 +323,7 @@ impl Scene {
         at: At,
         place: Place,
         showing: Showing,
-    ) -> &Sprite {
+    ) -> &Rc<Sprite> {
         let side = match at {
             At::Wall { side, .. } => Some(side),
             At::On { .. } | At::Floor { .. } => None,
@@ -272,7 +337,7 @@ impl Scene {
         place: Place,
         showing: Showing,
         side: Option<WallSide>,
-    ) -> &Sprite {
+    ) -> &Rc<Sprite> {
         let key = (item.id.clone(), place.into(), showing, side);
         if !self.things.contains_key(&key) {
             let flat = displays::dress(self.icon(item), item, place, showing);
@@ -280,12 +345,12 @@ impl Scene {
                 Some(side) => flat.along_wall(side),
                 None => flat,
             };
-            self.things.insert(key.clone(), sprite);
+            self.things.insert(key.clone(), Rc::new(sprite));
         }
         &self.things[&key]
     }
 
-    pub fn piece_sprite(&mut self, piece: &'static catalog::Piece, turn: u8) -> &Sprite {
+    pub fn piece_sprite(&mut self, piece: &'static catalog::Piece, turn: u8) -> &Rc<Sprite> {
         self.pieces.get(piece, turn)
     }
 
@@ -298,23 +363,37 @@ impl Scene {
         backdrop: bool,
         season: Season,
     ) {
-        let mut hung: Vec<_> = house
+        let mut hung: Vec<(&DisplayId, At)> = house
             .shown
             .iter()
             .filter(|shown| matches!(shown.at, At::Wall { .. }))
-            .map(|shown| (shown.item.clone(), shown.at))
+            .map(|shown| (&shown.item, shown.at))
             .collect();
         hung.sort_by_key(|shown| shown.1);
-        let key = (
+        let same = self.shell_key.as_ref().is_some_and(|key| {
+            key.0 == house.rooms
+                && key.1 == house.walls
+                && key.2.len() == hung.len()
+                && key
+                    .2
+                    .iter()
+                    .zip(&hung)
+                    .all(|(was, now)| &was.0 == now.0 && was.1 == now.1)
+                && key.3 == backdrop
+                && key.4 == season
+        });
+        if same {
+            return;
+        }
+        let key: ShellKey = (
             house.rooms.clone(),
             house.walls.clone(),
-            hung,
+            hung.iter()
+                .map(|(item, at)| ((*item).clone(), *at))
+                .collect(),
             backdrop,
             season,
         );
-        if self.shell_key.as_ref() == Some(&key) {
-            return;
-        }
         self.view = View::of(house);
         let mut canvas = shell::draw(&self.view, house, backdrop, season);
         for (item, hung) in &key.2 {
@@ -336,11 +415,37 @@ impl Scene {
             let at_screen = self.view.on_wall(wall, HANG_HEIGHT);
             let sprite = self.thing_at(item, *hung, Place::Wall, showing);
             let (ox, oy) = sprite.origin(at_screen);
-            let picture = sprite.canvas.clone();
-            paint::blit(&mut canvas, &picture, ox, oy);
+            paint::blit(&mut canvas, &sprite.canvas, ox, oy);
         }
         self.shell = canvas;
         self.shell_key = Some(key);
+        self.shell_drawn += 1;
+    }
+
+    /// How far each pixel of a picture `size` big is lit by `lamps`, worked out again only when
+    /// they, the house's floor or the picture change.
+    fn lamplight(&mut self, house: &House, size: (u32, u32), lamps: &[Lamp]) -> &[f32] {
+        let fresh = self
+            .lamplight
+            .as_ref()
+            .is_some_and(|((drawn, view, drawn_size, lit), _)| {
+                *drawn == self.shell_drawn
+                    && *view == self.view
+                    && *drawn_size == size
+                    && lit.as_slice() == lamps
+            });
+        if !fresh {
+            let view = self.view;
+            let on_floor = |x: i32, y: i32| {
+                let point = view.floor_at(x as f32 + 0.5, y as f32 + 0.5);
+                house.room_of_point(point).is_some()
+            };
+            let lit = lamp_light(size.0, size.1, lamps, on_floor);
+            self.lamplight = Some(((self.shell_drawn, view, size, lamps.to_vec()), lit));
+        }
+        self.lamplight
+            .as_ref()
+            .map_or(&[], |(_, lit)| lit.as_slice())
     }
 
     /// Everything that stands on the floor, in the order it is drawn.
@@ -427,7 +532,14 @@ impl Scene {
                 flat: false,
             });
         }
-        sort_back_to_front(placed)
+        if let Some((was, order)) = &self.order
+            && *was == placed
+        {
+            return order.clone();
+        }
+        let order = sort_back_to_front(placed.clone());
+        self.order = Some((placed, order.clone()));
+        order
     }
 
     /// The house as it is at `now`, in a picture as big as [`Self::view`] says.
@@ -463,7 +575,7 @@ impl Scene {
                 .filter(|_| !overlay.lamps_off.contains(&placed.uid))
         };
         // A lamp's light shows on the floor only once the day's has begun to go.
-        let lamps: Vec<((i32, i32), i32)> = house
+        let lamps: Vec<Lamp> = house
             .pieces
             .iter()
             .filter_map(|placed| {
@@ -514,10 +626,9 @@ impl Scene {
                     let at = floor_anchor(&view, x, y);
                     let sprite = self.thing(item, Place::Floor, Showing::Itself);
                     let (ox, oy) = sprite.origin(at);
-                    let picture = sprite.canvas.clone();
-                    paint::blit(&mut canvas, &picture, ox, oy);
+                    paint::blit(&mut canvas, &sprite.canvas, ox, oy);
                     let room = house.room_at(i32::from(x), i32::from(y)).unwrap_or(0);
-                    behind.mark_picture(&picture, ox, oy, THING + room);
+                    behind.mark_picture(&sprite.canvas, ox, oy, THING + room);
                 }
                 Drawn::Resident(index) => {
                     let actor = &mut actors[index];
@@ -533,7 +644,10 @@ impl Scene {
                 }
             }
         }
-        light(&mut canvas, &overlay.daylight, &lamps, on_floor);
+        if overlay.daylight.dark().0 > 0.0 {
+            let lit = self.lamplight(house, (canvas.width(), canvas.height()), &lamps);
+            light(&mut canvas, &overlay.daylight, lit);
+        }
         if !overlay.arranging {
             for actor in actors.iter_mut().filter(|actor| !actor.hidden) {
                 actor.draw_cue(&mut canvas, &view, now);
@@ -606,7 +720,7 @@ impl Scene {
             .room_at(i32::from(placed.x), i32::from(placed.y))
             .unwrap_or(0);
         let Some(kind) = catalog::piece(&placed.piece) else {
-            let sprite = crate::art::furniture::draw(&UNKNOWN, false);
+            let sprite = self.pieces.get(&UNKNOWN, 0);
             let (ox, oy) = sprite.origin(at);
             paint::blit(canvas, &sprite.canvas, ox, oy);
             behind.mark_picture(&sprite.canvas, ox, oy, THING + room);
@@ -621,7 +735,7 @@ impl Scene {
             mark if mark >= THING && stands && mark - THING != room => 110,
             _ => 255,
         };
-        let sprite = self.pieces.get(kind, placed.turn).clone();
+        let sprite = Rc::clone(self.pieces.get(kind, placed.turn));
         let (ox, oy) = sprite.origin(at);
         let mut sitters: Vec<usize> = actors
             .iter()
@@ -661,7 +775,6 @@ impl Scene {
             let point = surface_anchor(&view, surface);
             let thing = self.thing(item, place, showing);
             let (ix, iy) = thing.origin(point);
-            let picture = thing.canvas.clone();
             // Anything taller than its shelf's room, shown there before shelves were measured,
             // is trimmed at what is over it rather than drawn through it.
             let top = surface
@@ -669,7 +782,7 @@ impl Scene {
                 .map_or(i32::MIN, |clearance| point.1 - clearance);
             paint::blit_through(
                 canvas,
-                &picture,
+                &thing.canvas,
                 ix,
                 iy,
                 |_, y| if y < top { 0 } else { 255 },
@@ -717,11 +830,10 @@ impl Scene {
                 if let Some(actor) = actors.iter_mut().find(|actor| actor.id == *id) {
                     let (l, t, r, b) = actor.bounds(&view, now);
                     let mut frame = Canvas::new((r - l + 1) as u32, (b - t + 1) as u32);
-                    let snap = canvas.clone();
                     for y in 0..frame.height() as i32 {
                         for x in 0..frame.width() as i32 {
                             if actor.covers(&view, now, (l + x, t + y)) {
-                                frame.set(x, y, snap.get(l + x, t + y));
+                                frame.set(x, y, canvas.get(l + x, t + y));
                             }
                         }
                     }
@@ -735,8 +847,7 @@ impl Scene {
                     let sprite = self.pieces.get(kind, placed.turn);
                     let at = view.pixel(f32::from(placed.x), f32::from(placed.y));
                     let (ox, oy) = sprite.origin(at);
-                    let picture = sprite.canvas.clone();
-                    paint::ring(canvas, &picture, ox, oy, color);
+                    paint::ring(canvas, &sprite.canvas, ox, oy, color);
                 }
             }
             Target::Shown(item) => {
@@ -778,13 +889,16 @@ impl Scene {
         house: &House,
         snapshot: &HomeSnapshot,
         item: &DisplayId,
-    ) -> Option<(Sprite, (i32, i32))> {
+    ) -> Option<(Rc<Sprite>, (i32, i32))> {
         let shown = house.shown.iter().find(|shown| &shown.item == item)?;
         let thing = snapshot.item(item)?;
         let place = house.place_of(shown.at)?;
         let showing = placement::showing(thing, place)?;
         let at = self.spot_anchor(house, shown.at)?;
-        Some((self.thing_at(thing, shown.at, place, showing).clone(), at))
+        Some((
+            Rc::clone(self.thing_at(thing, shown.at, place, showing)),
+            at,
+        ))
     }
 
     /// What is under a point of the scene: a resident first, then what is shown, then furniture,
@@ -858,26 +972,24 @@ static UNKNOWN: catalog::Piece = catalog::Piece {
 const LAMP_REACH: f32 = 48.0;
 const SHADE_REACH: f32 = 16.0;
 
-/// The house as the hour lights it: as drawn by day, and as the light goes, each pixel drawn
-/// towards the colour of the dark, except as far as a lit lamp reaches.
-fn light(
-    canvas: &mut Canvas,
-    daylight: &Daylight,
-    lamps: &[((i32, i32), i32)],
+/// A lamp that is on: where its foot is on the picture, and how high its bulb glows.
+type Lamp = ((i32, i32), i32);
+
+/// What the lamp light was last worked out for: the shell as drawn, the view, the picture's
+/// size, and the lamps.
+type LampKey = (u64, View, (u32, u32), Vec<Lamp>);
+
+/// How lit each pixel of a picture `width` by `height` is by the nearest lamp, row by row: a
+/// pool on the house's floor round its foot, and a glow round its shade, wherever that is.
+fn lamp_light(
+    width: u32,
+    height: u32,
+    lamps: &[Lamp],
     in_house: impl Fn(i32, i32) -> bool,
-) {
-    let (dark, tint) = daylight.dark();
-    if dark <= 0.0 {
-        return;
-    }
-    for y in 0..canvas.height() as i32 {
-        for x in 0..canvas.width() as i32 {
-            let pixel = canvas.get(x, y);
-            if pixel.a == 0 {
-                continue;
-            }
-            // How lit it is by the nearest lamp: a pool on the house's floor round its foot, and
-            // a glow round its shade, wherever that is.
+) -> Vec<f32> {
+    let mut lit = Vec::with_capacity(width as usize * height as usize);
+    for y in 0..height as i32 {
+        for x in 0..width as i32 {
             let floor = in_house(x, y);
             let lamp = lamps
                 .iter()
@@ -893,7 +1005,27 @@ fn light(
                     pool.max(shade).clamp(0.0, 1.0)
                 })
                 .fold(0.0_f32, f32::max);
-            let lamp = lamp * lamp * (3.0 - 2.0 * lamp);
+            lit.push(lamp * lamp * (3.0 - 2.0 * lamp));
+        }
+    }
+    lit
+}
+
+/// The house as the hour lights it: as drawn by day, and as the light goes, each pixel drawn
+/// towards the colour of the dark, except as far as a lit lamp reaches, as `lamp_light` says.
+fn light(canvas: &mut Canvas, daylight: &Daylight, lamp_light: &[f32]) {
+    let (dark, tint) = daylight.dark();
+    if dark <= 0.0 {
+        return;
+    }
+    let width = canvas.width() as i32;
+    for y in 0..canvas.height() as i32 {
+        for x in 0..width {
+            let pixel = canvas.get(x, y);
+            if pixel.a == 0 {
+                continue;
+            }
+            let lamp = lamp_light[(y * width + x) as usize];
             let k = dark * (1.0 - lamp);
             let warm = dark * lamp;
             let channel = |value: u8, tint: f32, warmth: f32| {
@@ -1036,6 +1168,9 @@ fn outline_tiles(canvas: &mut Canvas, view: &View, footprint: Footprint, color: 
 }
 
 #[cfg(test)]
+mod golden;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1074,22 +1209,59 @@ mod tests {
             }
         }
         let lamp = [((60, 50), 30)];
-        let everywhere = |_: i32, _: i32| true;
+        let lit = lamp_light(120, 80, &lamp, |_, _| true);
         let mut day = picture.clone();
-        light(&mut day, &Daylight::default(), &lamp, everywhere);
+        light(&mut day, &Daylight::default(), &lit);
         assert_eq!(day.get(5, 5), grey);
         let mut night = picture.clone();
         let late = Daylight {
             hour: 23.0,
             month: time::Month::June,
         };
-        light(&mut night, &late, &lamp, everywhere);
+        light(&mut night, &late, &lit);
         let (far, near) = (night.get(5, 75), night.get(60, 50));
         assert!(
             far.r < 120 && far.b > far.r,
             "dark and blue away from the lamp: {far:?}"
         );
         assert!(near.r >= grey.r, "lit at the lamp's foot: {near:?}");
+    }
+
+    #[test]
+    fn a_frame_is_as_last_seen_until_something_in_it_changes() {
+        use crate::household::Household;
+        let household = Household::new(formiga_home_contract::sample::snapshot()).unwrap();
+        let home = crate::starter::home(&household.snapshot);
+        let house = House::of(&home.rooms);
+        // With motion reduced nobody breathes or blinks, so only what happens changes them.
+        let mut actors = crate::show_house::pose(&household, &house, true);
+        let mut scene = Scene::new(&house);
+        let mut overlay = Overlay::default();
+        assert!(
+            !scene.as_last_seen(&house, &actors, 0.5, &overlay),
+            "never seen"
+        );
+        assert!(scene.as_last_seen(&house, &actors, 2.5, &overlay));
+        overlay.hovered = Some(Target::Resident(actors[1].id));
+        assert!(
+            !scene.as_last_seen(&house, &actors, 2.5, &overlay),
+            "pointed at"
+        );
+        assert!(scene.as_last_seen(&house, &actors, 2.5, &overlay));
+        actors[1].pos.0 += 0.25;
+        assert!(!scene.as_last_seen(&house, &actors, 2.5, &overlay), "moved");
+        let mut moved = house.clone();
+        moved.pieces.pop();
+        assert!(
+            !scene.as_last_seen(&moved, &actors, 2.5, &overlay),
+            "a piece gone"
+        );
+        assert!(scene.as_last_seen(&moved, &actors, 2.5, &overlay));
+        scene.set_pictures(HashMap::new());
+        assert!(
+            !scene.as_last_seen(&moved, &actors, 2.5, &overlay),
+            "new keepsakes"
+        );
     }
 
     #[test]

@@ -23,9 +23,10 @@ use crate::paint::{self, Ramp};
 use formiga_art::Canvas;
 use formiga_home_contract::WallSide;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 /// A drawing with the point it hangs from: for furniture, the far corner of its footprint.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Sprite {
     pub canvas: Canvas,
     pub anchor: (i32, i32),
@@ -357,19 +358,19 @@ impl Easel {
 /// Every piece's drawing at every turn, made the first time it is asked for.
 #[derive(Default)]
 pub struct PieceCache {
-    sprites: HashMap<(&'static str, u8), Sprite>,
+    sprites: HashMap<(&'static str, u8), Rc<Sprite>>,
 }
 
 impl PieceCache {
-    pub fn get(&mut self, piece: &'static Piece, turn: u8) -> &Sprite {
+    pub fn get(&mut self, piece: &'static Piece, turn: u8) -> &Rc<Sprite> {
         self.sprites.entry((piece.id, turn % 4)).or_insert_with(|| {
             let away = turn % 4 >= 2;
             let sprite = furniture::draw(piece, away);
-            if turn % 2 == 1 {
+            Rc::new(if turn % 2 == 1 {
                 sprite.mirrored()
             } else {
                 sprite
-            }
+            })
         })
     }
 }
