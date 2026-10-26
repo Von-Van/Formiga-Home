@@ -511,6 +511,55 @@ fn a_design_file_reads_back_as_it_was_written() {
     assert_eq!(decode(&encode(&design).unwrap()).unwrap(), design);
 }
 
+/// A design file as the first Home to write one wrote it. However the contract's rooms grow, it
+/// must go on opening, and still put its armchair in a house.
+#[test]
+fn a_design_the_first_home_wrote_still_opens_and_fits_a_house() {
+    const FIRST: &str = r#"{
+  "format": "formiga.home.design",
+  "version": 1,
+  "min_reader_version": 1,
+  "name": "Snug corner",
+  "whole_house": false,
+  "saved_at_utc": "2026-10-15T12:00:00Z",
+  "rooms": [
+    {
+      "width": 6,
+      "depth": 6,
+      "floor": "floor.boards",
+      "wall": "wall.plaster",
+      "pieces": [
+        { "uid": 1, "piece": "armchair", "x": 1, "y": 1, "turn": 0 }
+      ],
+      "displays": []
+    }
+  ]
+}
+"#;
+    let design = decode(FIRST.as_bytes()).unwrap();
+    assert_eq!(design.name, "Snug corner");
+    assert!(!design.whole_house);
+    assert_eq!(
+        design.rooms[0].pieces[0].piece,
+        CatalogId::known("armchair")
+    );
+    assert_eq!(
+        decode(&encode(&design).unwrap()).unwrap(),
+        design,
+        "and written again by this Home it reads the same"
+    );
+    let (snapshot, state) = lived_in();
+    let fitted = fit(&design, &state, keeper(&snapshot), &snapshot, 0).unwrap();
+    assert!(
+        fitted.home.rooms[0]
+            .pieces
+            .iter()
+            .any(|placed| placed.piece == CatalogId::known("armchair")),
+        "{:?}",
+        fitted.omitted
+    );
+}
+
 #[test]
 fn a_file_that_is_not_a_sound_design_is_refused_with_why() {
     let design = one_room(room(6, 6));
