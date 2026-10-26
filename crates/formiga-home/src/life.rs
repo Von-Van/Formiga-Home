@@ -35,6 +35,7 @@ use formiga_home_contract::{
 };
 use formiga_travel::Band;
 use std::collections::{BTreeMap, VecDeque};
+use std::rc::Rc;
 
 mod act;
 mod choices;
@@ -323,6 +324,9 @@ pub struct Life {
     together: BTreeMap<(Id, Id, Together), u8>,
     /// How dark it is at home.
     dark: f32,
+    /// The house as it was last lived in, and its open floor: found again only when the house
+    /// changes, not every step.
+    floor: Option<(House, Rc<Floor>)>,
 }
 
 impl Life {
@@ -381,7 +385,20 @@ impl Life {
             novel: Vec::new(),
             together: BTreeMap::new(),
             dark: 0.0,
+            floor: None,
         }
+    }
+
+    /// The open floor of `house`, as last found if the house is as it was.
+    fn floor(&mut self, house: &House) -> Rc<Floor> {
+        if let Some((of, floor)) = &self.floor
+            && of == house
+        {
+            return Rc::clone(floor);
+        }
+        let floor = Rc::new(Floor::of(house));
+        self.floor = Some((house.clone(), Rc::clone(&floor)));
+        floor
     }
 
     fn index(&self, id: Id) -> Option<usize> {
@@ -476,7 +493,7 @@ impl Life {
         self.minds[index].handled = None;
         self.minds[index].queue.clear();
         self.minds[index].staying = false;
-        let floor = Floor::of(house);
+        let floor = self.floor(house);
         let (outside, inside) = door(house, &floor);
         let actor = &mut self.actors[index];
         actor.get_down();
@@ -494,7 +511,7 @@ impl Life {
         let Some(index) = self.index(id) else {
             return false;
         };
-        let floor = Floor::of(house);
+        let floor = self.floor(house);
         match self.minds[index].presence {
             Presence::Out | Presence::Gone | Presence::Expected { .. } => {
                 self.knock(household, house, &floor, index, now);
@@ -645,7 +662,7 @@ impl Life {
     /// Set down where it was let go, or, over furniture, on the open tile nearest it.
     pub fn put_down(&mut self, house: &House, id: Id, now: f32) {
         let Some(index) = self.index(id) else { return };
-        let floor = Floor::of(house);
+        let floor = self.floor(house);
         let at = Floor::tile_of(self.actors[index].pos);
         let actor = &mut self.actors[index];
         if !floor.open(at.0, at.1) {
@@ -707,7 +724,7 @@ impl Life {
 
     /// Anyone standing where a piece now stands steps to the nearest open floor.
     pub fn make_room(&mut self, house: &House) {
-        let floor = Floor::of(house);
+        let floor = self.floor(house);
         let mut taken: Vec<(i32, i32)> = Vec::new();
         for actor in &mut self.actors {
             if actor.on_piece.is_some() || actor.hidden {
@@ -779,7 +796,7 @@ impl Life {
             return;
         }
         let dt = dt.clamp(0.0, 0.25);
-        let floor = Floor::of(house);
+        let floor = self.floor(house);
         for index in 0..self.minds.len() {
             let Some(resident) = household.resident(self.minds[index].id) else {
                 continue;

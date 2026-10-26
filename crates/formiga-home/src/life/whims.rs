@@ -364,13 +364,14 @@ impl Life {
         leaving: bool,
     ) -> Option<(Act, f32)> {
         let me = self.actors[index].pos;
+        let floor = self.floor(house);
         let dice = &mut self.minds[index].dice;
         let area = &house.rooms[usize::from(room)];
         let wander = (
             i32::from(area.x) + (dice.next() * f32::from(area.width)) as i32,
             i32::from(area.y) + (dice.next() * f32::from(area.depth)) as i32,
         );
-        let tile = Floor::of(house).nearest_open_in(wander, room)?;
+        let tile = floor.nearest_open_in(wander, room)?;
         let far =
             ((tile.0 as f32 + 0.5 - me.0).powi(2) + (tile.1 as f32 + 0.5 - me.1).powi(2)).sqrt();
         (far > 1.5).then(|| {
