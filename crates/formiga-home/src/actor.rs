@@ -65,7 +65,7 @@ impl Pose {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct FrameKey {
     clip: BodyClip,
     frame: u8,
@@ -74,6 +74,24 @@ struct FrameKey {
     eyelids: EyelidPose,
     gaze: GazeDirection,
 }
+
+/// Everything about how a resident is drawn at a moment, and where: when it is the same, so is
+/// its picture.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Look {
+    id: Id,
+    hidden: bool,
+    pos: (f32, f32),
+    lift: f32,
+    on_piece: Option<u16>,
+    dress: Option<AccessoryArt>,
+    frame: Option<FrameKey>,
+    origin: (i32, i32),
+    cue: Option<CueLook>,
+}
+
+/// A cue as it is drawn: which, how far it bobs, and for a sleeper's, its second z.
+type CueLook = (Cue, i32, Option<(i32, u8)>);
 
 /// Getting up onto a piece over a walk's last leg, or down off one over its first: the piece, how
 /// high its seat is, and which way it sits on it.
@@ -469,8 +487,32 @@ impl Actor {
     pub fn draw(&mut self, canvas: &mut Canvas, view: &View, now: f32, opacity: u8) {
         let key = self.key(now);
         let (x, y) = self.origin(view);
-        let frame = self.frame(key);
-        paint::blit_faded(canvas, &frame.clone(), x, y, opacity);
+        paint::blit_faded(canvas, self.frame(key), x, y, opacity);
+    }
+
+    /// How it is drawn at `now`, and where. Out of the house it is not drawn at all, unless it
+    /// is `shown` all the same, as pointed at.
+    pub fn look(&self, view: &View, now: f32, shown: bool) -> Look {
+        let drawn = !self.hidden || shown;
+        Look {
+            id: self.id,
+            hidden: self.hidden,
+            pos: self.pos,
+            lift: self.lift,
+            on_piece: self.on_piece,
+            dress: self.dress,
+            frame: drawn.then(|| self.key(now)),
+            origin: if drawn { self.origin(view) } else { (0, 0) },
+            cue: self
+                .pose
+                .cue
+                .filter(|_| drawn && !self.walking())
+                .map(|cue| {
+                    let (bob, drift) =
+                        crate::art::cues::motion(cue, self.held_for(now), self.reduce_motion);
+                    (cue, bob, drift)
+                }),
+        }
     }
 
     /// The cue over its head, if its pose has one.

@@ -11,7 +11,6 @@ use crate::body::Body;
 use crate::catalog::{self, Family, Use};
 use crate::house::House;
 use crate::household::{Household, Id, Resident};
-use crate::path::Floor;
 use crate::placement;
 use formiga_core::{Habit, TemperamentKind};
 use formiga_home_contract::{DisplayId, DisplayItem, DisplaySource, HomeSnapshot, Liked, Liking};

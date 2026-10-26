@@ -260,6 +260,9 @@ cargo run -p formiga-home -- --formiga-home <visit directory>
   wrote, as [docs/CONTRACT.md](docs/CONTRACT.md) describes.
 - **`--home-version`** prints the newest contract version this build reads, and
   **`--icon <folder>`** writes the app icon. Both exist for the packaging scripts.
+- On Windows Home is a windowed program with no console, so a shell neither waits for it nor shows
+  what it prints: run it with `Start-Process -Wait -NoNewWindow -RedirectStandardOutput <file>`
+  to read what it says, as the packaging script does.
 
 ### Seeing changes without a window
 
@@ -345,7 +348,6 @@ crates/formiga-home/src/
   art/             the shell, the furniture, shown things, souvenirs, keepsakes, cues, and the
                    notebook
   show_house.rs    rooms set up for the review renders and tests
-  paint.rs         painting tools
   icon.rs          the app icon: a little room, in pixels
 packaging/, scripts/   the macOS app and the Windows installer
 ```
@@ -378,9 +380,12 @@ CI runs the same three checks on macOS and Windows:
 
 ```sh
 cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
 ```
+
+A release runs them again on the tagged commit, with `scripts/set-version.sh --check` on macOS,
+and publishes nothing unless they pass.
 
 The household contract, with its tests and its saved example documents for every version (its
 "golden fixtures"), lives in Formiga Desktop's workspace, and changes there.

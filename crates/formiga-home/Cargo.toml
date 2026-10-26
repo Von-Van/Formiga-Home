@@ -14,6 +14,7 @@ eframe.workspace = true
 formiga-art.workspace = true
 formiga-core.workspace = true
 formiga-home-contract.workspace = true
+formiga-pencil.workspace = true
 formiga-travel.workspace = true
 png.workspace = true
 rfd.workspace = true

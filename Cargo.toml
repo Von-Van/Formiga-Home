@@ -17,6 +17,8 @@ formiga-art = { git = "https://github.com/Von-Van/Formiga-Desktop", branch = "de
 formiga-core = { git = "https://github.com/Von-Van/Formiga-Desktop", branch = "desktop-travel-sculpt" }
 formiga-home-contract = { git = "https://github.com/Von-Van/Formiga-Desktop", branch = "desktop-travel-sculpt" }
 formiga-travel = { git = "https://github.com/Von-Van/Formiga-Desktop", branch = "desktop-travel-sculpt" }
+# The notebooks' pencil hand, from Desktop's branch until a Desktop release carries it.
+formiga-pencil = { git = "https://github.com/Von-Van/Formiga-Desktop", branch = "desktop-pencil-notebook" }
 
 anyhow = "1.0.104"
 directories = "5.0.1"

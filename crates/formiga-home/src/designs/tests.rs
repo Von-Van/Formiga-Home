@@ -616,12 +616,54 @@ fn the_gallery_keeps_its_designs_until_one_is_removed() {
         .iter()
         .map(|kept| (kept.design.name.as_str(), kept.opened))
         .collect();
-    assert_eq!(names, vec![("Two", true), ("One", false)]);
-    again.remove(0).unwrap();
+    assert_eq!(names, vec![("One", false), ("Two", true)]);
+    again.remove(1).unwrap();
     let last = Gallery::open(Some(&data));
     assert_eq!(last.kept.len(), 1);
     assert_eq!(last.kept[0].design.name, "One");
     assert!(data.join("designs/stray.json").exists());
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn the_gallery_opens_in_the_order_its_designs_were_kept_and_keeps_the_newest() {
+    let data = scratch("gallery-order");
+    let folder = data.join("designs");
+    std::fs::create_dir_all(&folder).unwrap();
+    let (snapshot, state) = lived_in();
+    let home = state.household(keeper(&snapshot)).unwrap();
+    let write = |name: &str, file: &str| {
+        export(
+            &Design::of(home, Scope::Room(0), name, at()),
+            &folder.join(file),
+        )
+        .unwrap();
+    };
+    // By the second each was kept, then by its number that second, whether saved or opened.
+    write("Fourth", "opened-1000-0.json");
+    write("Third", "saved-999-10.json");
+    write("Second", "saved-999-2.json");
+    write("First", "opened-998-0.json");
+    let names = |gallery: &Gallery| -> Vec<String> {
+        gallery
+            .kept
+            .iter()
+            .map(|kept| kept.design.name.clone())
+            .collect()
+    };
+    let gallery = Gallery::open(Some(&data));
+    assert_eq!(names(&gallery), ["First", "Second", "Third", "Fourth"]);
+    // A folder holding more than the gallery keeps shows the newest, still oldest first.
+    for n in 0..MAX_DESIGNS {
+        write(&format!("Later {n}"), &format!("saved-{}-0.json", 2000 + n));
+    }
+    let gallery = Gallery::open(Some(&data));
+    assert_eq!(gallery.kept.len(), MAX_DESIGNS);
+    assert_eq!(gallery.kept[0].design.name, "Later 0");
+    assert_eq!(
+        gallery.kept[MAX_DESIGNS - 1].design.name,
+        format!("Later {}", MAX_DESIGNS - 1)
+    );
     let _ = std::fs::remove_dir_all(&data);
 }
 
