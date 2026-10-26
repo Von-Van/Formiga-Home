@@ -687,8 +687,11 @@ mod tests {
                 "version {version}"
             );
             assert_eq!(home.rooms[0].displays.len(), 2, "version {version}");
-            // And what Home hands back answers a Desktop that still holds that state.
-            visit.keep(&visit.state).unwrap();
+            // And what Home hands back, once the window has made this household's home as it
+            // always does on opening, answers a Desktop that still holds that state.
+            let mut state = visit.state.clone();
+            crate::arrange::ensure_home(&mut state, &snapshot);
+            visit.keep(&state).unwrap();
             let seal = SessionSeal::of(&snapshot, &encode(&snapshot).unwrap(), kept.as_bytes());
             let (result, _) = read_document::<HomeResult>(&dir.join(RESULT_FILE)).unwrap();
             let accepted = accept_result(&seal, &snapshot, &sent, &result);
@@ -697,7 +700,7 @@ mod tests {
                 "version {version}: {:?}",
                 accepted.set_aside
             );
-            assert_eq!(accepted.state.households, visit.state.households);
+            assert_eq!(accepted.state.households, state.households);
             let _ = std::fs::remove_dir_all(dir.parent().unwrap());
         }
     }
