@@ -653,11 +653,7 @@ mod tests {
                 .iter_mut()
                 .chain(expected.visitors.iter_mut())
             {
-                if traveler
-                    .accessory
-                    .as_ref()
-                    .is_some_and(|worn| never_found(worn))
-                {
+                if traveler.accessory.as_ref().is_some_and(never_found) {
                     traveler.accessory = None;
                 }
             }
