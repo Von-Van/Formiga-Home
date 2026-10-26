@@ -5,7 +5,7 @@
 //! for when it is pointed at.
 
 use super::lines;
-use super::notebook::{LABEL, ink, kicker, label_job};
+use super::notebook::{HAND, hand_job, ink, kicker};
 use super::*;
 use crate::art::{displays, shell};
 use formiga_art::{BodyClip, CreatureRenderer, EyelidPose, FaceRenderState, GazeDirection};
@@ -592,7 +592,7 @@ impl HomeApp {
             }
             let queue = self.life.queue(id);
             if !queue.is_empty() {
-                lines::write(ui, label_job("Asked", LABEL, ink::forest(dark)));
+                lines::write(ui, hand_job("Asked", HAND, ink::forest(dark)));
                 let mut cancel = None;
                 for (position, act) in queue.iter().enumerate() {
                     lines::ruled_row(ui, |ui| {

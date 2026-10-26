@@ -1581,3 +1581,205 @@ fn shift_and_the_arrows_move_about_a_house_seen_close() {
     assert!(after.min.x < before.min.x, "{before:?} to {after:?}");
     let _ = std::fs::remove_dir_all(&data);
 }
+
+/// The notebook pictured without a window, for review: when `FORMIGA_HOME_REVIEW_DIR` is set,
+/// the living page and the arranging page are written there as PNGs at two pixels to the point.
+/// Without it, the frames are still drawn and the picture checked for its lettering.
+#[test]
+fn the_notebook_is_pictured_for_review_without_a_window() {
+    let out = std::env::var_os("FORMIGA_HOME_REVIEW_DIR").map(PathBuf::from);
+    for (name, arrange) in [("living", false), ("arranging", true)] {
+        // A window of its own for each picture, so every texture it uses is seen made.
+        let data = scratch(&format!("review-{name}"));
+        let snapshot = sample::snapshot();
+        let household = Household::new(snapshot.clone()).unwrap();
+        let homes = RehearsalHomes::new(Some(&data), &snapshot.colony_key);
+        let host = Host::Rehearsal(Rehearsal::new(
+            snapshot,
+            homes,
+            "test".to_owned(),
+            crate::host::Colony::Sample,
+        ));
+        let mut ctx = egui::Context::default();
+        let mut app = HomeApp::new(&ctx, household, host, Some(data.clone()), None);
+        app.help = false;
+        if arrange {
+            app.set_mode(Mode::Arrange);
+        }
+        let picture = review::picture(&mut ctx, &mut app, 2.0);
+        assert_eq!(picture.0, 2200);
+        if let Some(dir) = &out {
+            std::fs::create_dir_all(dir).unwrap();
+            let file = std::fs::File::create(dir.join(format!("{name}.png"))).unwrap();
+            formiga_art::write_png(file, picture.0, picture.1, &picture.2).unwrap();
+        }
+    }
+}
+
+mod review {
+    use super::*;
+    use eframe::egui::epaint::{self, ClippedPrimitive, Primitive, Vertex};
+    use eframe::egui::{Color32, ColorImage, TextureFilter, TextureId, TextureOptions};
+    use std::collections::HashMap;
+
+    type Textures = HashMap<TextureId, (ColorImage, TextureOptions)>;
+
+    /// A few frames of the window at 1100 by 800 points, `scale` pixels to the point, and the last
+    /// as straight RGBA: its width, height and pixels.
+    pub(super) fn picture(
+        ctx: &mut egui::Context,
+        app: &mut HomeApp,
+        scale: f32,
+    ) -> (u32, u32, Vec<u8>) {
+        let mut textures = Textures::new();
+        let mut time = 100.0;
+        let mut last = None;
+        for _ in 0..8 {
+            let input = RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1100.0, 800.0))),
+                time: Some(time),
+                viewports: std::iter::once((
+                    egui::ViewportId::ROOT,
+                    egui::ViewportInfo {
+                        native_pixels_per_point: Some(scale),
+                        ..Default::default()
+                    },
+                ))
+                .collect(),
+                ..RawInput::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| app.frame(ui));
+            for (id, deltas) in std::mem::take(&mut output.textures_delta.set) {
+                for delta in deltas {
+                    upload(&mut textures, id, delta);
+                }
+            }
+            output.textures_delta.clear();
+            last = Some(output);
+            time += 1.0 / 30.0;
+        }
+        let output = last.unwrap();
+        let ppp = output.pixels_per_point;
+        let primitives = ctx.tessellate(output.shapes, ppp);
+        let (w, h) = ((1100.0 * ppp) as u32, (800.0 * ppp) as u32);
+        (w, h, paint(&primitives, &textures, ppp, w, h))
+    }
+
+    fn upload(textures: &mut Textures, id: TextureId, delta: epaint::ImageDelta) {
+        let epaint::ImageData::Color(image) = delta.image;
+        match delta.pos {
+            None => {
+                textures.insert(id, ((*image).clone(), delta.options));
+            }
+            Some([x0, y0]) => {
+                if let Some((whole, _)) = textures.get_mut(&id) {
+                    let [w, h] = image.size;
+                    for y in 0..h {
+                        for x in 0..w {
+                            let (tx, ty) = (x0 + x, y0 + y);
+                            if tx < whole.size[0] && ty < whole.size[1] {
+                                whole.pixels[ty * whole.size[0] + tx] = image.pixels[y * w + x];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn paint(
+        primitives: &[ClippedPrimitive],
+        textures: &Textures,
+        ppp: f32,
+        width: u32,
+        height: u32,
+    ) -> Vec<u8> {
+        let mut pixels = vec![[0.36, 0.23, 0.15, 1.0]; (width * height) as usize];
+        for primitive in primitives {
+            let Primitive::Mesh(mesh) = &primitive.primitive else {
+                continue;
+            };
+            let texture = textures.get(&mesh.texture_id);
+            let clip = primitive.clip_rect;
+            let clip = (
+                (clip.min.x * ppp).round().max(0.0) as i32,
+                (clip.min.y * ppp).round().max(0.0) as i32,
+                ((clip.max.x * ppp).round() as i32).min(width as i32),
+                ((clip.max.y * ppp).round() as i32).min(height as i32),
+            );
+            for corners in mesh.indices.chunks_exact(3) {
+                let v = [0, 1, 2].map(|k| &mesh.vertices[corners[k] as usize]);
+                triangle(&mut pixels, width, clip, ppp, v, texture);
+            }
+        }
+        let byte = |c: f32| (c.clamp(0.0, 1.0) * 255.0).round() as u8;
+        pixels
+            .iter()
+            .flat_map(|p| {
+                let a = p[3].max(1e-6);
+                [byte(p[0] / a), byte(p[1] / a), byte(p[2] / a), 255]
+            })
+            .collect()
+    }
+
+    fn triangle(
+        pixels: &mut [[f32; 4]],
+        width: u32,
+        clip: (i32, i32, i32, i32),
+        ppp: f32,
+        v: [&Vertex; 3],
+        texture: Option<&(ColorImage, TextureOptions)>,
+    ) {
+        let edge = |a: (f32, f32), b: (f32, f32), c: (f32, f32)| {
+            (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0)
+        };
+        let unit = |c: Color32| c.to_array().map(|b| f32::from(b) / 255.0);
+        let p = v.map(|v| (v.pos.x * ppp, v.pos.y * ppp));
+        let area = edge(p[0], p[1], p[2]);
+        if area.abs() < 1e-6 {
+            return;
+        }
+        let min_x = (p.iter().map(|p| p.0).fold(f32::MAX, f32::min).floor() as i32).max(clip.0);
+        let min_y = (p.iter().map(|p| p.1).fold(f32::MAX, f32::min).floor() as i32).max(clip.1);
+        let max_x = (p.iter().map(|p| p.0).fold(f32::MIN, f32::max).ceil() as i32).min(clip.2);
+        let max_y = (p.iter().map(|p| p.1).fold(f32::MIN, f32::max).ceil() as i32).min(clip.3);
+        let colours = v.map(|v| unit(v.color));
+        for y in min_y..max_y {
+            for x in min_x..max_x {
+                let c = (x as f32 + 0.5, y as f32 + 0.5);
+                let w = [
+                    edge(p[1], p[2], c) / area,
+                    edge(p[2], p[0], c) / area,
+                    edge(p[0], p[1], c) / area,
+                ];
+                if w.iter().any(|w| *w < 0.0) {
+                    continue;
+                }
+                let mut src = [0.0; 4];
+                for (k, s) in src.iter_mut().enumerate() {
+                    *s = w[0] * colours[0][k] + w[1] * colours[1][k] + w[2] * colours[2][k];
+                }
+                if let Some((image, options)) = texture {
+                    let u = w[0] * v[0].uv.x + w[1] * v[1].uv.x + w[2] * v[2].uv.x;
+                    let t = w[0] * v[0].uv.y + w[1] * v[1].uv.y + w[2] * v[2].uv.y;
+                    let [iw, ih] = image.size;
+                    let (tx, ty) = (u * iw as f32, t * ih as f32);
+                    // Nearest throughout: enough to review by, and every notebook picture is.
+                    let _ = options.magnification == TextureFilter::Nearest;
+                    let texel = unit(
+                        image.pixels[(ty.floor() as i32).clamp(0, ih as i32 - 1) as usize * iw
+                            + (tx.floor() as i32).clamp(0, iw as i32 - 1) as usize],
+                    );
+                    for k in 0..4 {
+                        src[k] *= texel[k];
+                    }
+                }
+                let dst = &mut pixels[(y as u32 * width + x as u32) as usize];
+                let keep = 1.0 - src[3];
+                for k in 0..4 {
+                    dst[k] = src[k] + dst[k] * keep;
+                }
+            }
+        }
+    }
+}

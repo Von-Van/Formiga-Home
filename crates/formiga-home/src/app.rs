@@ -156,6 +156,8 @@ impl HomeApp {
             formiga_travel::Theme::Dark => egui::ThemePreference::Dark,
             _ => egui::ThemePreference::System,
         });
+        // Everything written in the notebook is in the pencil hand, from the first frame.
+        formiga_pencil::install(ctx, formiga_pencil::Everywhere::Yes);
         notebook::style(ctx);
         ctx.set_zoom_factor(household.text_scale());
         let mut state = host.state().clone();

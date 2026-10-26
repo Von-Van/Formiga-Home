@@ -124,7 +124,8 @@ pub(super) mod ink {
 /// The size every printed label in the notebook is set at, as Desktop's notebook sets them.
 pub(super) const LABEL: f32 = 10.5;
 
-/// A printed label: small spaced capitals.
+/// A printed label, for what really is printed (the name on the cover, the tabs): small spaced
+/// capitals in monospace.
 pub(super) fn label_job(text: &str, size: f32, color: egui::Color32) -> egui::text::LayoutJob {
     let mut job = egui::text::LayoutJob::default();
     job.append(
@@ -140,10 +141,30 @@ pub(super) fn label_job(text: &str, size: f32, color: egui::Color32) -> egui::te
     job
 }
 
-/// A section's printed label on a page.
+/// The smallest the pencil hand is written: headings and anything jotted in passing.
+pub(super) const HAND: f32 = 15.0;
+
+/// Something jotted as a heading: the pencil hand's bold capitals, spaced a little, never under
+/// [`HAND`].
+pub(super) fn hand_job(text: &str, size: f32, color: egui::Color32) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    job.append(
+        &text.to_uppercase(),
+        0.0,
+        egui::TextFormat {
+            font_id: formiga_pencil::hand_bold(size.max(HAND)),
+            color,
+            extra_letter_spacing: 1.0,
+            ..Default::default()
+        },
+    );
+    job
+}
+
+/// A section's heading on a page, in the pencil hand.
 pub(super) fn kicker(ui: &mut egui::Ui, text: &str) {
     let dark = ui.visuals().dark_mode;
-    super::lines::write(ui, label_job(text, LABEL, ink::forest(dark)));
+    super::lines::write(ui, hand_job(text, HAND, ink::forest(dark)));
 }
 
 /// The painted cover, kept until the window changes size or a control on it changes.
@@ -714,13 +735,13 @@ pub(super) fn style(ctx: &egui::Context) {
             widgets.active.bg_stroke = egui::Stroke::new(1.0, ink::forest(dark));
             style.spacing.button_padding = egui::vec2(6.0, 2.0);
             style.spacing.item_spacing = egui::vec2(6.0, 4.0);
-            // The notes are set as Desktop's notebook sets its pages: body text a size that
-            // reads at a glance, and small print a step under it rather than a squint.
+            // The notes are written in the pencil hand, as Desktop's notebook is, and never under
+            // 15 points.
             for (text_style, size) in [
-                (egui::TextStyle::Body, 14.0),
-                (egui::TextStyle::Button, 13.5),
-                (egui::TextStyle::Heading, 20.0),
-                (egui::TextStyle::Small, 12.0),
+                (egui::TextStyle::Body, 15.0),
+                (egui::TextStyle::Button, 15.0),
+                (egui::TextStyle::Heading, 22.0),
+                (egui::TextStyle::Small, 15.0),
             ] {
                 style
                     .text_styles
