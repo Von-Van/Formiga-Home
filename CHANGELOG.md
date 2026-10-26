@@ -4,8 +4,30 @@ This page records what changed in each version of Formiga Home. Each version's s
 its release notes: `.github/workflows/release.yml` publishes it alongside the downloads when the
 version is tagged.
 
-## Unreleased
+## 0.68.0 (2026-10-26)
 
+Home is built on Formiga Desktop 0.68.0 and reads household version 12 and travel version 6, so a
+creature reshaped in Formiga Farm comes indoors as itself. An older Formiga still opens its houses
+as before.
+
+- Farm creatures are drawn as themselves, and each body keeps to what it can do: a turtle only
+  climbs onto low pieces, a whale drifts up rather than stepping and never bounces on a bed, and
+  the menus leave out what a body can't do.
+- Opened on its own, from Applications or the Start menu, Home shows a welcome card saying a house
+  opens from your village in Formiga, and offers a look around with a sample colony.
+- A kitchen and a study can be built, with five new pieces: a little stove, a kitchen dresser, a
+  writing desk, a blanket chest and a tall clock that residents wind. Every kind of room is now for
+  something, and whoever is in it does more of that.
+- Every project stage that waited on the Hill or on friends can be met with a little more life at
+  home instead, every Hill souvenir counts towards something, and a Winners' podium project appears
+  once the colony has a cup or medal from Formiga Battle. The household warms up by the hearth, has
+  supper at the family table and puts on puppet shows, and every bed and basket can be made over.
+- The house can be used from the keyboard: the arrows step through everyone and everything, Enter
+  asks or picks up, and the arrows carry what is picked up a tile at a time.
+- Hovering anything not here yet says what it waits on, the rooms page says how long until another
+  room, the how-to note is out the first time a house is opened, and a full keepsake drawer says so.
+- The room is drawn only when it changes and the lamps' light worked out once, so the house costs
+  less to keep open, and a visit's moments reach Formiga even if the clock was changed meanwhile.
 - The notebook round the house is written in the pencil hand Desktop and Battle now share: Kalam,
   drawn onto a pixel grid with no anti-aliasing, so the notes read as pixel-art pencil beside the
   painted cover. Section headings are its bold capitals, nothing is written under 15 points, and
