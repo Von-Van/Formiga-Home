@@ -7,9 +7,13 @@ use super::notebook::ink;
 use super::*;
 use crate::life::Inside;
 
+/// How long to wait before trying again to tell Desktop who is in, after a word that could not
+/// be written.
+const INDOORS_RETRY_SECS: f32 = 1.0;
+
 impl HomeApp {
     /// Who is in the house just now, said to Desktop whenever it changes. A word that could not
-    /// be written is tried again next frame.
+    /// be written is tried again a second later, and the trouble told of once until one is.
     pub(super) fn say_who_is_indoors(&mut self) {
         if !self.host.follows_indoors() {
             return;
@@ -18,10 +22,25 @@ impl HomeApp {
         if self.indoors_said.as_ref() == Some(&indoors) {
             return;
         }
+        let now = self.now();
+        if self
+            .indoors_failed
+            .is_some_and(|failed| now - failed < INDOORS_RETRY_SECS)
+        {
+            return;
+        }
         let travelers: Vec<TravelerId> = indoors.iter().copied().map(TravelerId).collect();
         match self.host.say_indoors(&travelers) {
-            Ok(()) => self.indoors_said = Some(indoors),
-            Err(error) => eprintln!("formiga-home: {error:#}"),
+            Ok(()) => {
+                self.indoors_said = Some(indoors);
+                self.indoors_failed = None;
+            }
+            Err(error) => {
+                if self.indoors_failed.is_none() {
+                    eprintln!("formiga-home: {error:#}");
+                }
+                self.indoors_failed = Some(now);
+            }
         }
     }
 

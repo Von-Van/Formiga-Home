@@ -147,10 +147,8 @@ impl HomeApp {
             HomeMoment::Visit { .. } => 6,
             HomeMoment::Unknown => 7,
         };
-        let mut moments: Vec<_> = home
-            .journal
+        let mut moments: Vec<_> = written_since(&home.journal, &self.journal_at_open)
             .iter()
-            .filter(|entry| entry.at_utc >= self.opened_at_utc)
             .filter(|entry| match &entry.moment {
                 // A room built and taken back again is no news.
                 HomeMoment::Room { room } => home
@@ -202,4 +200,16 @@ impl HomeApp {
         self.keep();
         Some(id)
     }
+}
+
+/// The lines of `journal` written since it was `then`. The journal only grows while the house is
+/// open, its oldest lines let go once it is full, so what is left of `then` begins it and the rest
+/// is new. Told apart by the lines themselves rather than by when each says it was written, so a
+/// clock put back during the visit loses none of its moments, and lines written on an earlier
+/// visit while the clock was ahead are not sent again.
+fn written_since<'a>(journal: &'a [JournalEntry], then: &[JournalEntry]) -> &'a [JournalEntry] {
+    (0..=journal.len().min(then.len()))
+        .rev()
+        .find(|&kept| journal[..kept] == then[then.len() - kept..])
+        .map_or(journal, |kept| &journal[kept..])
 }

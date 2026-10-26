@@ -25,13 +25,22 @@ function Write-Checksum([string]$Path) {
 Push-Location $RepoDir
 try {
     rustup target add x86_64-pc-windows-msvc
-    cargo build --release -p formiga-home --target x86_64-pc-windows-msvc
+    cargo build --release --locked -p formiga-home --target x86_64-pc-windows-msvc
     if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
     # The Home version comes from the binary itself, so the installer can never claim another.
-    $HomeContractVersion = (& $Exe --home-version).Trim()
+    # Home is a windowed program with no console of its own, so PowerShell neither waits for it
+    # nor catches what it prints: run it to the end, and read what it printed from a file.
+    New-Item -ItemType Directory -Force $DistDir | Out-Null
+    $Caught = Join-Path $DistDir "home-version.txt"
+    $Run = Start-Process -FilePath $Exe -ArgumentList "--home-version" -NoNewWindow -Wait -PassThru -RedirectStandardOutput $Caught
+    if ($Run.ExitCode -ne 0) { throw "formiga-home --home-version failed" }
+    $HomeContractVersion = (Get-Content -Raw $Caught).Trim()
+    Remove-Item $Caught
+    if ($HomeContractVersion -notmatch '^\d+$') { throw "formiga-home gave no Home version: '$HomeContractVersion'" }
     # And so does the icon, from the same picture as the window's.
     $IconDir = Join-Path $DistDir "icon"
-    & $Exe --icon $IconDir | Out-Null
+    $Run = Start-Process -FilePath $Exe -ArgumentList "--icon", "`"$IconDir`"" -NoNewWindow -Wait -PassThru
+    if ($Run.ExitCode -ne 0) { throw "formiga-home --icon failed" }
     $Icon = Join-Path $IconDir "FormigaHome.ico"
     if ($env:FORMIGA_SIGNTOOL_CERT_SHA1) {
         signtool sign /sha1 $env:FORMIGA_SIGNTOOL_CERT_SHA1 /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $Exe

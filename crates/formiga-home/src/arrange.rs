@@ -99,31 +99,47 @@ impl Arranging {
     /// A keepsake has come to the house: it is there whatever is taken back or done again, `now`
     /// being the house it came to. A keepsake let go since cannot come back beside it if it had
     /// the same number, which a house gives again once its newest keepsake is let go, or if the
-    /// house would then keep more than it may: that one stays let go.
+    /// house would then keep more than it may: that one stays let go. Of those a full house could
+    /// keep, the ones the step nearer now kept stay first, so taking back two lettings-go never
+    /// lets go again what the first taking-back brought back.
     pub fn came(&mut self, now: &HouseholdHome, memento: &Memento) {
         let keeper = now.keeper;
-        for state in self.undo.iter_mut().chain(&mut self.redo) {
-            let Some(home) = state.household_mut(keeper) else {
-                continue;
-            };
-            if home.mementos.contains(memento) {
-                continue;
-            }
-            // In its way: one let go since under its number, or in a full house any let go since.
-            let in_the_way = |home: &HouseholdHome| {
-                home.mementos
-                    .iter()
-                    .find(|had| {
-                        had.serial == memento.serial
-                            || (!keepsakes::has_room(home) && !now.mementos.contains(had))
-                    })
-                    .map(|had| had.id(keeper))
-            };
-            while let Some(gone) = in_the_way(home) {
-                keepsakes::let_go(home, &gone);
-            }
-            if keepsakes::has_room(home) {
-                home.mementos.push(memento.clone());
+        // Each history from the step nearest now outwards: the undo list ends nearest now, and
+        // so does the redo list.
+        for history in [&mut self.undo, &mut self.redo] {
+            let mut nearer = now.mementos.clone();
+            for state in history.iter_mut().rev() {
+                let Some(home) = state.household_mut(keeper) else {
+                    continue;
+                };
+                if !home.mementos.contains(memento) {
+                    // In its way: one let go since under its number, or in a full house one let
+                    // go since, one the step nearer now let go too before any it kept.
+                    let in_the_way = |home: &HouseholdHome| {
+                        let let_go_since = |had: &&Memento| !now.mementos.contains(had);
+                        home.mementos
+                            .iter()
+                            .find(|had| had.serial == memento.serial)
+                            .or_else(|| {
+                                if keepsakes::has_room(home) {
+                                    return None;
+                                }
+                                home.mementos
+                                    .iter()
+                                    .filter(let_go_since)
+                                    .find(|had| !nearer.contains(had))
+                                    .or_else(|| home.mementos.iter().find(let_go_since))
+                            })
+                            .map(|had| had.id(keeper))
+                    };
+                    while let Some(gone) = in_the_way(home) {
+                        keepsakes::let_go(home, &gone);
+                    }
+                    if keepsakes::has_room(home) {
+                        home.mementos.push(memento.clone());
+                    }
+                }
+                nearer.clone_from(&home.mementos);
             }
         }
     }
@@ -1101,6 +1117,47 @@ mod tests {
         assert!(home.mementos.contains(&postcard));
         assert!(!home.mementos.contains(&full[0]));
         state.validate().unwrap();
+    }
+
+    #[test]
+    fn taking_back_two_lettings_go_in_a_full_house_keeps_what_the_first_brought_back() {
+        use formiga_home_contract::MementoKind;
+        let (snapshot, mut state, _, _) = setup();
+        let keeper = snapshot.household.keeper;
+        let friend = snapshot.visitors[0].id;
+        let at = snapshot.created_at_utc;
+        let mut arranging = Arranging::default();
+        let make = |state: &mut HomeState, arranging: &mut Arranging, kind| {
+            let home = state.household_mut(keeper).unwrap();
+            let id = keepsakes::make(home, kind, Some(friend), Vec::new(), at).unwrap();
+            arranging.came(home, home.memento(&id).unwrap());
+            home.memento(&id).unwrap().clone()
+        };
+        let full: Vec<Memento> = (0..formiga_home_contract::limits::MAX_MEMENTOS)
+            .map(|_| make(&mut state, &mut arranging, MementoKind::Pebble))
+            .collect();
+        // A later keepsake let go, then an earlier one, then another left in the full house.
+        let (later, earlier) = (&full[1], &full[0]);
+        arranging.remember(&state);
+        keepsakes::let_go(state.household_mut(keeper).unwrap(), &later.id(keeper));
+        arranging.remember(&state);
+        keepsakes::let_go(state.household_mut(keeper).unwrap(), &earlier.id(keeper));
+        let postcard = make(&mut state, &mut arranging, MementoKind::Postcard);
+        assert!(arranging.undo(&mut state));
+        let home = state.household(keeper).unwrap();
+        assert!(home.mementos.contains(earlier), "the first taking-back");
+        assert!(home.mementos.contains(&postcard));
+        assert!(arranging.undo(&mut state));
+        let home = state.household(keeper).unwrap();
+        assert!(home.mementos.contains(earlier), "still back");
+        assert!(home.mementos.contains(&postcard));
+        assert!(!home.mementos.contains(later), "no room for it beside them");
+        state.validate().unwrap();
+        assert!(arranging.redo(&mut state));
+        assert!(arranging.redo(&mut state));
+        let home = state.household(keeper).unwrap();
+        assert!(!home.mementos.contains(earlier) && !home.mementos.contains(later));
+        assert!(home.mementos.contains(&postcard));
     }
 
     #[test]

@@ -17,15 +17,22 @@ pub(super) struct Trying {
     /// The room a one-room design goes into.
     pub room: u8,
     pub fitted: Fitted,
+    /// The house the fitted design makes, as it is drawn.
+    pub house: House,
+}
+
+/// The design being tried in the house, while the Designs page is open: as
+/// [`HomeApp::tried`], from the window's fields alone.
+pub(super) fn tried(mode: Mode, drawer: Drawer, trying: &Option<Trying>) -> Option<&Trying> {
+    (mode == Mode::Arrange && drawer == Drawer::Designs)
+        .then_some(trying.as_ref())
+        .flatten()
 }
 
 impl HomeApp {
-    /// The house as a design would make it, if one is being tried.
-    pub(super) fn tried_house(&self) -> Option<House> {
-        (self.mode == Mode::Arrange && self.drawer == Drawer::Designs)
-            .then_some(self.trying.as_ref())
-            .flatten()
-            .map(|trying| House::of(&trying.fitted.home.rooms))
+    /// The design being tried in the house, while the Designs page is open.
+    pub(super) fn tried(&self) -> Option<&Trying> {
+        tried(self.mode, self.drawer, &self.trying)
     }
 
     /// Show `design` in the house, fitted into `room` if it is one room.
@@ -41,6 +48,7 @@ impl HomeApp {
             design,
             kept,
             room,
+            house: House::of(&fitted.home.rooms),
             fitted,
         });
         self.arranging.carrying = None;

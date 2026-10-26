@@ -731,6 +731,36 @@ fn the_journal_page_says_who_came_over_today() {
 }
 
 #[test]
+fn a_clock_changed_during_a_visit_neither_loses_its_moments_nor_sends_old_ones_again() {
+    let data = scratch("journal-clock");
+    let mut window = Harness::open(&data);
+    let (first, second) = (
+        TravelerId(window.app.household.visitors[0].id),
+        TravelerId(window.app.household.residents[0].id),
+    );
+    let keeper = window.app.keeper;
+    let now = now_utc();
+    // A line written on an earlier visit while the computer's clock was a day ahead, there when
+    // the house was opened.
+    let home = window.app.state.household_mut(keeper).unwrap();
+    home.note(
+        now + time::Duration::days(1),
+        HomeMoment::Visit { visitor: first },
+    );
+    window.app.journal_at_open = home.journal.clone();
+    // And one this visit, after the clock was put back an hour.
+    home.note(
+        now - time::Duration::hours(1),
+        HomeMoment::Visit { visitor: second },
+    );
+    assert_eq!(
+        window.app.lived().moments,
+        vec![HomeMoment::Visit { visitor: second }]
+    );
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
 fn a_rehearsal_goes_next_door_in_the_same_window_and_back_again() {
     let data = scratch("next-door");
     let mut window = Harness::open(&data);
@@ -904,7 +934,7 @@ fn a_cell_sends_someone_out_to_the_desktop_and_the_house_remembers_who_stays_out
 }
 
 #[test]
-fn who_is_indoors_is_said_again_after_a_word_that_could_not_be_written() {
+fn who_is_indoors_is_said_again_a_second_after_a_word_that_could_not_be_written() {
     use formiga_home_contract::{INDOORS_FILE, SNAPSHOT_FILE, STATE_FILE, write_document};
     let snapshot = sample::snapshot();
     let root = scratch("indoors-again");
@@ -927,6 +957,12 @@ fn who_is_indoors_is_said_again_after_a_word_that_could_not_be_written() {
     assert_eq!(app.indoors_said, None);
     assert!(word.is_dir());
     std::fs::remove_dir_all(&word).unwrap();
+    // Not tried again every frame, but a second later.
+    app.clock += 0.5;
+    app.say_who_is_indoors();
+    assert_eq!(app.indoors_said, None);
+    assert!(!word.exists());
+    app.clock += 0.6;
     app.say_who_is_indoors();
     assert_eq!(app.indoors_said, Some(app.life.indoors()));
     assert!(word.is_file());
@@ -1579,6 +1615,57 @@ fn shift_and_the_arrows_move_about_a_house_seen_close() {
     window.wait(0.1);
     let after = window.app.room_rect.unwrap();
     assert!(after.min.x < before.min.x, "{before:?} to {after:?}");
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+#[test]
+fn a_picture_goes_to_the_screen_exactly_as_drawn() {
+    // Every shade at every clearness, as egui would take the picture's bytes.
+    let mut picture = Canvas::new(64, 64);
+    for y in 0..64 {
+        for x in 0..64 {
+            let (r, a) = ((x * 4) as u8, (y * 4) as u8);
+            picture.set(x, y, formiga_art::Rgba::new(r, 255 - r, r / 2, a));
+        }
+    }
+    let expected = egui::ColorImage::from_rgba_unmultiplied([64, 64], &picture.rgba_bytes());
+    assert!(notebook::image_of(&picture) == expected);
+}
+
+#[test]
+fn behind_other_windows_the_house_goes_on_at_five_frames_a_second() {
+    let data = scratch("behind");
+    let mut window = Harness::open(&data);
+    let delay = |window: &mut Harness, focused: Option<bool>, minimized: Option<bool>| {
+        let mut input = RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1100.0, 800.0))),
+            time: Some(window.time),
+            ..RawInput::default()
+        };
+        let root = input.viewports.entry(egui::ViewportId::ROOT).or_default();
+        root.focused = focused;
+        root.minimized = minimized;
+        let app = &mut window.app;
+        let mut output = window.ctx.run_ui(input, |ui| app.frame(ui));
+        output.textures_delta.clear();
+        window.time += 0.2;
+        // What the window asks for itself; egui may ask for sooner while something animates.
+        window.app.frame_interval(&window.ctx)
+    };
+    assert_eq!(
+        delay(&mut window, Some(true), Some(false)),
+        Duration::from_millis(FRAME_MS)
+    );
+    assert_eq!(
+        delay(&mut window, Some(false), Some(false)),
+        Duration::from_millis(BEHIND_FRAME_MS)
+    );
+    assert_eq!(
+        delay(&mut window, Some(true), Some(true)),
+        Duration::from_millis(BEHIND_FRAME_MS)
+    );
+    // However slowly it is drawn, no step of the household's life is longer than its longest.
+    assert!(BEHIND_FRAME_MS as f32 / 1000.0 < 0.25);
     let _ = std::fs::remove_dir_all(&data);
 }
 

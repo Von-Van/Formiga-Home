@@ -16,8 +16,8 @@ dmg_staging="$dist_dir/Formiga-Home-dmg"
 
 cd "$repo_dir"
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
-cargo build --release -p formiga-home --target aarch64-apple-darwin
-cargo build --release -p formiga-home --target x86_64-apple-darwin
+cargo build --release --locked -p formiga-home --target aarch64-apple-darwin
+cargo build --release --locked -p formiga-home --target x86_64-apple-darwin
 
 rm -rf "$app_dir" "$dmg_staging"
 mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
