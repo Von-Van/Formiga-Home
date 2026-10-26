@@ -342,7 +342,6 @@ crates/formiga-home/src/
   art/             the shell, the furniture, shown things, souvenirs, keepsakes, cues, and the
                    notebook
   show_house.rs    rooms set up for the review renders and tests
-  paint.rs         painting tools
   icon.rs          the app icon: a little room, in pixels
 packaging/, scripts/   the macOS app and the Windows installer
 ```
