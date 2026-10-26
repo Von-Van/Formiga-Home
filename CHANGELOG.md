@@ -4,6 +4,13 @@ This page records what changed in each version of Formiga Home. Each version's s
 its release notes: `.github/workflows/release.yml` publishes it alongside the downloads when the
 version is tagged.
 
+## Unreleased
+
+- The notebook round the house is written in the pencil hand Desktop and Battle now share: Kalam,
+  drawn onto a pixel grid with no anti-aliasing, so the notes read as pixel-art pencil beside the
+  painted cover. Section headings are its bold capitals, nothing is written under 15 points, and
+  only what is printed (the house's name on the cover, the tabs) stays in monospace.
+
 ## 0.67.14 (2026-10-17)
 
 Home is built on Formiga Desktop 0.67.14 and still reads household version 11 and travel version 5,

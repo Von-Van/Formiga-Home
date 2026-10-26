@@ -8,7 +8,7 @@
 //! gives. Below them, what the household has made, for good.
 
 use super::lines;
-use super::notebook::{LABEL, ink, kicker, label_job};
+use super::notebook::{HAND, hand_job, ink, kicker};
 use super::pages::{and_list, crisp, cropped, tile};
 use super::*;
 use crate::projects::{self, Facts, Gift, Given, Kind, PROJECTS, Project, Standing};
@@ -309,7 +309,7 @@ impl HomeApp {
         if new {
             let galley = ui
                 .painter()
-                .layout_job(label_job("New", LABEL - 1.5, ink::stamp(dark)));
+                .layout_job(hand_job("New", HAND, ink::stamp(dark)));
             let y = lines::on_rule(&galley, first_rule);
             ui.painter()
                 .galley(egui::pos2(after, y), galley, ink::stamp(dark));
