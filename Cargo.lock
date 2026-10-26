@@ -776,7 +776,16 @@ version = "5.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a49173b84e034382284f27f1af4dcbbd231ffa358c0fe316541a7337f376a35"
 dependencies = [
- "dirs-sys",
+ "dirs-sys 0.4.1",
+]
+
+[[package]]
+name = "directories"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "16f5094c54661b38d03bd7e50df373292118db60b585c08a411c6d840017fe7d"
+dependencies = [
+ "dirs-sys 0.5.0",
 ]
 
 [[package]]
@@ -787,8 +796,20 @@ checksum = "520f05a5cbd335fae5a99ff7a6ab8627577660ee5cfd6a94a6a929b52ff0321c"
 dependencies = [
  "libc",
  "option-ext",
- "redox_users",
+ "redox_users 0.4.6",
  "windows-sys 0.48.0",
+]
+
+[[package]]
+name = "dirs-sys"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e01a3366d27ee9890022452ee61b2b63a67e6f13f58900b651ff5665f0bb1fab"
+dependencies = [
+ "libc",
+ "option-ext",
+ "redox_users 0.5.3",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1192,8 +1213,8 @@ dependencies = [
 
 [[package]]
 name = "formiga-art"
-version = "0.67.14"
-source = "git+https://github.com/Von-Van/Formiga-Desktop?branch=desktop-travel-sculpt#7046c2efd1e190f2244301c6b430ad8dfdeac24e"
+version = "0.68.0"
+source = "git+https://github.com/Von-Van/Formiga-Desktop?tag=v0.68.0#ba39ba024524aa32317b794e65f8b203d9055544"
 dependencies = [
  "epaint",
  "formiga-core",
@@ -1206,8 +1227,8 @@ dependencies = [
 
 [[package]]
 name = "formiga-core"
-version = "0.67.14"
-source = "git+https://github.com/Von-Van/Formiga-Desktop?branch=desktop-travel-sculpt#7046c2efd1e190f2244301c6b430ad8dfdeac24e"
+version = "0.68.0"
+source = "git+https://github.com/Von-Van/Formiga-Desktop?tag=v0.68.0#ba39ba024524aa32317b794e65f8b203d9055544"
 dependencies = [
  "getrandom 0.4.3",
  "rand",
@@ -1222,9 +1243,10 @@ dependencies = [
 
 [[package]]
 name = "formiga-expansion-rulebook"
-version = "0.67.14"
-source = "git+https://github.com/Von-Van/Formiga-Desktop?branch=desktop-travel-sculpt#7046c2efd1e190f2244301c6b430ad8dfdeac24e"
+version = "0.68.0"
+source = "git+https://github.com/Von-Van/Formiga-Desktop?tag=v0.68.0#ba39ba024524aa32317b794e65f8b203d9055544"
 dependencies = [
+ "directories 6.0.0",
  "getrandom 0.4.3",
  "serde",
  "serde_json",
@@ -1234,10 +1256,10 @@ dependencies = [
 
 [[package]]
 name = "formiga-home"
-version = "0.67.14"
+version = "0.68.0"
 dependencies = [
  "anyhow",
- "directories",
+ "directories 5.0.1",
  "eframe",
  "formiga-art",
  "formiga-core",
@@ -1253,8 +1275,8 @@ dependencies = [
 
 [[package]]
 name = "formiga-home-contract"
-version = "0.67.14"
-source = "git+https://github.com/Von-Van/Formiga-Desktop?branch=desktop-travel-sculpt#7046c2efd1e190f2244301c6b430ad8dfdeac24e"
+version = "0.68.0"
+source = "git+https://github.com/Von-Van/Formiga-Desktop?tag=v0.68.0#ba39ba024524aa32317b794e65f8b203d9055544"
 dependencies = [
  "formiga-art",
  "formiga-core",
@@ -1269,8 +1291,8 @@ dependencies = [
 
 [[package]]
 name = "formiga-pencil"
-version = "0.67.14"
-source = "git+https://github.com/Von-Van/Formiga-Desktop?branch=desktop-pencil-notebook#9bf41bb588e806d96bcd11c1bc316030eb2159b8"
+version = "0.68.0"
+source = "git+https://github.com/Von-Van/Formiga-Desktop?tag=v0.68.0#ba39ba024524aa32317b794e65f8b203d9055544"
 dependencies = [
  "egui",
  "skrifa",
@@ -1279,8 +1301,8 @@ dependencies = [
 
 [[package]]
 name = "formiga-travel"
-version = "0.67.14"
-source = "git+https://github.com/Von-Van/Formiga-Desktop?branch=desktop-travel-sculpt#7046c2efd1e190f2244301c6b430ad8dfdeac24e"
+version = "0.68.0"
+source = "git+https://github.com/Von-Van/Formiga-Desktop?tag=v0.68.0#ba39ba024524aa32317b794e65f8b203d9055544"
 dependencies = [
  "formiga-art",
  "formiga-core",
@@ -2768,7 +2790,6 @@ checksum = "b9ef1d0d795eb7d84685bca4f72f3649f064e6641543d3a8c415898726a57b41"
 dependencies = [
  "rand_chacha",
  "rand_core",
- "serde",
 ]
 
 [[package]]
@@ -2779,7 +2800,6 @@ checksum = "d3022b5f1df60f26e1ffddd6c66e8aa15de382ae63b3a0c1bfc0e4d3e3f325cb"
 dependencies = [
  "ppv-lite86",
  "rand_core",
- "serde",
 ]
 
 [[package]]
@@ -2789,7 +2809,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76afc826de14238e6e8c374ddcc1fa19e374fd8dd986b0d2af0d02377261d83c"
 dependencies = [
  "getrandom 0.3.4",
- "serde",
 ]
 
 [[package]]
@@ -2863,6 +2882,16 @@ dependencies = [
  "getrandom 0.2.17",
  "libredox",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "redox_users"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60dc65c0ff1a7ae1294b0c67b9f14baf70b644404010370171787bfac1038fc0"
+dependencies = [
+ "libredox",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
