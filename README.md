@@ -355,7 +355,7 @@ packaging/, scripts/   the macOS app and the Windows installer
 ### Formiga Desktop's crates
 
 `formiga-core`, `formiga-art`, `formiga-travel` and `formiga-home-contract` all come from Formiga
-Desktop. They are taken from one release tag on GitHub, currently `v0.68.0` (travel version 6,
+Desktop. They are taken from one release tag on GitHub, currently `v0.68.1` (travel version 6,
 household version 12), so that their types always agree with each other. Moving to a newer release
 means changing the tag on all four together in the root `Cargo.toml`, which
 `scripts/set-version.sh <version> <tag>` does along with Home's own version and `Cargo.lock`. Each

@@ -3,7 +3,7 @@ members = ["crates/formiga-home"]
 resolver = "2"
 
 [workspace.package]
-version = "0.68.0"
+version = "0.68.1"
 edition = "2024"
 rust-version = "1.97"
 authors = ["Formiga contributors"]
@@ -13,13 +13,12 @@ publish = false
 # Formiga Desktop's shared crates, all four from the same Desktop release so their types agree:
 # the household contract among them, which is Desktop's. Move all four to a new release's tag
 # together.
-formiga-art = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.0" }
-formiga-core = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.0" }
-formiga-home-contract = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.0" }
-formiga-travel = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.0" }
-# The notebooks' pencil hand, and the writing on their ruled lines, from Desktop's branch until a
-# Desktop release carries it; then back to that release's tag with the other four.
-formiga-pencil = { git = "https://github.com/Von-Van/Formiga-Desktop", branch = "desktop-ruled-lines" }
+formiga-art = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.1" }
+formiga-core = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.1" }
+formiga-home-contract = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.1" }
+formiga-travel = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.1" }
+# The notebooks' pencil hand, and the writing on their ruled lines, from the same Desktop release.
+formiga-pencil = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.1" }
 
 anyhow = "1.0.104"
 directories = "5.0.1"

@@ -4,6 +4,16 @@ This page records what changed in each version of Formiga Home. Each version's s
 its release notes: `.github/workflows/release.yml` publishes it alongside the downloads when the
 version is tagged.
 
+## 0.68.1 (2026-10-26)
+
+Home is built on Formiga Desktop 0.68.1 and still reads household version 12 and travel version 6,
+so it opens the same houses as 0.68.0.
+
+- The notebook's pencil hand is drawn on a grain about a fifth finer, so its writing reads less
+  blocky.
+- Every line of the notes rests on its rule, written with the same ruled-lines code as Formiga's
+  Journal and Battle.
+
 ## 0.68.0 (2026-10-26)
 
 Home is built on Formiga Desktop 0.68.0 and reads household version 12 and travel version 6, so a
