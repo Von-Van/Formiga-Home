@@ -17,8 +17,9 @@ formiga-art = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68
 formiga-core = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.0" }
 formiga-home-contract = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.0" }
 formiga-travel = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.0" }
-# The notebooks' pencil hand, from Desktop's branch until a Desktop release carries it.
-formiga-pencil = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.0" }
+# The notebooks' pencil hand, and the writing on their ruled lines, from Desktop's branch until a
+# Desktop release carries it; then back to that release's tag with the other four.
+formiga-pencil = { git = "https://github.com/Von-Van/Formiga-Desktop", branch = "desktop-ruled-lines" }
 
 anyhow = "1.0.104"
 directories = "5.0.1"
