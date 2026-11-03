@@ -5,6 +5,7 @@ use crate::actor::Pose;
 use crate::art::cues::Cue;
 use crate::household::{Household, Id, Resident};
 use formiga_art::ExpressionKind;
+use formiga_core::talk::{Saying, TalkStyle as S, TalkTopic as T};
 use formiga_core::{ActionKind, Gesture, TemperamentKind};
 use formiga_home_contract::{DisplayId, HomeSnapshot};
 use formiga_travel::{Band, Trait};
@@ -19,24 +20,33 @@ pub(super) fn joining_pose(
     let character = &resident.character;
     let bond = household.bond(resident.id, leader);
     let warm = bond.warmth >= Band::Medium || household.family(resident.id, leader);
+    // Whoever joins in answers what the leader said, a moment after it is said.
     match act {
-        Act::Tease(_) if character.axes.feistiness > 0.55 => {
-            Pose::idle(ExpressionKind::Grumpy).with_cue(Cue::Grumble)
-        }
-        Act::Tease(_) => Pose::idle(ExpressionKind::Worried).with_cue(Cue::Bang),
-        Act::Hug(_) | Act::Comfort(_) => {
-            Pose::idle(ExpressionKind::Affectionate).with_cue(Cue::Heart)
-        }
-        Act::Greet(_) if warm => Pose::new(ActionKind::Greet, ExpressionKind::Joy),
-        Act::Greet(_) => Pose::idle(character.idle_face()),
+        Act::Tease(_) if character.axes.feistiness > 0.55 => Pose::idle(ExpressionKind::Grumpy)
+            .with_cue(Cue::Grumble)
+            .answering(Saying::one(S::Grumble, T::Storm)),
+        Act::Tease(_) => Pose::idle(ExpressionKind::Worried)
+            .with_cue(Cue::Bang)
+            .answering(Saying::one(S::Shout, T::Exclaim)),
+        Act::Hug(_) | Act::Comfort(_) => Pose::idle(ExpressionKind::Affectionate)
+            .with_cue(Cue::Heart)
+            .answering(Saying::one(S::Tender, T::Heart)),
+        Act::Greet(_) if warm => Pose::new(ActionKind::Greet, ExpressionKind::Joy)
+            .answering(Saying::one(S::Tender, T::Heart)),
+        Act::Greet(_) => Pose::idle(character.idle_face()).answering(Saying::one(S::Chat, T::Wave)),
         Act::PlayTogether(_) | Act::PlayWith(..) => {
-            Pose::new(ActionKind::SocialPlay, ExpressionKind::Joy).with_cue(Cue::Note)
+            Pose::new(ActionKind::SocialPlay, ExpressionKind::Joy)
+                .with_cue(Cue::Note)
+                .answering(Saying::one(S::Excited, T::Exclaim))
         }
         Act::ShowTo(..) if character.kind == TemperamentKind::Grump => {
             Pose::new(Gesture::Watch, ExpressionKind::Bored)
+                .answering(Saying::one(S::Thought, T::Dots))
         }
-        Act::ShowTo(..) => Pose::new(Gesture::Watch, ExpressionKind::Curious),
-        Act::Share(..) => Pose::new(ActionKind::Eat, ExpressionKind::Content),
+        Act::ShowTo(..) => Pose::new(Gesture::Watch, ExpressionKind::Curious)
+            .answering(Saying::one(S::Thought, T::Eye)),
+        Act::Share(..) => Pose::new(ActionKind::Eat, ExpressionKind::Content)
+            .answering(Saying::one(S::Tender, T::Heart)),
         Act::PutOnShowFor(..) if character.kind == TemperamentKind::Grump => {
             Pose::new(Gesture::Watch, ExpressionKind::Bored)
         }
@@ -126,8 +136,11 @@ pub(super) fn leading_pose(
             Pose::new(ActionKind::SoloPlay, ExpressionKind::Joy).with_cue(Cue::Note),
             dice.between(6.0, 9.0),
         ),
+        // Asked to play, about the ball.
         Act::PlayWith(..) | Act::PlayTogether(_) => (
-            Pose::new(ActionKind::SocialPlay, ExpressionKind::Joy).with_cue(Cue::Note),
+            Pose::new(ActionKind::SocialPlay, ExpressionKind::Joy)
+                .with_cue(Cue::Note)
+                .saying(Saying::two(S::Excited, T::Ball, T::Question)),
             dice.between(6.0, 8.0),
         ),
         Act::ShowOffToy(_) => (
@@ -135,7 +148,15 @@ pub(super) fn leading_pose(
             3.5,
         ),
         // Long enough for a meal: a look at it, a few bites and a lick of the paws.
-        Act::Snack(_) | Act::Share(..) => (
+        Act::Share(..) => (
+            Pose::new(ActionKind::Eat, snack_face(resident)).saying(Saying::two(
+                S::Chat,
+                T::Food,
+                T::Question,
+            )),
+            dice.between(8.0, 11.0),
+        ),
+        Act::Snack(_) => (
             Pose::new(ActionKind::Eat, snack_face(resident)),
             dice.between(8.0, 11.0),
         ),
@@ -164,7 +185,9 @@ pub(super) fn leading_pose(
             6.0,
         ),
         Act::ShowTo(..) => (
-            Pose::new(ActionKind::PresentDiscovery, ExpressionKind::Smug).with_cue(Cue::Sparkle),
+            Pose::new(ActionKind::PresentDiscovery, ExpressionKind::Smug)
+                .with_cue(Cue::Sparkle)
+                .saying(Saying::two(S::Excited, T::Sparkle, T::Exclaim)),
             5.0,
         ),
         Act::FussWith(_) => (Pose::new(Gesture::Reach, ExpressionKind::Smug), 3.5),
@@ -179,7 +202,10 @@ pub(super) fn leading_pose(
                 dice.between(7.0, 10.0),
             )
         }
-        Act::Greet(_) => (Pose::new(ActionKind::Greet, ExpressionKind::Joy), 2.5),
+        Act::Greet(_) => (
+            Pose::new(ActionKind::Greet, ExpressionKind::Joy).saying(Saying::one(S::Chat, T::Wave)),
+            2.5,
+        ),
         Act::SitTogether(_) => (
             Pose::new(ActionKind::Perch, ExpressionKind::Content),
             dice.between(10.0, 14.0),

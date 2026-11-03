@@ -14,7 +14,9 @@ use formiga_art::{
     AccessoryArt, AnimationSpec, BodyClip, Canvas, CreatureRenderer, ExpressionKind, EyelidPose,
     FRAME_SIZE, FaceRenderState, GazeDirection, HeldThing, Holding, MealPose, PixelPoint,
 };
+use formiga_core::BubbleGrowth;
 use formiga_core::meals::Meal;
+use formiga_core::talk::Saying;
 use formiga_core::{ActionKind, AppearanceGenome};
 use std::collections::{HashMap, VecDeque};
 
@@ -30,6 +32,9 @@ pub struct Pose {
     pub spin: bool,
     /// What is in its paws.
     pub hold: Hold,
+    /// What it says, in a bubble over its head, if its sign says less than it means to, and how
+    /// long after the pose begins: an answer waits for what it answers.
+    pub say: Option<(Saying, f32)>,
 }
 
 /// What a resident has in its paws while it holds a pose.
@@ -60,6 +65,7 @@ impl Pose {
             cue: None,
             spin: false,
             hold: Hold::Clip,
+            say: None,
         }
     }
 
@@ -84,6 +90,22 @@ impl Pose {
 
     pub fn holding(self, hold: Hold) -> Self {
         Self { hold, ..self }
+    }
+
+    /// Says `saying` over its head as the pose begins.
+    pub fn saying(self, saying: Saying) -> Self {
+        Self {
+            say: Some((saying, 0.0)),
+            ..self
+        }
+    }
+
+    /// Says `saying` a moment after the pose begins, in answer to someone.
+    pub fn answering(self, saying: Saying) -> Self {
+        Self {
+            say: Some((saying, ANSWER_SECS)),
+            ..self
+        }
     }
 
     #[cfg(test)]
@@ -148,6 +170,15 @@ struct Climb {
 /// How much of a leg onto or off a piece is spent stepping up or down: about from the middle of
 /// the tile beside it to its edge, so the rest is walked along the top.
 const CLIMB_STEP: f32 = 0.5;
+
+/// How long an answer waits after what it answers, in seconds.
+const ANSWER_SECS: f32 = 0.9;
+/// How long a bubble is up, in seconds, and how long between one and the next while a pose goes
+/// on: a long nap says its Z now and then, not the whole time.
+const SAYING_SECS: f32 = 2.4;
+const SAYING_AGAIN_SECS: f32 = 9.0;
+/// Each of a bubble's two growing steps on the way in, and its two shrinking ones on the way out.
+const SAYING_STEP_SECS: f32 = 0.12;
 
 /// Frames are drawn on first use and kept; this many is a long visit's worth.
 const FRAME_CACHE_LIMIT: usize = 1200;
@@ -640,20 +671,37 @@ impl Actor {
         }
     }
 
-    /// The cue over its head, if its pose has one.
-    pub fn draw_cue(&mut self, canvas: &mut Canvas, view: &View, now: f32) {
-        let Some(cue) = self.pose.cue.filter(|_| !self.walking()) else {
-            return;
+    /// What it is saying just now, and how far its bubble has grown: what its pose says, or its
+    /// sign said as a bubble, for a moment as the pose begins and again now and then while it
+    /// lasts. Nothing while it walks.
+    pub fn saying(&self, now: f32) -> Option<(Saying, BubbleGrowth)> {
+        if self.walking() || self.hidden {
+            return None;
+        }
+        let (saying, after) = self
+            .pose
+            .say
+            .or_else(|| self.pose.cue.map(|cue| (cue.saying(), 0.0)))?;
+        let into = self.held_for(now) - after;
+        if into < 0.0 {
+            return None;
+        }
+        let age = into % SAYING_AGAIN_SECS;
+        if age >= SAYING_SECS {
+            return None;
+        }
+        if self.reduce_motion {
+            return Some((saying, BubbleGrowth::Full));
+        }
+        let edge = age.min(SAYING_SECS - age);
+        let growth = if edge < SAYING_STEP_SECS {
+            BubbleGrowth::Small
+        } else if edge < 2.0 * SAYING_STEP_SECS {
+            BubbleGrowth::Medium
+        } else {
+            BubbleGrowth::Full
         };
-        let (l, t, r, _) = self.bounds(view, now);
-        crate::art::cues::draw(
-            canvas,
-            cue,
-            (l + r) / 2,
-            t - 2,
-            self.held_for(now),
-            self.reduce_motion,
-        );
+        Some((saying, growth))
     }
 }
 
@@ -736,5 +784,37 @@ mod tests {
         let (fx, fy) = actor.feet(&view);
         assert!(l < fx && fx < r && t < fy && (b - fy).abs() <= 2);
         assert!(actor.covers(&view, 0.0, ((l + r) / 2, (t + b) / 2)));
+    }
+
+    /// A sign is said as a bubble for a moment as the pose begins, and again now and then while
+    /// it lasts; an answer waits a moment first; nothing is said on the move.
+    #[test]
+    fn a_resident_speaks_up_for_a_moment_and_an_answer_waits() {
+        use formiga_core::talk::{TalkStyle, TalkTopic};
+        let mut actor = actor(false);
+        actor.strike(Pose::idle(ExpressionKind::Joy).with_cue(Cue::Heart), 0.0);
+        let (saying, _) = actor
+            .saying(0.05)
+            .expect("a heart is said as the pose begins");
+        assert_eq!(saying.style, TalkStyle::Tender);
+        assert_eq!(saying.first, TalkTopic::Heart);
+        assert_eq!(
+            actor.saying(1.0).map(|(_, growth)| growth),
+            Some(BubbleGrowth::Full)
+        );
+        assert!(actor.saying(5.0).is_none(), "and then it is quiet");
+        assert!(
+            actor.saying(SAYING_AGAIN_SECS + 1.0).is_some(),
+            "and says it again"
+        );
+        actor.strike(
+            Pose::idle(ExpressionKind::Joy)
+                .answering(Saying::one(TalkStyle::Chat, TalkTopic::Wave)),
+            20.0,
+        );
+        assert!(actor.saying(20.3).is_none(), "an answer waits");
+        assert!(actor.saying(21.5).is_some(), "and then comes");
+        actor.walk([(4.5, 1.5)]);
+        assert!(actor.saying(21.6).is_none(), "nothing is said on the move");
     }
 }

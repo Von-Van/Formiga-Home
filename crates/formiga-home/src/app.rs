@@ -81,6 +81,8 @@ pub struct HomeApp {
     notice: Option<(String, f32)>,
     texture: Option<egui::TextureHandle>,
     thumbnails: HashMap<String, egui::TextureHandle>,
+    /// Desktop's sheet of bubbles, once anyone has said something.
+    talk_sheet: Option<egui::TextureHandle>,
     /// The notebook's cover, painted for the window's size.
     chrome: notebook::Chrome,
     /// The sticky note of how to do things, taped over the notes: out the first time the house
@@ -216,6 +218,7 @@ impl HomeApp {
             notice: None,
             texture: None,
             thumbnails: HashMap::new(),
+            talk_sheet: None,
             chrome: notebook::Chrome::default(),
             help: first_visit,
             welcome: false,
@@ -370,6 +373,79 @@ impl HomeApp {
         self.trying = None;
         self.keep();
         self.say(notice);
+    }
+
+    /// What residents are saying, each in a bubble just over its head, painted over the room from
+    /// Desktop's talk sheet: twice as finely as the room, so the pictures in them read at a glance
+    /// however far the room is zoomed.
+    fn paint_bubbles(
+        &mut self,
+        painter: &egui::Painter,
+        ctx: &egui::Context,
+        rect: egui::Rect,
+        scale: f32,
+        view: &crate::iso::View,
+        now: f32,
+    ) {
+        use formiga_art::{
+            TALK_DETAIL, TALK_ICON_AT, TALK_SHEET_HEIGHT, TALK_SHEET_WIDTH, TalkSheet,
+        };
+        let texture = self
+            .talk_sheet
+            .get_or_insert_with(|| {
+                ctx.load_texture(
+                    "talk",
+                    notebook::image_of(&TalkSheet::render()),
+                    egui::TextureOptions::NEAREST,
+                )
+            })
+            .id();
+        let detail = TALK_DETAIL as f32;
+        let put = |sprite: formiga_art::SpriteRect, x: f32, y: f32| {
+            let size = egui::vec2(sprite.width as f32, sprite.height as f32) / detail * scale;
+            let uv = egui::Rect::from_min_size(
+                egui::pos2(
+                    sprite.x as f32 / TALK_SHEET_WIDTH as f32,
+                    sprite.y as f32 / TALK_SHEET_HEIGHT as f32,
+                ),
+                egui::vec2(
+                    sprite.width as f32 / TALK_SHEET_WIDTH as f32,
+                    sprite.height as f32 / TALK_SHEET_HEIGHT as f32,
+                ),
+            );
+            painter.image(
+                texture,
+                egui::Rect::from_min_size(rect.min + egui::vec2(x, y) * scale, size),
+                uv,
+                egui::Color32::WHITE,
+            );
+        };
+        for actor in self.life.actors.iter_mut() {
+            let Some((saying, growth)) = actor.saying(now) else {
+                continue;
+            };
+            let (left, top, right, _) = actor.bounds(view, now);
+            let frame = TalkSheet::frame(saying.style, saying.second.is_some(), growth);
+            let (width, height) = (frame.width as f32 / detail, frame.height as f32 / detail);
+            // The tail's tip, at the middle of its bottom row, a pixel over the crown.
+            let x = ((left + right + 1) as f32 / 2.0 - (width / 2.0).floor()).round();
+            let y = top as f32 - height - 1.0;
+            put(frame, x, y);
+            if growth == formiga_core::BubbleGrowth::Full {
+                let spots = if saying.second.is_some() {
+                    &TALK_ICON_AT[1..3]
+                } else {
+                    &TALK_ICON_AT[0..1]
+                };
+                for (topic, (ix, iy)) in [Some(saying.first), saying.second]
+                    .into_iter()
+                    .flatten()
+                    .zip(spots)
+                {
+                    put(TalkSheet::icon(topic), x + *ix as f32, y + *iy as f32);
+                }
+            }
+        }
     }
 
     fn thumbnail(
@@ -548,6 +624,9 @@ impl HomeApp {
             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
             egui::Color32::WHITE,
         );
+        if self.mode == Mode::Live {
+            self.paint_bubbles(&painter, ctx, rect, scale, &view, now);
+        }
         // What is pointed at, in a tag over it: who, or what and whose favourite it is.
         if let Some((name, (x, y))) = self.tag(now)
             && self.mode == Mode::Live
