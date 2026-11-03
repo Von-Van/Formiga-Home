@@ -1978,6 +1978,36 @@ fn ball(easel: &mut Easel) {
     }
 }
 
+/// The bouncy ball, smaller, in a resident's paws: picked up off the floor to play with, in the
+/// same stripe and berry as where it lay, with the room's dark edge round it so it reads against
+/// a coat.
+pub fn held_ball(canvas: &mut Canvas, (cx, cy): (i32, i32)) {
+    let r: i32 = 4;
+    for dy in -r - 1..=r + 1 {
+        for dx in -r - 1..=r + 1 {
+            let d2 = dx * dx + dy * dy;
+            if d2 > (r + 1) * (r + 1) {
+                continue;
+            }
+            if d2 > r * r {
+                canvas.set(cx + dx, cy + dy, BERRY.shadow);
+                continue;
+            }
+            let lit =
+                (-(dx + dy) as f32) / (r as f32 * 1.4) + (1.0 - d2 as f32 / (r * r) as f32) * 0.4;
+            let ramp = if (dx - dy).abs() <= 1 { LINEN } else { BERRY };
+            let tone = if lit > 0.55 {
+                ramp.shine
+            } else if lit > 0.15 {
+                ramp.light
+            } else {
+                ramp.base
+            };
+            canvas.set(cx + dx, cy + dy, tone);
+        }
+    }
+}
+
 /// A painted chest with its lid propped open at the back and toys peeking over the rim. From
 /// behind, the open lid stands in front of them.
 fn toy_box(easel: &mut Easel, away: bool) {

@@ -4,6 +4,22 @@ This page records what changed in each version of Formiga Home. Each version's s
 its release notes: `.github/workflows/release.yml` publishes it alongside the downloads when the
 version is tagged.
 
+## Unreleased
+
+Built on the Formiga Desktop branch with meals (`desktop-animations-meals`) until a Desktop
+release carries it; household version 12 and travel version 6 are unchanged.
+
+- A snack is a meal now. The snack bowl serves one of eighteen foods, chosen by the hour at home
+  and the resident's own favourite (the same favourite it has on the desktop), and the stove
+  porridge in the morning and soup after. Each food is eaten its own way, goes down bite by bite,
+  and most meals have a moment of their own: a crumb wiped off, cheeks stuffed, a hiccup, nodding
+  off over it at night. Snacks last a little longer to make room for it.
+- What a resident plays with is the thing itself. The bouncy ball is picked up off the floor and
+  kept up off the paw, and is not on the floor meanwhile; a find played with is taken off its
+  shelf and is in the paws, not a toy of the resident's own; the toy telescope is looked through.
+- The golden pictures were drawn again: residents look as Desktop's newer art draws them, and
+  what they hold is drawn in its own colours.
+
 ## 0.68.1 (2026-10-26)
 
 Home is built on Formiga Desktop 0.68.1 and still reads household version 12 and travel version 6,

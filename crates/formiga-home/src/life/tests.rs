@@ -1422,3 +1422,71 @@ fn a_little_turtle_is_not_asked_to_turn_in_where_it_cannot_climb() {
         }
     }
 }
+
+/// Asks the keeper for `act` and watches until it is under way, then for a few seconds more.
+/// Returns what its pose held and what of the room's it had in its paws once it was.
+fn doing(act: Act) -> Option<(crate::actor::Hold, Option<crate::actor::Carrying>)> {
+    let (household, layout) = home();
+    let keeper = household.keeper().id;
+    let mut life = Life::new(&household, &layout);
+    life.ask(keeper, act.clone(), 0.0);
+    let mut now = 0.0;
+    for _ in 0..120 {
+        now = run(&mut life, &household, &layout, now, 0.25);
+        let actor = life.actor(keeper).unwrap();
+        if !actor.walking() && actor.pose.hold != crate::actor::Hold::Clip {
+            return Some((actor.pose.hold, actor.carried().cloned()));
+        }
+    }
+    None
+}
+
+#[test]
+fn the_ball_itself_is_played_with_not_a_toy_of_the_residents_own() {
+    let (_, layout) = home();
+    let ball = piece(&layout, "ball");
+    let (hold, carried) = doing(Act::Play(ball)).expect("the ball is played with");
+    assert_eq!(hold, crate::actor::Hold::Room);
+    assert_eq!(carried, Some(crate::actor::Carrying::Piece(ball)));
+}
+
+#[test]
+fn a_find_played_with_is_the_find_itself() {
+    let (household, layout) = home();
+    let toy = household.snapshot.inventory[0].id.clone();
+    // Wherever it is shown, it is that find in the paws.
+    assert!(layout.shown.iter().any(|shown| shown.item == toy));
+    let (hold, carried) = doing(Act::PlayWithFind(toy.clone())).expect("the find is played with");
+    assert_eq!(hold, crate::actor::Hold::Room);
+    assert_eq!(carried, Some(crate::actor::Carrying::Find(toy)));
+}
+
+#[test]
+fn a_snack_is_a_meal_and_meals_change() {
+    let (household, layout) = home();
+    let bowl = layout
+        .pieces
+        .iter()
+        .find(|p| catalog::piece(&p.piece).is_some_and(|piece| piece.has(Use::Snack)))
+        .map(|p| p.uid)
+        .expect("the show house has somewhere to snack");
+    let keeper = household.keeper().id;
+    let mut life = Life::new(&household, &layout);
+    let mut foods = std::collections::BTreeSet::new();
+    let mut now = 0.0;
+    for _ in 0..6 {
+        life.ask(keeper, Act::Snack(bowl), now);
+        for _ in 0..160 {
+            now = run(&mut life, &household, &layout, now, 0.25);
+            let actor = life.actor(keeper).unwrap();
+            if let crate::actor::Hold::Meal { meal, .. } = actor.pose.hold
+                && !actor.walking()
+            {
+                foods.insert(meal.food.index());
+                break;
+            }
+        }
+        now = run(&mut life, &household, &layout, now, 15.0);
+    }
+    assert!(!foods.is_empty(), "nobody ever had a meal");
+}

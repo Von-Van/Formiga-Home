@@ -15,25 +15,26 @@
 //! sweetheart is first to the door, a wallflower finds the furthest seat, a show-off has something
 //! to show them.
 
-use crate::actor::{Actor, Pose};
+use crate::actor::{Actor, Carrying, Hold, Pose};
 use crate::art::cues::Cue;
 use crate::body::Body;
 use crate::catalog::{self, Use};
 use crate::character::Drive;
 use crate::house::{At, House};
-use crate::household::{Household, Id};
+use crate::household::{Household, Id, Resident};
 use crate::keepsakes;
 use crate::path::Floor;
 use crate::placement;
 use crate::projects::Count;
 use formiga_art::{AccessoryArt, ExpressionKind};
+use formiga_core::meals::{Appetite, Food, Meal, MealSetting};
 use formiga_core::{Accessory, ActionKind, Gesture, Habit, TemperamentKind};
 use formiga_home_contract::limits::MAX_TOGETHER;
 use formiga_home_contract::{
     DisplayId, DisplayItem, DisplayMode, DisplaySource, HomeSnapshot, Liked, Liking, MementoKind,
     Together, TravelerId,
 };
-use formiga_travel::Band;
+use formiga_travel::{Band, Trait};
 use std::collections::{BTreeMap, VecDeque};
 use std::rc::Rc;
 
@@ -47,6 +48,10 @@ pub use act::Act;
 pub use choices::{choices, seat_points};
 use choices::{item_spot, still_there};
 use poses::{joining_pose, leading_pose};
+
+/// How long somebody joining in a shared snack eats for, in seconds: about as long as the one who
+/// shared it.
+const SHARED_MEAL: f32 = 9.0;
 
 /// How many things the owner can ask of one resident at once, the one under way included.
 pub const QUEUE_LIMIT: usize = 3;
@@ -324,6 +329,8 @@ pub struct Life {
     together: BTreeMap<(Id, Id, Together), u8>,
     /// How dark it is at home.
     dark: f32,
+    /// The hour at home, by its clock.
+    hour: f32,
     /// The house as it was last lived in, and its open floor: found again only when the house
     /// changes, not every step.
     floor: Option<(House, Rc<Floor>)>,
@@ -385,6 +392,7 @@ impl Life {
             novel: Vec::new(),
             together: BTreeMap::new(),
             dark: 0.0,
+            hour: 12.0,
             floor: None,
         }
     }
@@ -414,6 +422,11 @@ impl Life {
     /// the sooner everyone tires and the longer they sleep.
     pub fn set_dark(&mut self, dark: f32) {
         self.dark = dark.clamp(0.0, 1.0);
+    }
+
+    /// The hour at home, which decides what is for breakfast and what for supper.
+    pub fn set_hour(&mut self, hour: f32) {
+        self.hour = hour.rem_euclid(24.0);
     }
 
     /// What has happened since the window last asked.
@@ -1446,6 +1459,7 @@ impl Life {
                 )
             }
         };
+        let (pose, seconds) = self.with_hold(house, resident, index, &plan.act, pose, seconds, now);
         let pose = if self.reduce_motion {
             pose.held()
         } else {
@@ -1458,6 +1472,86 @@ impl Life {
                 until: now + seconds,
             },
         );
+    }
+
+    /// What is in the paws for an act: a meal, a find taken down to play with, the ball off the
+    /// floor, or nothing of its own while it uses the room's thing. Whatever the room has is what
+    /// is used, never a stand-in of the resident's own.
+    #[allow(clippy::too_many_arguments)]
+    fn with_hold(
+        &mut self,
+        house: &House,
+        resident: &Resident,
+        index: usize,
+        act: &Act,
+        pose: Pose,
+        seconds: f32,
+        now: f32,
+    ) -> (Pose, f32) {
+        self.actors[index].carrying = None;
+        let piece = |uid: u16| {
+            house
+                .piece(uid)
+                .map(|placed| placed.piece.as_str().to_owned())
+        };
+        match act {
+            Act::Snack(uid) | Act::Supper(uid) | Act::Share(uid, _) => {
+                let traits = &resident.traveler.character.trait_ids;
+                let (picky, loves) = (
+                    traits.contains(&Trait::Picky),
+                    traits.contains(&Trait::FoodMotivated),
+                );
+                let appetite = Appetite {
+                    picky,
+                    greedy: loves,
+                    sleepy: self.dark > 0.35,
+                    favourite: Food::favourite_of(resident.genome()),
+                };
+                // Somebody joining in keeps it up as long as the one who led it: a meal's worth.
+                let length = if seconds > 60.0 { SHARED_MEAL } else { seconds };
+                // Its own dice, so a meal takes nothing from what the resident goes on to do.
+                let seed = (f64::from(now) * 1000.0) as u64 ^ resident.id.rotate_left(29);
+                let meal = if piece(*uid).as_deref() == Some("stove") {
+                    // Something hot off the stove: porridge in the morning, soup after.
+                    let food = if self.hour < 11.0 {
+                        Food::Porridge
+                    } else {
+                        Food::Soup
+                    };
+                    Meal::plan_seeded(food, length, appetite, seed)
+                } else {
+                    let setting = MealSetting {
+                        hour: self.hour as u8,
+                        ripe: &[],
+                        offered: false,
+                    };
+                    Meal::seeded(appetite, setting, length, seed)
+                };
+                (pose.holding(Hold::Meal { meal, picky, loves }), seconds)
+            }
+            Act::Play(uid) => match piece(*uid).as_deref() {
+                // The ball itself, picked up and kept up off the paw.
+                Some("ball") => {
+                    self.actors[index].carrying = Some(Carrying::Piece(*uid));
+                    (pose.holding(Hold::Room), seconds)
+                }
+                // Looked through, not played with.
+                Some("telescope") => (
+                    Pose::new(ActionKind::InspectScreen, ExpressionKind::Curious)
+                        .with_cue(Cue::Question)
+                        .holding(Hold::Nothing),
+                    seconds,
+                ),
+                // A toy box is a box of toys: one of them comes out to be played with.
+                _ => (pose, seconds),
+            },
+            // The find itself, taken down and played with.
+            Act::PlayWithFind(item) => {
+                self.actors[index].carrying = Some(Carrying::Find(item.clone()));
+                (pose.holding(Hold::Room), seconds)
+            }
+            _ => (pose, seconds),
+        }
     }
 
     /// A lamp that was on goes off, and one that was off comes on.

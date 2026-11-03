@@ -684,6 +684,7 @@ impl HomeApp {
         self.keys(&ctx);
         if self.mode == Mode::Live {
             self.life.set_dark(self.daylight().dark().0);
+            self.life.set_hour(self.daylight().hour);
             let home = home_of(&self.state, self.keeper);
             self.life.tick(
                 &self.household,
