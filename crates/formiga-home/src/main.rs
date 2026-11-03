@@ -476,6 +476,7 @@ fn render_to(render: &Render, household: &Household, args: &Args) -> Canvas {
                 Some(until) => {
                     let mut life = life::Life::new(household, &house);
                     life.set_dark(overlay.daylight.dark().0);
+                    life.set_hour(overlay.daylight.hour);
                     let mut now = 0.0;
                     while now < until {
                         now += 1.0 / 30.0;

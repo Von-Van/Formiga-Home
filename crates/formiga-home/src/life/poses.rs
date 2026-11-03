@@ -134,10 +134,14 @@ pub(super) fn leading_pose(
             Pose::new(Gesture::Cheer, ExpressionKind::Smug).with_cue(Cue::Sparkle),
             3.5,
         ),
-        Act::Snack(_) | Act::Share(..) => (Pose::new(ActionKind::Eat, snack_face(resident)), 5.0),
+        // Long enough for a meal: a look at it, a few bites and a lick of the paws.
+        Act::Snack(_) | Act::Share(..) => (
+            Pose::new(ActionKind::Eat, snack_face(resident)),
+            dice.between(8.0, 11.0),
+        ),
         Act::Supper(_) => (
             Pose::new(ActionKind::Eat, snack_face(resident)),
-            dice.between(7.0, 10.0),
+            dice.between(10.0, 13.0),
         ),
         Act::WarmUp(_) => (
             Pose::new(ActionKind::Perch, ExpressionKind::Content).with_cue(Cue::Heart),

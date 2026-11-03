@@ -11,7 +11,7 @@
 //! is drawn see-through, but only where it covers them and in their own shape, so nobody and
 //! nothing is lost and the piece is otherwise drawn as it is.
 
-use crate::actor::{Actor, Look};
+use crate::actor::{Actor, Carrying, Look};
 use crate::art::{PieceCache, Sprite, displays, shell};
 use crate::catalog;
 use crate::daylight::{Daylight, Season};
@@ -595,6 +595,12 @@ impl Scene {
             }
         }
         let order = self.order(house, snapshot, actors, now, overlay.lifted.as_ref());
+        // What residents have picked up to use: drawn in their paws, not where it stood.
+        let carried: Vec<Carrying> = actors
+            .iter()
+            .filter(|actor| !actor.hidden)
+            .filter_map(|actor| actor.carried().cloned())
+            .collect();
         let resident_opacity = if overlay.arranging { 170 } else { 255 };
         // What has been drawn that a piece in front of it could hide.
         let mut behind = Behind::new(canvas.width(), canvas.height());
@@ -602,6 +608,9 @@ impl Scene {
             match entry.what {
                 Drawn::Piece(index) => {
                     let piece = &house.pieces[index];
+                    if carried.contains(&Carrying::Piece(piece.uid)) {
+                        continue;
+                    }
                     self.draw_piece(
                         &mut canvas,
                         house,
@@ -611,6 +620,7 @@ impl Scene {
                         now,
                         &mut behind,
                         resident_opacity,
+                        &carried,
                     );
                     if let Some(glow) = lit(piece) {
                         let (cx, cy) = placement::footprint(piece).centre();
@@ -623,6 +633,9 @@ impl Scene {
                     else {
                         continue;
                     };
+                    if carried.contains(&Carrying::Find(shown.item.clone())) {
+                        continue;
+                    }
                     let at = floor_anchor(&view, x, y);
                     let sprite = self.thing(item, Place::Floor, Showing::Itself);
                     let (ox, oy) = sprite.origin(at);
@@ -638,6 +651,10 @@ impl Scene {
                     }
                     actor.draw(&mut canvas, &view, now, resident_opacity);
                     behind.mark_actor(actor, &view, now);
+                    if let Some(point) = actor.room_hold(&view, now) {
+                        let thing = actor.carried().cloned();
+                        self.draw_carried(&mut canvas, house, snapshot, thing, point);
+                    }
                 }
                 Drawn::Wall(index) => {
                     shell::low_wall(&mut canvas, &view, house, &house.walls[index]);
@@ -701,6 +718,38 @@ impl Scene {
         canvas
     }
 
+    /// Something a resident has picked up, in its paws at `point`: the ball off the floor, or a
+    /// find off its shelf, at the size it stands on a shelf.
+    fn draw_carried(
+        &mut self,
+        canvas: &mut Canvas,
+        house: &House,
+        snapshot: &HomeSnapshot,
+        thing: Option<Carrying>,
+        point: (i32, i32),
+    ) {
+        match thing {
+            Some(Carrying::Piece(uid)) => {
+                if house
+                    .piece(uid)
+                    .is_some_and(|placed| placed.piece.as_str() == "ball")
+                {
+                    crate::art::furniture::held_ball(canvas, point);
+                }
+            }
+            Some(Carrying::Find(id)) => {
+                let Some(item) = snapshot.item(&id) else {
+                    return;
+                };
+                let showing = placement::showing(item, Place::Top).unwrap_or(Showing::Card);
+                let sprite = self.thing(item, Place::Top, showing);
+                let (w, h) = (sprite.canvas.width() as i32, sprite.canvas.height() as i32);
+                paint::blit(canvas, &sprite.canvas, point.0 - w / 2, point.1 - h / 2);
+            }
+            None => {}
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn draw_piece(
         &mut self,
@@ -712,6 +761,7 @@ impl Scene {
         now: f32,
         behind: &mut Behind,
         resident_opacity: u8,
+        carried: &[Carrying],
     ) {
         let view = self.view;
         let placed = &house.pieces[index];
@@ -752,6 +802,7 @@ impl Scene {
         let mut shown: Vec<_> = house
             .shown
             .iter()
+            .filter(|shown| !carried.contains(&Carrying::Find(shown.item.clone())))
             .filter_map(|shown| match shown.at {
                 At::On { piece, slot } if piece == placed.uid => Some((slot, &shown.item)),
                 _ => None,

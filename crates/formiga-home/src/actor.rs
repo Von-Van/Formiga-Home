@@ -12,8 +12,9 @@ use crate::iso::View;
 use crate::paint;
 use formiga_art::{
     AccessoryArt, AnimationSpec, BodyClip, Canvas, CreatureRenderer, ExpressionKind, EyelidPose,
-    FRAME_SIZE, FaceRenderState, GazeDirection,
+    FRAME_SIZE, FaceRenderState, GazeDirection, HeldThing, Holding, MealPose, PixelPoint,
 };
+use formiga_core::meals::Meal;
 use formiga_core::{ActionKind, AppearanceGenome};
 use std::collections::{HashMap, VecDeque};
 
@@ -27,6 +28,27 @@ pub struct Pose {
     pub cue: Option<Cue>,
     /// Turns this way and that, for a dance or a twirl.
     pub spin: bool,
+    /// What is in its paws.
+    pub hold: Hold,
+}
+
+/// What a resident has in its paws while it holds a pose.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Hold {
+    /// Whatever its clip holds of its own: its snack while it eats, its toy while it plays.
+    Clip,
+    /// Nothing of its own: the room's own thing is what it is using.
+    Nothing,
+    /// A meal, eaten through as the pose is held: what is eaten, and whether it is a picky eater
+    /// or one that loves its food, for the face it pulls.
+    Meal {
+        meal: Meal,
+        picky: bool,
+        loves: bool,
+    },
+    /// Something of the room's, drawn in its paws by the scene: a find off the shelf, or a piece
+    /// small enough to pick up, which is not drawn where it stood meanwhile.
+    Room,
 }
 
 impl Pose {
@@ -37,6 +59,7 @@ impl Pose {
             held: false,
             cue: None,
             spin: false,
+            hold: Hold::Clip,
         }
     }
 
@@ -59,6 +82,10 @@ impl Pose {
         Self { spin: true, ..self }
     }
 
+    pub fn holding(self, hold: Hold) -> Self {
+        Self { hold, ..self }
+    }
+
     #[cfg(test)]
     pub fn asleep(&self) -> bool {
         self.clip == BodyClip::Action(ActionKind::Sleep)
@@ -73,6 +100,15 @@ struct FrameKey {
     expression: ExpressionKind,
     eyelids: EyelidPose,
     gaze: GazeDirection,
+    held: HeldKey,
+}
+
+/// What a frame puts in the paws, as the cache tells frames apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum HeldKey {
+    Clip,
+    Nothing,
+    Thing(HeldThing),
 }
 
 /// Everything about how a resident is drawn at a moment, and where: when it is the same, so is
@@ -92,6 +128,13 @@ pub struct Look {
 
 /// A cue as it is drawn: which, how far it bobs, and for a sleeper's, its second z.
 type CueLook = (Cue, i32, Option<(i32, u8)>);
+
+/// Something of the room's a resident can have in its paws.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Carrying {
+    Find(formiga_home_contract::DisplayId),
+    Piece(u16),
+}
 
 /// Getting up onto a piece over a walk's last leg, or down off one over its first: the piece, how
 /// high its seat is, and which way it sits on it.
@@ -139,6 +182,11 @@ pub struct Actor {
     speed: f32,
     walk_face: ExpressionKind,
     frames: HashMap<FrameKey, Canvas>,
+    /// Where each frame it has drawn holds things, by clip, frame and facing.
+    holds: HashMap<(BodyClip, u8, bool), Option<PixelPoint>>,
+    /// What of the room's it has in its paws while its pose holds [`Hold::Room`]: a find, or a
+    /// piece by its name in the house.
+    pub carrying: Option<Carrying>,
     /// Blinks come round every `period` seconds, offset by `phase`, so no two are in step.
     blink: (f32, f32),
     reduce_motion: bool,
@@ -169,6 +217,8 @@ impl Actor {
             speed: resident.character.walk_speed(),
             walk_face: resident.character.walk_face(),
             frames: HashMap::new(),
+            holds: HashMap::new(),
+            carrying: None,
             blink: (3.2 + seed * 2.4, seed * 5.0),
             reduce_motion,
         }
@@ -372,6 +422,24 @@ impl Actor {
                 self.walk_face,
                 self.facing_right,
             )
+        } else if let Hold::Meal {
+            mut meal,
+            picky,
+            loves,
+        } = self.pose.hold
+        {
+            // Each step of the meal in its own pose, the food going down as it goes.
+            meal.elapsed = elapsed.min(meal.length - 0.01);
+            let (clip, frame) = match formiga_art::meal_pose(&meal) {
+                MealPose::Playing(clip, into) => (clip, frame_of(clip, into, still)),
+                MealPose::Held(clip, frame) => (clip, if still { 0 } else { frame }),
+            };
+            (
+                clip,
+                frame,
+                formiga_art::meal_face(&meal, picky, loves),
+                self.facing_right,
+            )
         } else {
             let pose = self.pose;
             let breathing = now + self.blink.1;
@@ -391,7 +459,26 @@ impl Actor {
             )
         };
         let asleep = clip == BodyClip::Action(ActionKind::Sleep);
-        let eyelids = if asleep {
+        let walking = self.walking();
+        let meal = match self.pose.hold {
+            Hold::Meal { mut meal, .. } if !walking => {
+                meal.elapsed = elapsed.min(meal.length - 0.01);
+                Some(meal)
+            }
+            _ => None,
+        };
+        let held = match self.pose.hold {
+            _ if walking => HeldKey::Clip,
+            Hold::Clip => HeldKey::Clip,
+            Hold::Nothing | Hold::Room => HeldKey::Nothing,
+            Hold::Meal { .. } => meal
+                .as_ref()
+                .and_then(formiga_art::meal_held)
+                .map_or(HeldKey::Nothing, HeldKey::Thing),
+        };
+        let eyelids = if let Some(eyelids) = meal.as_ref().and_then(formiga_art::meal_eyelids) {
+            eyelids
+        } else if asleep {
             EyelidPose::Closed
         } else if expression == ExpressionKind::Sleepy {
             EyelidPose::Half
@@ -415,6 +502,7 @@ impl Actor {
             expression,
             eyelids,
             gaze,
+            held,
         }
     }
 
@@ -424,7 +512,7 @@ impl Actor {
         }
         let (appearance, dress, reduce_motion) = (&self.appearance, self.dress, self.reduce_motion);
         self.frames.entry(key).or_insert_with(|| {
-            CreatureRenderer::render_dressed_composited_frame(
+            CreatureRenderer::render_composited_frame_holding(
                 appearance,
                 dress,
                 key.clip,
@@ -436,8 +524,45 @@ impl Actor {
                     eyelids: key.eyelids,
                     gaze: key.gaze,
                 },
+                match key.held {
+                    HeldKey::Clip => Holding::AsClip,
+                    HeldKey::Nothing => Holding::Nothing,
+                    HeldKey::Thing(thing) => Holding::Thing(thing),
+                },
             )
         })
+    }
+
+    /// Where, in the scene, the middle of what of the room's it has in its paws goes at `now`:
+    /// `None` unless its pose holds something of the room's and its frame holds anything.
+    pub fn room_hold(&mut self, view: &View, now: f32) -> Option<(i32, i32)> {
+        if self.pose.hold != Hold::Room || self.carrying.is_none() || self.walking() {
+            return None;
+        }
+        let key = self.key(now);
+        let (appearance, reduce_motion) = (&self.appearance, self.reduce_motion);
+        let point = *self
+            .holds
+            .entry((key.clip, key.frame, key.facing_right))
+            .or_insert_with(|| {
+                CreatureRenderer::held_point(
+                    appearance,
+                    key.clip,
+                    key.frame,
+                    key.facing_right,
+                    reduce_motion,
+                )
+            });
+        let point = point?;
+        let (x, y) = self.origin(view);
+        Some((x + point.x, y + point.y))
+    }
+
+    /// What of the room's it has in its paws just now, if anything.
+    pub fn carried(&self) -> Option<&Carrying> {
+        (self.pose.hold == Hold::Room && !self.walking())
+            .then_some(self.carrying.as_ref())
+            .flatten()
     }
 
     /// Where its frame's top-left goes in the scene.
