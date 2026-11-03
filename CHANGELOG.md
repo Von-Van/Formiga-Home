@@ -6,8 +6,8 @@ version is tagged.
 
 ## Unreleased
 
-Built on the Formiga Desktop branch with meals, play and talk (`desktop-animations-talk`) until a
-Desktop release carries it; household version 12 and travel version 6 are unchanged.
+Built on Formiga Desktop's main branch, which now carries meals, play and talk, until a Desktop
+release does; household version 12 and travel version 6 are unchanged.
 
 - A snack is a meal now. The snack bowl serves one of eighteen foods, chosen by the hour at home
   and the resident's own favourite (the same favourite it has on the desktop), and the stove
