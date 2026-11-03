@@ -1,9 +1,8 @@
-//! The little signs over a resident's head that say what it is about: a heart, a note, a drift of
-//! z's, a question. Each is a tiny picture outlined in a darker shade of itself, so it reads over
-//! any wallpaper, and bobs gently unless motion is reduced.
+//! The signs over a resident's head that say what it is about: a heart, a note, a Z, a question.
+//! Each is said as one of Desktop's bubbles (see [`Cue::saying`]), which the window paints over
+//! the room.
 
-use crate::paint::{self, rgb};
-use formiga_art::{Canvas, Rgba};
+use formiga_core::talk::Saying;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Cue {
@@ -18,43 +17,24 @@ pub enum Cue {
     Grumble,
 }
 
-fn picture(cue: Cue) -> (&'static [&'static str], Rgba) {
-    match cue {
-        Cue::Heart => (
-            &[
-                ".##.##.", "#######", "#######", ".#####.", "..###..", "...#...",
-            ],
-            rgb(0xe0566a),
-        ),
-        Cue::Note => (
-            &[
-                "...###", "...#.#", "...#.#", "...#..", ".###..", "####..", ".##...",
-            ],
-            rgb(0x5a6fb8),
-        ),
-        Cue::Sleep => (&["####", "..#.", ".#..", "####"], rgb(0x7f8fc4)),
-        Cue::Question => (
-            &[".###.", "#...#", "...#.", "..#..", ".....", "..#.."],
-            rgb(0x5a8a5c),
-        ),
-        Cue::Bang => (&["#", "#", "#", "#", ".", "#"], rgb(0xd9813a)),
-        Cue::Sparkle => (
-            &[
-                "...#...", "...#...", ".#.#.#.", "###.###", ".#.#.#.", "...#...", "...#...",
-            ],
-            rgb(0xe9b93a),
-        ),
-        Cue::Thought => (
-            &[
-                ".####..", "######.", "#######", ".#####.", "....#..", ".....#.",
-            ],
-            rgb(0xf4f0e8),
-        ),
-        Cue::Grumble => (&["#.#.#", ".#.#.", "#.#.#"], rgb(0x8a6a5a)),
+impl Cue {
+    /// How the sign is said as one of Desktop's bubbles: a heart tenderly, a note in song, a Z
+    /// as a thought, a grumble in a dark little cloud.
+    pub fn saying(self) -> Saying {
+        use formiga_core::talk::{TalkStyle as S, TalkTopic as T};
+        match self {
+            Cue::Heart => Saying::one(S::Tender, T::Heart),
+            Cue::Note => Saying::one(S::Song, T::Note),
+            Cue::Sleep => Saying::one(S::Thought, T::Sleep),
+            Cue::Question => Saying::one(S::Thought, T::Question),
+            Cue::Bang => Saying::one(S::Shout, T::Exclaim),
+            Cue::Sparkle => Saying::one(S::Excited, T::Sparkle),
+            Cue::Thought => Saying::one(S::Thought, T::Dots),
+            Cue::Grumble => Saying::one(S::Grumble, T::Storm),
+        }
     }
 }
 
-/// Draws `cue` centred on `x`, its foot at `y`, `seconds` into it.
 /// How a cue `seconds` into its pose is moving: how far it bobs, and for a sleeper's, how far up
 /// its second z has drifted and how clear it is. Whatever is the same, it is drawn the same.
 pub fn motion(cue: Cue, seconds: f32, still: bool) -> (i32, Option<(i32, u8)>) {
@@ -69,55 +49,13 @@ pub fn motion(cue: Cue, seconds: f32, still: bool) -> (i32, Option<(i32, u8)>) {
     (bob, drift)
 }
 
-pub fn draw(canvas: &mut Canvas, cue: Cue, x: i32, y: i32, seconds: f32, still: bool) {
-    let (rows, ink) = picture(cue);
-    let height = rows.len() as i32;
-    let width = rows.iter().map(|row| row.len()).max().unwrap_or(0) as i32;
-    let (bob, drift) = motion(cue, seconds, still);
-    let mut glyph = Canvas::new((width + 2) as u32, (height + 2) as u32);
-    for (dy, row) in rows.iter().enumerate() {
-        for (dx, code) in row.bytes().enumerate() {
-            if code == b'#' {
-                glyph.set(dx as i32 + 1, dy as i32 + 1, ink);
-            }
-        }
-    }
-    // Ringed in a darker shade of itself, then lit along its top.
-    let source = glyph.clone();
-    for gy in 0..glyph.height() as i32 {
-        for gx in 0..glyph.width() as i32 {
-            if source.get(gx, gy).a > 0 {
-                continue;
-            }
-            let near = [(1, 0), (-1, 0), (0, 1), (0, -1)]
-                .iter()
-                .any(|(ox, oy)| source.get(gx + ox, gy + oy).a > 0);
-            if near {
-                glyph.set(gx, gy, paint::darker(ink, 0.6));
-            }
-        }
-    }
-    let (left, top) = (
-        x - glyph.width() as i32 / 2,
-        y - glyph.height() as i32 + bob,
-    );
-    paint::blit(canvas, &glyph, left, top);
-    if let Some((up, clear)) = drift {
-        // A second, smaller z drifting up after the first.
-        let (zx, zy) = (left + width + 1, top - 2 - up);
-        for (dx, dy) in [(0, 0), (1, 0), (1, 1), (0, 2), (1, 2)] {
-            paint::put(canvas, zx + dx, zy + dy, paint::faded(ink, clear));
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn every_cue_draws_something_in_its_own_place() {
-        for cue in [
+    fn every_sign_is_said_its_own_way() {
+        let cues = [
             Cue::Heart,
             Cue::Note,
             Cue::Sleep,
@@ -126,11 +64,11 @@ mod tests {
             Cue::Sparkle,
             Cue::Thought,
             Cue::Grumble,
-        ] {
-            let mut canvas = Canvas::new(32, 32);
-            draw(&mut canvas, cue, 16, 20, 0.0, true);
-            let (x0, y0, x1, y1) = canvas.alpha_bounds().expect("a cue draws");
-            assert!(x0 >= 8 && x1 <= 24 && y0 >= 8 && y1 <= 20, "{cue:?}");
-        }
+        ];
+        let sayings: std::collections::BTreeSet<String> = cues
+            .iter()
+            .map(|cue| format!("{:?}", cue.saying()))
+            .collect();
+        assert_eq!(sayings.len(), cues.len());
     }
 }

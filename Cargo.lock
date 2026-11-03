@@ -1214,7 +1214,7 @@ dependencies = [
 [[package]]
 name = "formiga-art"
 version = "0.68.21"
-source = "git+https://github.com/Von-Van/Formiga-Desktop?branch=desktop-animations-meals#37769233d0b91f3150a224e9599885b536e3d6a8"
+source = "git+https://github.com/Von-Van/Formiga-Desktop?branch=main#7e2da934cd2234943379c0acd9a5ba4a3dd74752"
 dependencies = [
  "epaint",
  "formiga-core",
@@ -1228,7 +1228,7 @@ dependencies = [
 [[package]]
 name = "formiga-core"
 version = "0.68.21"
-source = "git+https://github.com/Von-Van/Formiga-Desktop?branch=desktop-animations-meals#37769233d0b91f3150a224e9599885b536e3d6a8"
+source = "git+https://github.com/Von-Van/Formiga-Desktop?branch=main#7e2da934cd2234943379c0acd9a5ba4a3dd74752"
 dependencies = [
  "getrandom 0.4.3",
  "rand",
@@ -1244,7 +1244,7 @@ dependencies = [
 [[package]]
 name = "formiga-expansion-rulebook"
 version = "0.68.21"
-source = "git+https://github.com/Von-Van/Formiga-Desktop?branch=desktop-animations-meals#37769233d0b91f3150a224e9599885b536e3d6a8"
+source = "git+https://github.com/Von-Van/Formiga-Desktop?branch=main#7e2da934cd2234943379c0acd9a5ba4a3dd74752"
 dependencies = [
  "directories 6.0.0",
  "getrandom 0.4.3",
@@ -1276,7 +1276,7 @@ dependencies = [
 [[package]]
 name = "formiga-home-contract"
 version = "0.68.21"
-source = "git+https://github.com/Von-Van/Formiga-Desktop?branch=desktop-animations-meals#37769233d0b91f3150a224e9599885b536e3d6a8"
+source = "git+https://github.com/Von-Van/Formiga-Desktop?branch=main#7e2da934cd2234943379c0acd9a5ba4a3dd74752"
 dependencies = [
  "formiga-art",
  "formiga-core",
@@ -1292,7 +1292,7 @@ dependencies = [
 [[package]]
 name = "formiga-pencil"
 version = "0.68.21"
-source = "git+https://github.com/Von-Van/Formiga-Desktop?branch=desktop-animations-meals#37769233d0b91f3150a224e9599885b536e3d6a8"
+source = "git+https://github.com/Von-Van/Formiga-Desktop?branch=main#7e2da934cd2234943379c0acd9a5ba4a3dd74752"
 dependencies = [
  "egui",
  "skrifa",
@@ -1302,7 +1302,7 @@ dependencies = [
 [[package]]
 name = "formiga-travel"
 version = "0.68.21"
-source = "git+https://github.com/Von-Van/Formiga-Desktop?branch=desktop-animations-meals#37769233d0b91f3150a224e9599885b536e3d6a8"
+source = "git+https://github.com/Von-Van/Formiga-Desktop?branch=main#7e2da934cd2234943379c0acd9a5ba4a3dd74752"
 dependencies = [
  "formiga-art",
  "formiga-core",

@@ -665,11 +665,8 @@ impl Scene {
             let lit = self.lamplight(house, (canvas.width(), canvas.height()), &lamps);
             light(&mut canvas, &overlay.daylight, lit);
         }
-        if !overlay.arranging {
-            for actor in actors.iter_mut().filter(|actor| !actor.hidden) {
-                actor.draw_cue(&mut canvas, &view, now);
-            }
-        }
+        // What residents say is drawn over the room by the window, finer than the room itself
+        // (see `app::bubbles`).
         if let Some(target) = &overlay.hovered {
             self.ring(&mut canvas, house, snapshot, actors, now, target);
         }
