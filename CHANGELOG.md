@@ -6,8 +6,8 @@ version is tagged.
 
 ## Unreleased
 
-Built on Formiga Desktop's main branch, which now carries meals, play and talk, until a Desktop
-release does; household version 12 and travel version 6 are unchanged.
+Built on Formiga Desktop 0.68.22, which carries meals, play and talk; household version 12 and
+travel version 6 are unchanged.
 
 - A snack is a meal now. The snack bowl serves one of eighteen foods, chosen by the hour at home
   and the resident's own favourite (the same favourite it has on the desktop), and the stove
@@ -18,8 +18,9 @@ release does; household version 12 and travel version 6 are unchanged.
   kept up off the paw, and is not on the floor meanwhile; a find played with is taken off its
   shelf and is in the paws, not a toy of the resident's own; the toy telescope is looked through.
 - Residents talk in Desktop's picture bubbles instead of the little signs over their heads, drawn
-  twice as finely as the room so the pictures read however far it is zoomed, and each kind in the
-  bubble that suits it: a heart in a pink one, a Z in a thought cloud, a grumble in a dark one.
+  twice as finely as the room so the pictures read however far it is zoomed: every bubble one
+  shape with one clear picture, its colour saying how it is said, a heart in a pink one, a Z in a
+  pale blue-grey one, a grumble in a grey one.
   A bubble is up for a moment as something begins and now and then while it goes on, not the
   whole time. A hello is answered with a hello or a heart, an invitation to play with a "!", a
   shared snack with a heart, a tease with a grumble, a hug with a hug.

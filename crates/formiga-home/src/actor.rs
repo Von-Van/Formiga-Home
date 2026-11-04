@@ -797,7 +797,7 @@ mod tests {
             .saying(0.05)
             .expect("a heart is said as the pose begins");
         assert_eq!(saying.style, TalkStyle::Tender);
-        assert_eq!(saying.first, TalkTopic::Heart);
+        assert_eq!(saying.topic, TalkTopic::Heart);
         assert_eq!(
             actor.saying(1.0).map(|(_, growth)| growth),
             Some(BubbleGrowth::Full)

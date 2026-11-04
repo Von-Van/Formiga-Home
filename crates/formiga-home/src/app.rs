@@ -425,25 +425,18 @@ impl HomeApp {
                 continue;
             };
             let (left, top, right, _) = actor.bounds(view, now);
-            let frame = TalkSheet::frame(saying.style, saying.second.is_some(), growth);
+            let frame = TalkSheet::frame(saying.style, growth);
             let (width, height) = (frame.width as f32 / detail, frame.height as f32 / detail);
             // The tail's tip, at the middle of its bottom row, a pixel over the crown.
             let x = ((left + right + 1) as f32 / 2.0 - (width / 2.0).floor()).round();
             let y = top as f32 - height - 1.0;
             put(frame, x, y);
             if growth == formiga_core::BubbleGrowth::Full {
-                let spots = if saying.second.is_some() {
-                    &TALK_ICON_AT[1..3]
-                } else {
-                    &TALK_ICON_AT[0..1]
-                };
-                for (topic, (ix, iy)) in [Some(saying.first), saying.second]
-                    .into_iter()
-                    .flatten()
-                    .zip(spots)
-                {
-                    put(TalkSheet::icon(topic), x + *ix as f32, y + *iy as f32);
-                }
+                put(
+                    TalkSheet::icon(saying.topic),
+                    x + TALK_ICON_AT.0 as f32,
+                    y + TALK_ICON_AT.1 as f32,
+                );
             }
         }
     }

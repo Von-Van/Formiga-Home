@@ -13,12 +13,12 @@ publish = false
 # Formiga Desktop's shared crates, all four from the same Desktop release so their types agree:
 # the household contract among them, which is Desktop's. Move all four to a new release's tag
 # together.
-formiga-art = { git = "https://github.com/Von-Van/Formiga-Desktop", branch = "main" }
-formiga-core = { git = "https://github.com/Von-Van/Formiga-Desktop", branch = "main" }
-formiga-home-contract = { git = "https://github.com/Von-Van/Formiga-Desktop", branch = "main" }
-formiga-travel = { git = "https://github.com/Von-Van/Formiga-Desktop", branch = "main" }
+formiga-art = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.22" }
+formiga-core = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.22" }
+formiga-home-contract = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.22" }
+formiga-travel = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.22" }
 # The notebooks' pencil hand, and the writing on their ruled lines, from the same Desktop release.
-formiga-pencil = { git = "https://github.com/Von-Van/Formiga-Desktop", branch = "main" }
+formiga-pencil = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.22" }
 
 anyhow = "1.0.104"
 directories = "5.0.1"
