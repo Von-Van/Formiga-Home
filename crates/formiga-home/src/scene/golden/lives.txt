@@ -24,7 +24,7 @@ day.22 7f97187cd444c135
 day.23 efd09167bb52bbcf
 day.24 2ec59ec4fb278240
 day.25 358da8b2c7eb2bd6
-day.life d25225cdf5f5f7bc
+day.life 3a72a4b925c52908
 night.00 2331cd4479b29e5c
 night.01 9b4b69deeae1b55e
 night.02 f4a7363ff09a793f

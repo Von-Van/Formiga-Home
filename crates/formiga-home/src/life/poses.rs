@@ -140,7 +140,7 @@ pub(super) fn leading_pose(
         Act::PlayWith(..) | Act::PlayTogether(_) => (
             Pose::new(ActionKind::SocialPlay, ExpressionKind::Joy)
                 .with_cue(Cue::Note)
-                .saying(Saying::two(S::Excited, T::Ball, T::Question)),
+                .saying(Saying::one(S::Excited, T::Ball)),
             dice.between(6.0, 8.0),
         ),
         Act::ShowOffToy(_) => (
@@ -149,11 +149,7 @@ pub(super) fn leading_pose(
         ),
         // Long enough for a meal: a look at it, a few bites and a lick of the paws.
         Act::Share(..) => (
-            Pose::new(ActionKind::Eat, snack_face(resident)).saying(Saying::two(
-                S::Chat,
-                T::Food,
-                T::Question,
-            )),
+            Pose::new(ActionKind::Eat, snack_face(resident)).saying(Saying::one(S::Chat, T::Food)),
             dice.between(8.0, 11.0),
         ),
         Act::Snack(_) => (
@@ -187,7 +183,7 @@ pub(super) fn leading_pose(
         Act::ShowTo(..) => (
             Pose::new(ActionKind::PresentDiscovery, ExpressionKind::Smug)
                 .with_cue(Cue::Sparkle)
-                .saying(Saying::two(S::Excited, T::Sparkle, T::Exclaim)),
+                .saying(Saying::one(S::Excited, T::Sparkle)),
             5.0,
         ),
         Act::FussWith(_) => (Pose::new(Gesture::Reach, ExpressionKind::Smug), 3.5),
