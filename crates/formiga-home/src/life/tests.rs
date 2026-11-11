@@ -1490,3 +1490,202 @@ fn a_snack_is_a_meal_and_meals_change() {
     }
     assert!(!foods.is_empty(), "nobody ever had a meal");
 }
+
+/// Run from `from` until the first visitor is in the house, and when that was.
+fn until_a_visitor_is_in(
+    life: &mut Life,
+    household: &Household,
+    layout: &House,
+    from: f32,
+) -> (Id, f32) {
+    let visitor = household.visitors[0].id;
+    let mut now = from;
+    while life.inside(visitor) != Some(Inside::Here) {
+        now = run(life, household, layout, now, 0.5);
+        assert!(now < from + 120.0, "the visitor never came");
+    }
+    (visitor, now)
+}
+
+#[test]
+fn someone_patted_carried_or_paused_on_the_way_out_still_walks_out_of_the_door() {
+    let (household, layout) = home();
+    let mut life = Life::new(&household, &layout);
+    let keeper = household.keeper().id;
+    let little = household.residents[1].id;
+    // Patted on the way out: the pat is answered, and then on to the door.
+    let now = run(&mut life, &household, &layout, 0.0, 2.0);
+    assert!(life.send_out(&layout, keeper, now));
+    let now = run(&mut life, &household, &layout, now, 0.2);
+    life.pet(&household, keeper, now);
+    let now = run(&mut life, &household, &layout, now, 1.0);
+    assert!(
+        !life.actor(keeper).unwrap().hidden,
+        "never vanishes where it was patted"
+    );
+    let now = run(&mut life, &household, &layout, now, 20.0);
+    assert!(
+        life.actor(keeper).unwrap().hidden,
+        "out of the door after all"
+    );
+    assert_eq!(life.inside(keeper), Some(Inside::Out));
+    // Carried on the way out: held as long as it is held, then off from where it was put down.
+    assert!(life.send_out(&layout, little, now));
+    let now = run(&mut life, &household, &layout, now, 0.2);
+    life.pick_up(little, now);
+    let now = run(&mut life, &household, &layout, now, 5.0);
+    assert!(!life.actor(little).unwrap().hidden, "still in the paws");
+    life.carry(little, (2.5, 2.5));
+    life.put_down(&layout, little, now);
+    let now = run(&mut life, &household, &layout, now, 0.4);
+    assert!(!life.actor(little).unwrap().hidden, "put down, not gone");
+    let now = run(&mut life, &household, &layout, now, 20.0);
+    assert!(life.actor(little).unwrap().hidden);
+    assert_eq!(life.inside(little), Some(Inside::Out));
+    // A friend sent home while the room is arranged goes once the household is back to life.
+    life.bring_in(&household, &layout, keeper, now);
+    let (visitor, now) = until_a_visitor_is_in(&mut life, &household, &layout, now);
+    assert!(life.send_out(&layout, visitor, now));
+    let now = run(&mut life, &household, &layout, now, 0.2);
+    life.pause(&household, &layout, now);
+    life.resume(&layout, &household.snapshot, now + 5.0);
+    let now = run(&mut life, &household, &layout, now + 5.0, 0.2);
+    assert!(
+        !life.actor(visitor).unwrap().hidden,
+        "never vanishes for the pause"
+    );
+    run(&mut life, &household, &layout, now, 20.0);
+    assert!(life.actor(visitor).unwrap().hidden);
+}
+
+#[test]
+fn a_friend_patted_on_the_way_home_goes_out_of_the_door_and_leaves_its_seat_free() {
+    let (household, layout) = home();
+    let mut life = Life::new(&household, &layout);
+    let visitor = household.visitors[0].id;
+    let mut now = 0.0;
+    while !(life.inside(visitor) == Some(Inside::GoneHome) && !life.actor(visitor).unwrap().hidden)
+    {
+        now = run(&mut life, &household, &layout, now, 0.25);
+        assert!(now < 8.0 * 60.0, "the visitor never set off home");
+    }
+    life.take_events();
+    life.pet(&household, visitor, now);
+    let now = run(&mut life, &household, &layout, now, 1.0);
+    assert!(!life.actor(visitor).unwrap().hidden, "patted, not vanished");
+    run(&mut life, &household, &layout, now, 20.0);
+    assert!(life.actor(visitor).unwrap().hidden);
+    assert!(
+        life.take_events()
+            .iter()
+            .any(|event| matches!(event, Event::Left(id, _) if *id == visitor)),
+        "it went home"
+    );
+    // Gone, however it was last left, it keeps no place on anything.
+    let sofa = piece(&layout, "sofa");
+    let all = life.free_seats(&layout).len();
+    let index = life.index(visitor).unwrap();
+    life.actors[index].on_piece = Some(sofa);
+    assert_eq!(life.free_seats(&layout).len(), all);
+}
+
+#[test]
+fn arranging_the_room_holds_a_friend_s_visit_where_it_was() {
+    let (household, layout) = home();
+    let mut life = Life::new(&household, &layout);
+    let until = |life: &Life, id: Id| match life.minds[life.index(id).unwrap()].presence {
+        Presence::Visiting { until } => until,
+        Presence::Expected { at } => at,
+        other => panic!("{other:?}"),
+    };
+    // A friend still to come knocks as much later as the room took to arrange.
+    let later = household.visitors[1].id;
+    let knocks = until(&life, later);
+    life.pause(&household, &layout, 1.0);
+    life.resume(&layout, &household.snapshot, 301.0);
+    assert_eq!(until(&life, later), knocks + 300.0);
+    // And a friend visiting stays as long again as it had left.
+    let (visitor, now) = until_a_visitor_is_in(&mut life, &household, &layout, 301.0);
+    let left = until(&life, visitor) - now;
+    life.pause(&household, &layout, now);
+    life.resume(&layout, &household.snapshot, now + 600.0);
+    assert!((until(&life, visitor) - (now + 600.0) - left).abs() < 1e-3);
+    assert_eq!(life.inside(visitor), Some(Inside::Here));
+}
+
+#[test]
+fn the_ball_is_in_one_pair_of_paws_at_a_time() {
+    let (household, layout) = home();
+    let keeper = household.keeper().id;
+    let little = household.residents[1].id;
+    let ball = piece(&layout, "ball");
+    let toy = household.snapshot.inventory[0].id.clone();
+    for act in [Act::Play(ball), Act::PlayWithFind(toy)] {
+        let mut life = Life::new(&household, &layout);
+        life.ask(keeper, act.clone(), 0.0);
+        let mut now = run(&mut life, &household, &layout, 0.0, 0.5);
+        life.ask(little, act.clone(), now);
+        for _ in 0..120 {
+            now = run(&mut life, &household, &layout, now, 0.25);
+            let holding = [keeper, little]
+                .into_iter()
+                .filter(|id| life.actor(*id).unwrap().carried().is_some())
+                .count();
+            assert!(holding <= 1, "{act:?} in two pairs of paws at once");
+            assert!(
+                life.current(little).is_none_or(|(theirs, _)| theirs != act),
+                "{act:?} is the keeper's just now"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_seat_boxed_in_on_every_side_is_not_chosen() {
+    let household = Household::new(sample::snapshot()).unwrap();
+    let mut home = show_house::lived_in(&household, "floor.boards", "wall.leafy");
+    let fern = catalog::PIECES.iter().find(|p| p.id == "fern").unwrap();
+    for y in 0..16 {
+        for x in 0..16 {
+            if placement::can_place(&home.rooms[0], fern, x, y, 0, None) {
+                placement::add_piece(&mut home, 0, fern, x, y, 0);
+            }
+        }
+    }
+    let layout = House::of(&home.rooms);
+    let floor = Floor::of(&layout);
+    let boxed: Vec<u16> = layout
+        .pieces
+        .iter()
+        .filter(|placed| {
+            let footprint = placement::footprint(placed);
+            floor
+                .beside(
+                    placed.x,
+                    placed.y,
+                    footprint.w,
+                    footprint.d,
+                    catalog::front(placed.turn),
+                )
+                .is_empty()
+        })
+        .map(|placed| placed.uid)
+        .collect();
+    assert!(
+        boxed
+            .iter()
+            .any(|uid| layout.piece(*uid).unwrap().piece.as_str() == "armchair"),
+        "the armchair is boxed in"
+    );
+    let mut life = Life::new(&household, &layout);
+    for index in 0..household.residents.len() {
+        for _ in 0..60 {
+            if let Some(act) = life.choose(&household, &layout, &household.snapshot, &[], index) {
+                assert!(
+                    act.piece().is_none_or(|uid| !boxed.contains(&uid)),
+                    "chose {act:?}, which it cannot get to"
+                );
+            }
+        }
+    }
+}

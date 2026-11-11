@@ -63,6 +63,15 @@ impl Life {
         self.wait_for_others_elsewhere(house, index, room, &mut options);
         let body = self.actors[index].body();
         options.retain(|(act, _)| suits(body, house, act));
+        // Nothing it could not get to: a seat or a shelf boxed in on every side is not chosen
+        // only to be given up on the moment it sets off, over and over.
+        let floor = self.floor(house);
+        options.retain(|(act, _)| {
+            (act.piece().is_none() && act.item().is_none())
+                || self
+                    .spot_for(house, &floor, index, act, &choosing.seats)
+                    .is_some()
+        });
         self.likeliest(index, resident.character.whimsy(), options)
     }
 

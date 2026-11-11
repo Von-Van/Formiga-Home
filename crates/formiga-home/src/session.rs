@@ -215,13 +215,15 @@ impl Visit {
     }
 
     /// The owner is leaving: the homes once more, then the receipt, with the visit noted if
-    /// Desktop records visits and what was lived there if it takes that in. Only once.
+    /// Desktop records visits and what was lived there if it takes that in. Only once. The
+    /// receipt stands on its own, so it is written even if the homes could not be: Desktop still
+    /// has the homes as last handed back.
     pub fn leave(&mut self, state: &HomeState, lived: &Lived) -> Result<()> {
         if self.left || self.recalled() {
             self.left = true;
             return Ok(());
         }
-        self.keep(state)?;
+        let kept = self.keep(state);
         self.left = true;
         let now = OffsetDateTime::now_utc();
         let arrived_at_utc = self
@@ -244,7 +246,7 @@ impl Visit {
         let receipt = HomeReceipt::new(&self.seal, now, HOME_VERSION, effects);
         write_document(&self.dir.join(RECEIPT_FILE), &receipt)
             .context("could not write the receipt")?;
-        Ok(())
+        kept
     }
 }
 
@@ -703,5 +705,22 @@ mod tests {
             assert_eq!(accepted.state.households, state.households);
             let _ = std::fs::remove_dir_all(dir.parent().unwrap());
         }
+    }
+
+    #[test]
+    fn the_receipt_is_written_even_if_the_homes_could_not_be() {
+        let snapshot = sample::snapshot();
+        let state = sample::state();
+        let dir = visit_dir("receipt-alone", &snapshot, &state);
+        let (mut visit, _) = arrive(&dir, false).unwrap();
+        // Something in the way of the result, so it cannot be written.
+        std::fs::create_dir_all(dir.join(RESULT_FILE).join("in-the-way")).unwrap();
+        assert!(visit.leave(&state, &Lived::default()).is_err());
+        let receipt = read_document::<HomeReceipt>(&dir.join(RECEIPT_FILE));
+        assert!(
+            receipt.is_ok(),
+            "the receipt went with the homes: {receipt:?}"
+        );
+        let _ = std::fs::remove_dir_all(dir.parent().unwrap());
     }
 }

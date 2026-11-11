@@ -314,6 +314,8 @@ pub struct Life {
     pub actors: Vec<Actor>,
     minds: Vec<Mind>,
     paused: bool,
+    /// When the household last stopped for the room to be arranged.
+    paused_at: f32,
     reduce_motion: bool,
     events: Vec<Event>,
     /// Lamps someone has switched off.
@@ -384,6 +386,7 @@ impl Life {
             actors,
             minds,
             paused: false,
+            paused_at: 0.0,
             reduce_motion,
             events: Vec::new(),
             lamps_off: Vec::new(),
@@ -691,6 +694,9 @@ impl Life {
     /// Everyone stops where they are, gets down off anything, and waits while the room is
     /// arranged round them. A visitor still to come waits too.
     pub fn pause(&mut self, household: &Household, house: &House, now: f32) {
+        if !self.paused {
+            self.paused_at = now;
+        }
         self.paused = true;
         for index in 0..self.minds.len() {
             self.end(index, now, false);
@@ -712,11 +718,23 @@ impl Life {
 
     /// Back to life, minus anything asked for that the room no longer has. Whatever has been put
     /// on show since the room was last arranged is new, and an inquisitive resident will go and
-    /// look.
+    /// look. Time stood still while the room was arranged: a friend still to come knocks, and a
+    /// friend visiting goes home, as much later as the household was held.
     pub fn resume(&mut self, house: &House, snapshot: &HomeSnapshot, now: f32) {
+        let held = if self.paused {
+            (now - self.paused_at).max(0.0)
+        } else {
+            0.0
+        };
         self.paused = false;
         self.make_room(house);
         for mind in &mut self.minds {
+            match &mut mind.presence {
+                Presence::Expected { at } => *at += held,
+                Presence::Visiting { until } => *until += held,
+                _ => {}
+            }
+            mind.entered += held;
             mind.queue.retain(|act| still_there(act, house, snapshot));
             mind.dawdle_until = mind.dawdle_until.max(now + 0.3);
         }
@@ -820,17 +838,13 @@ impl Life {
                 }
                 Presence::Expected { .. } | Presence::Gone | Presence::Out => continue,
                 Presence::SteppingOut => {
-                    self.actors[index].advance(dt);
-                    if !self.actors[index].walking() {
-                        self.actors[index].hidden = true;
+                    if self.out_of_the_door(house, &floor, resident, index, now, dt) {
                         self.minds[index].presence = Presence::Out;
                     }
                     continue;
                 }
                 Presence::Leaving => {
-                    self.actors[index].advance(dt);
-                    if !self.actors[index].walking() {
-                        self.actors[index].hidden = true;
+                    if self.out_of_the_door(house, &floor, resident, index, now, dt) {
                         self.minds[index].presence = Presence::Gone;
                         let id = self.minds[index].id;
                         // Something to remember the visit by, as suits the friend and the
@@ -922,6 +936,49 @@ impl Life {
             }
             self.step(household, house, snapshot, likings, &floor, index, now);
         }
+    }
+
+    /// One step of someone on the way out of the front door, and whether it is through it now.
+    /// Patted, carried or stopped for the room to be arranged on the way, it is gone only once it
+    /// has walked through the doorway: until then it answers the pat, stays in the paws, and then
+    /// sets off for the door again from wherever it was put down.
+    fn out_of_the_door(
+        &mut self,
+        house: &House,
+        floor: &Floor,
+        resident: &Resident,
+        index: usize,
+        now: f32,
+        dt: f32,
+    ) -> bool {
+        match self.minds[index].handled {
+            Some(Handled::Held) => return false,
+            Some(Handled::Petted { until } | Handled::Landing { until }) if now < until => {
+                return false;
+            }
+            Some(_) => {
+                self.minds[index].handled = None;
+                let face = resident.character.idle_face();
+                self.actors[index].strike(Pose::idle(face), now);
+            }
+            None => {}
+        }
+        let actor = &mut self.actors[index];
+        actor.advance(dt);
+        if actor.walking() {
+            return false;
+        }
+        let (outside, inside) = door(house, floor);
+        let (dx, dy) = (actor.pos.0 - outside.0, actor.pos.1 - outside.1);
+        if dx * dx + dy * dy > 0.01 {
+            let mut route = way(floor, actor, inside);
+            route.push(outside);
+            actor.walk(route);
+            return false;
+        }
+        actor.get_down();
+        actor.hidden = true;
+        true
     }
 
     /// Move one person's plan along, or give it a new one.
@@ -1038,6 +1095,7 @@ impl Life {
         let body = self.actors[index].body();
         if !still_there(&act, house, snapshot)
             || self.worn_by_another(&act, id)
+            || self.in_another_s_paws(house, &act, index)
             || !suits(body, house, &act)
         {
             self.minds[index].dawdle_until = now + 0.5;
@@ -1140,6 +1198,21 @@ impl Life {
             .is_some_and(|item| self.worn.iter().any(|(worn, by)| worn == item && *by != id))
     }
 
+    /// Whether what an act would have in the paws, the ball or a find taken down, is in somebody
+    /// else's already, or is what somebody else is on the way to pick up. There is one of each.
+    fn in_another_s_paws(&self, house: &House, act: &Act, index: usize) -> bool {
+        let Some(thing) = held_in_play(house, act) else {
+            return false;
+        };
+        (0..self.minds.len()).filter(|&o| o != index).any(|o| {
+            self.actors[o].carrying.as_ref() == Some(&thing)
+                || self.minds[o].plan.as_ref().is_some_and(|plan| {
+                    plan.part == Part::Leads
+                        && held_in_play(house, &plan.act) == Some(thing.clone())
+                })
+        })
+    }
+
     /// Every seat and lying place in the room not already taken.
     fn free_seats(&self, house: &House) -> Vec<Seat> {
         let mut seats = Vec::new();
@@ -1160,9 +1233,12 @@ impl Life {
             }
         }
         // Anyone stopped up on a piece with no seat to sit for, for a pat say, keeps the place
-        // nearest it until it walks down.
+        // nearest it until it walks down. Somebody nowhere to be seen keeps no place at all.
         for (mind, actor) in self.minds.iter().zip(&self.actors) {
-            let Some(uid) = actor.on_piece.filter(|_| !actor.walking()) else {
+            let Some(uid) = actor
+                .on_piece
+                .filter(|_| !actor.walking() && !actor.hidden && mind.presence.seen())
+            else {
                 continue;
             };
             if mind.plan.as_ref().is_some_and(|plan| plan.seat.is_some()) {
@@ -1655,6 +1731,7 @@ impl Life {
         // there with nothing to sit for.
         let actor = &mut self.actors[index];
         actor.stop();
+        actor.carrying = None;
         actor.strike(Pose::idle(ExpressionKind::Content), now);
         if plan.part == Part::Leads
             && let Some(o) = plan.act.partner().and_then(|other| self.index(other))
@@ -1844,6 +1921,19 @@ fn shown_on(house: &House, uid: u16) -> Vec<DisplayId> {
         .filter(|shown| matches!(shown.at, At::On { piece, .. } if piece == uid))
         .map(|shown| shown.item.clone())
         .collect()
+}
+
+/// What an act has in the paws of the room's own things, if anything: the ball, or a find taken
+/// down to play with. A toy box has toys enough for everyone.
+fn held_in_play(house: &House, act: &Act) -> Option<Carrying> {
+    match act {
+        Act::Play(uid) => house
+            .piece(*uid)
+            .is_some_and(|placed| placed.piece.as_str() == "ball")
+            .then_some(Carrying::Piece(*uid)),
+        Act::PlayWithFind(item) => Some(Carrying::Find(item.clone())),
+        _ => None,
+    }
 }
 
 /// Whether a body can do `act`: get up onto the piece it settles on, bounce on it, or stretch out
