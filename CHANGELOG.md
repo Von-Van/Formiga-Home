@@ -26,6 +26,16 @@ travel version 6 are unchanged.
   shared snack with a heart, a tease with a grumble, a hug with a hug.
 - The golden pictures were drawn again: residents look as Desktop's newer art draws them, what
   they hold is drawn in its own colours, and the signs are no longer drawn into the room.
+- A friend on the way home, or anyone sent out to the desktop, no longer vanishes where it stands
+  when it is patted, picked up, or the room is switched to arranging. It answers the pat, stays in
+  the paws while it is carried, and then walks out of the door from wherever it was put down, and
+  anyone gone keeps no seat.
+- Arranging the room holds the visits too: a friend still to come knocks, and a friend visiting
+  goes home, as much later as the room took to arrange.
+- The ball, or a find taken down to play with, is in one pair of paws at a time.
+- A seat, bed or shelf boxed in by furniture on every side is no longer chosen, so nobody stands
+  still trying to get to it over and over.
+- If the homes can't be handed back on leaving, the visit's receipt is still written.
 
 ## 0.68.1 (2026-10-26)
 
