@@ -203,6 +203,8 @@ pub struct Actor {
     pub gaze: GazeDirection,
     /// When the current pose began.
     since: f32,
+    /// When what it says began: as the pose began, or later when it was asked to say it again.
+    said_from: f32,
     path: VecDeque<(f32, f32)>,
     /// Where the leg it is walking began, so a climb knows how far along it is.
     leg_from: (f32, f32),
@@ -241,6 +243,7 @@ impl Actor {
             pose: Pose::idle(resident.character.idle_face()),
             gaze: GazeDirection::default(),
             since: 0.0,
+            said_from: 0.0,
             path: VecDeque::new(),
             leg_from: pos,
             down: None,
@@ -273,7 +276,19 @@ impl Actor {
         if pose != self.pose {
             self.pose = pose;
             self.since = now;
+            self.said_from = now;
         }
+    }
+
+    /// Say what its pose says again from `now`, as when it is patted again while the pose holds.
+    /// A bubble already up stays full and lasts from here; otherwise it grows afresh.
+    pub fn say_again(&mut self, now: f32) {
+        let into = (now - self.said_from).max(0.0) % SAYING_AGAIN_SECS;
+        self.said_from = if into < SAYING_SECS {
+            now - into.min(2.0 * SAYING_STEP_SECS)
+        } else {
+            now
+        };
     }
 
     /// How long it has held its pose.
@@ -682,7 +697,7 @@ impl Actor {
             .pose
             .say
             .or_else(|| self.pose.cue.map(|cue| (cue.saying(), 0.0)))?;
-        let into = self.held_for(now) - after;
+        let into = (now - self.said_from).max(0.0) - after;
         if into < 0.0 {
             return None;
         }
@@ -816,5 +831,33 @@ mod tests {
         assert!(actor.saying(21.5).is_some(), "and then comes");
         actor.walk([(4.5, 1.5)]);
         assert!(actor.saying(21.6).is_none(), "nothing is said on the move");
+    }
+
+    /// Patted again while the pose holds, a resident says it again: a heart already up stays
+    /// up and full for another moment, and one gone grows again.
+    #[test]
+    fn a_resident_patted_again_says_it_again() {
+        let mut actor = actor(false);
+        let pose = Pose::idle(ExpressionKind::Joy).with_cue(Cue::Heart);
+        actor.strike(pose, 0.0);
+        actor.strike(pose, 2.0);
+        actor.say_again(2.0);
+        assert_eq!(
+            actor.saying(2.0).map(|(_, growth)| growth),
+            Some(BubbleGrowth::Full),
+            "a heart already up stays full"
+        );
+        assert!(
+            actor.saying(4.0).is_some(),
+            "and lasts past the first pat's moment"
+        );
+        assert!(actor.saying(5.0).is_none(), "then it is quiet");
+        actor.strike(pose, 5.0);
+        actor.say_again(5.0);
+        assert_eq!(
+            actor.saying(5.0).map(|(_, growth)| growth),
+            Some(BubbleGrowth::Small),
+            "a heart gone grows again"
+        );
     }
 }
