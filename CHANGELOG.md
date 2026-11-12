@@ -4,10 +4,10 @@ This page records what changed in each version of Formiga Home. Each version's s
 its release notes: `.github/workflows/release.yml` publishes it alongside the downloads when the
 version is tagged.
 
-## Unreleased
+## 0.68.23 (2026-11-12)
 
-Built on Formiga Desktop 0.68.22, which carries meals, play and talk; household version 12 and
-travel version 6 are unchanged.
+Built on Formiga Desktop 0.68.23, which carries meals, play and talk; household version 12 and
+travel version 6 are unchanged, so an older Formiga still opens the homes.
 
 - A snack is a meal now. The snack bowl serves one of eighteen foods, chosen by the hour at home
   and the resident's own favourite (the same favourite it has on the desktop), and the stove
@@ -36,6 +36,10 @@ travel version 6 are unchanged.
 - A seat, bed or shelf boxed in by furniture on every side is no longer chosen, so nobody stands
   still trying to get to it over and over.
 - If the homes can't be handed back on leaving, the visit's receipt is still written.
+- A resident patted again while it is still answering a pat shows its heart again each time,
+  rather than once and then nothing for several seconds.
+- A find taken down off the wall to play with is gone from the wall while it is carried, and back
+  when it is put up again.
 
 ## 0.68.1 (2026-10-26)
 
