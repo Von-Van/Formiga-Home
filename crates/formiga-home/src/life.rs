@@ -640,6 +640,9 @@ impl Life {
             Pose::new(ActionKind::PetReaction, expression).with_cue(Cue::Heart),
             now,
         );
+        // Patted again before the last pat's reaction is over, the pose holds as it was, but
+        // the heart is said again for this pat.
+        actor.say_again(now);
         let mind = &mut self.minds[index];
         mind.handled = Some(Handled::Petted { until: now + 2.2 });
         mind.drives[Drive::Company.index()] *= 0.6;

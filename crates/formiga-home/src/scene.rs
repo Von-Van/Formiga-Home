@@ -355,18 +355,21 @@ impl Scene {
     }
 
     /// The shell, with whatever hangs on its walls, drawn again only when either changes. The
-    /// house's picture is as big as the house needs.
+    /// house's picture is as big as the house needs. A find taken down off a wall and `carried`
+    /// is in somebody's paws, not on the wall, until it is put back.
     pub fn refresh_shell(
         &mut self,
         house: &House,
         snapshot: &HomeSnapshot,
         backdrop: bool,
         season: Season,
+        carried: &[Carrying],
     ) {
         let mut hung: Vec<(&DisplayId, At)> = house
             .shown
             .iter()
             .filter(|shown| matches!(shown.at, At::Wall { .. }))
+            .filter(|shown| !carried.contains(&Carrying::Find(shown.item.clone())))
             .map(|shown| (&shown.item, shown.at))
             .collect();
         hung.sort_by_key(|shown| shown.1);
@@ -551,7 +554,19 @@ impl Scene {
         now: f32,
         overlay: &Overlay,
     ) -> Canvas {
-        self.refresh_shell(house, snapshot, overlay.backdrop, overlay.daylight.season());
+        // What residents have picked up to use: drawn in their paws, not where it stood or hung.
+        let carried: Vec<Carrying> = actors
+            .iter()
+            .filter(|actor| !actor.hidden)
+            .filter_map(|actor| actor.carried().cloned())
+            .collect();
+        self.refresh_shell(
+            house,
+            snapshot,
+            overlay.backdrop,
+            overlay.daylight.season(),
+            &carried,
+        );
         let mut canvas = self.shell.clone();
         let view = self.view;
         // The front door stands open while anyone is in its doorway.
@@ -595,12 +610,6 @@ impl Scene {
             }
         }
         let order = self.order(house, snapshot, actors, now, overlay.lifted.as_ref());
-        // What residents have picked up to use: drawn in their paws, not where it stood.
-        let carried: Vec<Carrying> = actors
-            .iter()
-            .filter(|actor| !actor.hidden)
-            .filter_map(|actor| actor.carried().cloned())
-            .collect();
         let resident_opacity = if overlay.arranging { 170 } else { 255 };
         // What has been drawn that a piece in front of it could hide.
         let mut behind = Behind::new(canvas.width(), canvas.height());
