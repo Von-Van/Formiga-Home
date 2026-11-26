@@ -282,8 +282,14 @@ pub fn pose(household: &Household, house: &House, reduce_motion: bool) -> Vec<Ac
 pub fn poses(household: &Household) -> formiga_art::Canvas {
     use formiga_art::{BodyClip, Canvas};
     use formiga_core::Gesture;
-    let clips: [BodyClip; 14] = [
+    let clips: [BodyClip; 17] = [
         ActionKind::Idle.into(),
+        // Walking: facing the screen, side-on and away, as a body that turns is seen going down
+        // the screen, along it and up it. One that does not turn walks facing the screen in all
+        // three.
+        ActionKind::Traverse.into(),
+        Gesture::Stride.into(),
+        Gesture::Depart.into(),
         ActionKind::Perch.into(),
         ActionKind::Sleep.into(),
         ActionKind::Homebound.into(),

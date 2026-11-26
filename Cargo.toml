@@ -14,12 +14,12 @@ publish = false
 # household contract among them, which is Desktop's. Move them all to a new release's tag
 # together. Between releases they may sit on one Desktop commit instead, all on the same one,
 # until that release is tagged.
-formiga-art = { git = "https://github.com/Von-Van/Formiga-Desktop", rev = "b7da7ea599a52da025e881a777de699d446b5dad" }
-formiga-core = { git = "https://github.com/Von-Van/Formiga-Desktop", rev = "b7da7ea599a52da025e881a777de699d446b5dad" }
-formiga-home-contract = { git = "https://github.com/Von-Van/Formiga-Desktop", rev = "b7da7ea599a52da025e881a777de699d446b5dad" }
-formiga-travel = { git = "https://github.com/Von-Van/Formiga-Desktop", rev = "b7da7ea599a52da025e881a777de699d446b5dad" }
+formiga-art = { git = "https://github.com/Von-Van/Formiga-Desktop", rev = "e238e743026810c0eb9a6dfcf93bf5a4396da055" }
+formiga-core = { git = "https://github.com/Von-Van/Formiga-Desktop", rev = "e238e743026810c0eb9a6dfcf93bf5a4396da055" }
+formiga-home-contract = { git = "https://github.com/Von-Van/Formiga-Desktop", rev = "e238e743026810c0eb9a6dfcf93bf5a4396da055" }
+formiga-travel = { git = "https://github.com/Von-Van/Formiga-Desktop", rev = "e238e743026810c0eb9a6dfcf93bf5a4396da055" }
 # The notebooks' pencil hand, and the writing on their ruled lines, from the same Desktop.
-formiga-pencil = { git = "https://github.com/Von-Van/Formiga-Desktop", rev = "b7da7ea599a52da025e881a777de699d446b5dad" }
+formiga-pencil = { git = "https://github.com/Von-Van/Formiga-Desktop", rev = "e238e743026810c0eb9a6dfcf93bf5a4396da055" }
 
 anyhow = "1.0.104"
 directories = "5.0.1"

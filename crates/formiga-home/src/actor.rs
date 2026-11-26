@@ -2,8 +2,11 @@
 //! doing, and the frames `formiga-art` draws for it, face and all.
 //!
 //! The room is isometric and the creatures are not: each is drawn upright, anchored by its feet,
-//! and faces left or right by which way it is going across the screen. What it does is decided by
-//! the household's simulation; the actor only walks where it is sent and holds the pose it is given.
+//! and faces left or right by which way it is going across the screen. Walking, a body
+//! `formiga-art` can draw turned is seen as Desktop shows it walking: side-on along the way it
+//! goes, from behind going up the screen, and facing the screen coming down it. What it does is
+//! decided by the household's simulation; the actor only walks where it is sent and holds the pose
+//! it is given.
 
 use crate::art::cues::Cue;
 use crate::body::Body;
@@ -17,7 +20,7 @@ use formiga_art::{
 use formiga_core::BubbleGrowth;
 use formiga_core::meals::Meal;
 use formiga_core::talk::Saying;
-use formiga_core::{ActionKind, AppearanceGenome};
+use formiga_core::{ActionKind, AppearanceGenome, Gesture, Turn};
 use std::collections::{HashMap, VecDeque};
 
 /// What its body shows while it is not walking.
@@ -183,6 +186,9 @@ const SAYING_STEP_SECS: f32 = 0.12;
 /// Frames are drawn on first use and kept; this many is a long visit's worth.
 const FRAME_CACHE_LIMIT: usize = 1200;
 const SPIN_TURN: f32 = 0.22;
+/// How long a walker's feet have to carry it a new way before it is drawn turned that way, in
+/// seconds: as on Desktop, so a step or two round a corner of a path is not a spin.
+const TURN_SECS: f32 = 0.15;
 
 pub struct Actor {
     pub id: Id,
@@ -214,6 +220,13 @@ pub struct Actor {
     up: Option<Climb>,
     speed: f32,
     walk_face: ExpressionKind,
+    /// Whether `formiga-art` draws this body turned side-on and away; if not, it walks facing the
+    /// screen whichever way it goes.
+    turns: bool,
+    /// Which way it is turned to whoever is watching while it walks, and for how long its feet
+    /// have been carrying it some other way.
+    turn: Turn,
+    turning: f32,
     frames: HashMap<FrameKey, Canvas>,
     /// Where each frame it has drawn holds things, by clip, frame and facing.
     holds: HashMap<(BodyClip, u8, bool), Option<PixelPoint>>,
@@ -250,6 +263,9 @@ impl Actor {
             up: None,
             speed: resident.character.walk_speed(),
             walk_face: resident.character.walk_face(),
+            turns: formiga_art::can_turn(resident.genome()),
+            turn: Turn::Front,
+            turning: 0.0,
             frames: HashMap::new(),
             holds: HashMap::new(),
             carrying: None,
@@ -312,6 +328,13 @@ impl Actor {
         if self.path.is_empty() {
             self.down = None;
             self.get_down();
+        }
+        // Setting off, it turns the way it is going with its first step.
+        if let Some(&next) = self.path.front()
+            && let Some(heading) = heading(self.pos, next)
+        {
+            self.turn = heading;
+            self.turning = 0.0;
         }
         if self.reduce_motion
             && let Some(last) = self.path.back().copied()
@@ -397,6 +420,9 @@ impl Actor {
 
     /// Walk on for `dt` seconds. Whether it has arrived where it was going.
     pub fn advance(&mut self, dt: f32) -> bool {
+        if let Some(&next) = self.path.front() {
+            self.turn_towards(heading(self.pos, next), dt);
+        }
         let mut budget = dt;
         while let Some(&next) = self.path.front() {
             let (dx, dy) = (next.0 - self.pos.0, next.1 - self.pos.1);
@@ -427,6 +453,21 @@ impl Actor {
             }
         }
         true
+    }
+
+    /// Turn to the way its feet are carrying it, once they have been carrying it that way a
+    /// moment.
+    fn turn_towards(&mut self, heading: Option<Turn>, dt: f32) {
+        match heading {
+            Some(heading) if heading != self.turn => {
+                self.turning += dt;
+                if self.turning >= TURN_SECS {
+                    self.turn = heading;
+                    self.turning = 0.0;
+                }
+            }
+            _ => self.turning = 0.0,
+        }
     }
 
     /// Partway along a leg towards `next`: stepping down off a piece near the end of the first,
@@ -461,7 +502,7 @@ impl Actor {
         let still = self.reduce_motion;
         let elapsed = self.held_for(now);
         let (clip, frame, expression, mut facing_right) = if self.walking() {
-            let clip = BodyClip::Action(ActionKind::Traverse);
+            let clip = self.walk_clip();
             (
                 clip,
                 frame_of(clip, now, still),
@@ -533,6 +574,12 @@ impl Actor {
         } else {
             EyelidPose::Open
         };
+        // A turned walk has its face drawn into it: nothing blinks or looks about over it.
+        let eyelids = if clip.face_in_frame() {
+            EyelidPose::Open
+        } else {
+            eyelids
+        };
         let gaze = if self.walking() || asleep {
             GazeDirection::default()
         } else {
@@ -549,6 +596,18 @@ impl Actor {
             eyelids,
             gaze,
             held,
+        }
+    }
+
+    /// What its body shows walking: side-on along the way it goes, from behind going up the
+    /// screen, and facing the screen coming down it or with motion reduced, or for a body
+    /// `formiga-art` draws facing the screen whichever way it goes.
+    fn walk_clip(&self) -> BodyClip {
+        match self.turn {
+            _ if !self.turns || self.reduce_motion => BodyClip::Action(ActionKind::Traverse),
+            Turn::Side => BodyClip::Gesture(Gesture::Stride),
+            Turn::Back => BodyClip::Gesture(Gesture::Depart),
+            Turn::Front => BodyClip::Action(ActionKind::Traverse),
         }
     }
 
@@ -720,6 +779,20 @@ impl Actor {
     }
 }
 
+/// Which way a step from `from` to `to` turns a walker to whoever is watching: side-on along it,
+/// unless it goes further up or down the screen than across, when it walks away from the screen
+/// or comes towards it, measured as Desktop measures its own walks. `None` for no step at all.
+fn heading(from: (f32, f32), to: (f32, f32)) -> Option<Turn> {
+    let (across, down) = View::step(to.0 - from.0, to.1 - from.1);
+    if across.abs() + down.abs() < 1e-3 {
+        None
+    } else if down.abs() > across.abs() {
+        Some(if down < 0.0 { Turn::Back } else { Turn::Front })
+    } else {
+        Some(Turn::Side)
+    }
+}
+
 fn frame_of(clip: BodyClip, elapsed: f32, still: bool) -> u8 {
     if still {
         0
@@ -757,6 +830,56 @@ mod tests {
             !actor.facing_right,
             "down the room's depth is to the left on screen"
         );
+    }
+
+    /// A resident `formiga-art` draws turned, from Desktop's sample household.
+    fn turner() -> Actor {
+        let household = Household::new(sample::snapshot()).unwrap();
+        let resident = household
+            .residents
+            .iter()
+            .find(|resident| formiga_art::can_turn(resident.genome()))
+            .expect("the sample household has a resident drawn turned");
+        Actor::new(resident, (3.5, 3.5), false)
+    }
+
+    #[test]
+    fn walking_along_it_is_side_on_up_the_screen_it_turns_away_and_down_it_faces_the_screen() {
+        let mut actor = turner();
+        actor.walk([(6.5, 3.5)]);
+        actor.advance(0.1);
+        assert_eq!(
+            actor.shows(0.1),
+            BodyClip::Gesture(Gesture::Stride),
+            "along the room's width is further across the screen than down it"
+        );
+        actor.walk([(1.5, 1.5)]);
+        actor.advance(0.1);
+        assert_eq!(actor.shows(0.2), BodyClip::Gesture(Gesture::Depart));
+        actor.walk([(5.5, 5.5)]);
+        actor.advance(0.1);
+        assert_eq!(
+            actor.shows(0.3),
+            BodyClip::Action(ActionKind::Traverse),
+            "coming forward it faces the screen"
+        );
+        while !actor.advance(0.1) {}
+        assert_eq!(actor.shows(0.4), BodyClip::Action(ActionKind::Idle));
+    }
+
+    #[test]
+    fn a_step_round_a_corner_is_not_a_turn() {
+        let mut actor = turner();
+        actor.walk([(5.5, 3.5), (5.6, 3.6), (8.5, 3.6)]);
+        let mut now = 0.0;
+        while !actor.advance(0.02) {
+            now += 0.02;
+            assert_eq!(
+                actor.shows(now),
+                BodyClip::Gesture(Gesture::Stride),
+                "a short step down the screen at {now:.2}s"
+            );
+        }
     }
 
     #[test]

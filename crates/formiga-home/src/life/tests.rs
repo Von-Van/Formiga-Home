@@ -898,7 +898,12 @@ fn glides_or_marks_time(household: &Household, layout: &House, seconds: f32) -> 
                 continue;
             }
             let moved = ((actor.pos.0 - was.0).powi(2) + (actor.pos.1 - was.1).powi(2)).sqrt();
-            let walks = actor.shows(now) == formiga_art::BodyClip::Action(ActionKind::Traverse);
+            let walks = matches!(
+                actor.shows(now),
+                formiga_art::BodyClip::Action(ActionKind::Traverse)
+                    | formiga_art::BodyClip::Gesture(formiga_core::Gesture::Stride)
+                    | formiga_art::BodyClip::Gesture(formiga_core::Gesture::Depart)
+            );
             if moved > 0.2 {
                 faults.push(format!("{} jumped {moved:.1} tiles at {now:.1}s", actor.id));
             } else if moved > 1e-4 && !walks && !was_walking {
