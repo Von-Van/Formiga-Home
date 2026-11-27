@@ -210,4 +210,58 @@ mod tests {
             format!("{}'s house", household.keeper().name)
         );
     }
+
+    /// A keeper generated or restyled with Desktop 0.69.1's anatomy (antlers, ear tufts, a ruff,
+    /// a brushy tail tip, a plume) is at home wearing it: the snapshot asks for travel version 7,
+    /// Home reads it, and draws the parts rather than the keeper without them.
+    #[test]
+    fn a_keeper_with_anatomy_is_at_home_wearing_it() {
+        use formiga_art::{BodyClip, CreatureRenderer};
+        use formiga_core::{ActionKind, Anatomy};
+        use formiga_home_contract::{HomeCapability, SessionId, project_household};
+        let mut save = sample::colony();
+        let keeper = sample::keeper(&save);
+        let index = save
+            .creatures
+            .iter()
+            .position(|creature| creature.id == keeper)
+            .unwrap();
+        let design = save.creatures[index].appearance.design.unwrap();
+        let worn = Anatomy::ALL
+            .into_iter()
+            .fold(design, |design, part| part.put_on(design, [240, 230, 210]));
+        assert!(
+            worn.details.has_anatomy(),
+            "the sample keeper can wear anatomy"
+        );
+        save.creatures[index].appearance.design = Some(worn);
+
+        let snapshot = project_household(
+            &save,
+            keeper,
+            &[],
+            &HomeCapability::ALL,
+            SessionId::parse(sample::SESSION).unwrap(),
+            sample::MADE,
+            "sample colony",
+        )
+        .unwrap();
+        assert_eq!(snapshot.travel_min_reader_version, 7);
+        // Read back as Home reads a snapshot it is handed.
+        let bytes = formiga_home_contract::encode(&snapshot).unwrap();
+        let snapshot: HomeSnapshot = formiga_home_contract::decode(&bytes).unwrap();
+        let household = Household::new(snapshot).unwrap();
+        let genome = household.keeper().genome();
+        assert_eq!(genome.design, Some(worn));
+
+        let clip = BodyClip::Action(ActionKind::Idle);
+        let drawn = CreatureRenderer::render_body_frame(genome, clip, 0, false);
+        let without = AppearanceGenome {
+            design: Some(design),
+            ..genome.clone()
+        };
+        let instead = CreatureRenderer::render_body_frame(&without, clip, 0, false);
+        assert!(drawn.canvas.alpha_bounds().is_some());
+        assert_ne!(drawn.canvas, instead.canvas);
+    }
 }
