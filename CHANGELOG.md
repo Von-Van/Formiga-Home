@@ -4,6 +4,23 @@ This page records what changed in each version of Formiga Home. Each version's s
 its release notes: `.github/workflows/release.yml` publishes it alongside the downloads when the
 version is tagged.
 
+## 0.69.0 (2026-11-27)
+
+Built on Formiga Desktop 0.69.0, which carries its animation pass and turned walks; household
+version 12 and travel version 6 are unchanged, so an older Formiga still opens the homes.
+
+- Residents are drawn with Desktop 0.69.0's art: a toy held up, food at the mouth, faces that
+  change behind a blink, and Desktop's new body shapes and paces.
+- A resident turns to the way it walks. Along the floor it is seen side-on, going up the screen
+  from behind, and coming down it faces you as before. It turns with its first step, and after
+  that only once its feet have carried it a new way for a moment, so a step round a corner is not
+  a spin. Bodies that Desktop doesn't turn, and every walk with motion reduced, are as they were.
+  The poses sheet shows the three walks.
+- The golden pictures were drawn again: only the residents change, as Desktop's new art and the
+  turned walks draw them; furniture, finds and the catalog draw exactly as before.
+- `scripts/set-version.sh` accepts Desktop's crates pinned to one commit on Desktop's main between
+  releases, and given a Desktop tag moves them back onto it, the README too.
+
 ## 0.68.23 (2026-11-12)
 
 Built on Formiga Desktop 0.68.23, which carries meals, play and talk; household version 12 and
