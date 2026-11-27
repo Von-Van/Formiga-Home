@@ -4,6 +4,17 @@ This page records what changed in each version of Formiga Home. Each version's s
 its release notes: `.github/workflows/release.yml` publishes it alongside the downloads when the
 version is tagged.
 
+## 0.69.1 (2026-11-27)
+
+Built on Formiga Desktop 0.69.1, reading household version 13 and travel version 7, so it opens
+every home it opened before, and from 0.69.1 one with a resident wearing the new anatomy.
+
+- A resident generated or restyled on Desktop 0.69.1 with antlers, ear tufts, a ruff, a brushy
+  tail tip or a plume tail is at home wearing them. Home 0.69.0 says such a home is too new;
+  homes without them open in either.
+- Residents are drawn with Desktop 0.69.1's art: what a resident wears sits where its turned body
+  puts it.
+
 ## 0.69.0 (2026-11-27)
 
 Built on Formiga Desktop 0.69.0, which carries its animation pass and turned walks; household
