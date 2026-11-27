@@ -10,15 +10,16 @@ authors = ["Formiga contributors"]
 publish = false
 
 [workspace.dependencies]
-# Formiga Desktop's shared crates, all four from the same Desktop release so their types agree:
-# the household contract among them, which is Desktop's. Move all four to a new release's tag
-# together.
-formiga-art = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.23" }
-formiga-core = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.23" }
-formiga-home-contract = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.23" }
-formiga-travel = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.23" }
-# The notebooks' pencil hand, and the writing on their ruled lines, from the same Desktop release.
-formiga-pencil = { git = "https://github.com/Von-Van/Formiga-Desktop", tag = "v0.68.23" }
+# Formiga Desktop's shared crates, all from the same Desktop release so their types agree: the
+# household contract among them, which is Desktop's. Move them all to a new release's tag
+# together. Between releases they may sit on one Desktop commit instead, all on the same one,
+# until that release is tagged.
+formiga-art = { git = "https://github.com/Von-Van/Formiga-Desktop", rev = "259b313d6c424d5afa871dc8f46f909c18b3f4d6" }
+formiga-core = { git = "https://github.com/Von-Van/Formiga-Desktop", rev = "259b313d6c424d5afa871dc8f46f909c18b3f4d6" }
+formiga-home-contract = { git = "https://github.com/Von-Van/Formiga-Desktop", rev = "259b313d6c424d5afa871dc8f46f909c18b3f4d6" }
+formiga-travel = { git = "https://github.com/Von-Van/Formiga-Desktop", rev = "259b313d6c424d5afa871dc8f46f909c18b3f4d6" }
+# The notebooks' pencil hand, and the writing on their ruled lines, from the same Desktop.
+formiga-pencil = { git = "https://github.com/Von-Van/Formiga-Desktop", rev = "259b313d6c424d5afa871dc8f46f909c18b3f4d6" }
 
 anyhow = "1.0.104"
 directories = "5.0.1"

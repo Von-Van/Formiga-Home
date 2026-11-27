@@ -105,6 +105,11 @@ impl View {
         )
     }
 
+    /// How far a step of `(dx, dy)` tiles across the floor goes on screen, across and down.
+    pub fn step(dx: f32, dy: f32) -> (f32, f32) {
+        ((dx - dy) * HALF_W, (dx + dy) * HALF_H)
+    }
+
     /// The same, to the pixel.
     pub fn pixel(&self, x: f32, y: f32) -> (i32, i32) {
         let (sx, sy) = self.screen(x, y);
